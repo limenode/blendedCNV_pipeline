@@ -26,7 +26,7 @@ process_file() {
     else
         svtype="UNKNOWN"
     fi
-    
+
     delly_tmp=$(mktemp)
     cnvpytor_tmp=$(mktemp)
     gatk_tmp=$(mktemp)
@@ -43,7 +43,7 @@ process_file() {
     delly_cnvpytor=$(mktemp)
     delly_gatk=$(mktemp)
     cnvpytor_gatk=$(mktemp)
-        
+
     # Find overlaps for intersection (without -wa -wb to get only overlapping regions)
     bedtools intersect -a "$delly_tmp" -b "$cnvpytor_tmp" -f 0.5 -r > "$delly_cnvpytor_intersect"
     bedtools intersect -a "$delly_tmp" -b "$gatk_tmp" -f 0.5 -r > "$delly_gatk_intersect"
@@ -87,7 +87,7 @@ process_file() {
     deduplicate_tools() {
         local input_file="$1"
         local tmp_file=$(mktemp)
-        
+
         awk 'BEGIN{OFS="\t"} {
             split($5, tools, ",");
             delete seen;
@@ -100,7 +100,7 @@ process_file() {
             }
             print $1, $2, $3, $4, result
         }' "$input_file" > "$tmp_file"
-        
+
         mv "$tmp_file" "$input_file"
     }
 
@@ -109,9 +109,9 @@ process_file() {
 
 }
 
-
 export -f process_file
-NCORES=64
+NCORES=$(nproc)
+NCORES=$((NCORES * 2 / 3))
 
 echo "Processing DEL and DUP files in parallel using $NCORES cores..."
 
@@ -123,8 +123,9 @@ echo "Combining DEL and DUP files for each sample..."
 
 # Get unique sample names (everything before .DEL or .DUP)
 samples=$(ls "$outdir/intersections"/*.intersection.bed | \
-    sed 's/.*\///; s/\.DEL\..*//; s/\.DUP\..*//' | \
+    sed 's/.*\///; s/\..*//' | \
     sort -u)
+
 
 # Assert expected number of samples found (if provided)
 if [[ -n "$expected_samples" ]]; then
@@ -133,6 +134,9 @@ if [[ -n "$expected_samples" ]]; then
         echo "Error: Expected $expected_samples samples, but found $actual_sample_count."
         exit 1
     fi
+else
+    actual_sample_count=$(echo "$samples" | wc -l)
+    echo "Found $actual_sample_count unique samples."
 fi
 
 for sample in $samples; do
@@ -140,22 +144,22 @@ for sample in $samples; do
     intersection_del="$outdir/intersections/${sample}.DEL.intersection.bed"
     intersection_dup="$outdir/intersections/${sample}.DUP.intersection.bed"
     intersection_combined="$outdir/intersections/${sample}.intersection.bed"
-    
+
     if [[ -f "$intersection_del" ]] && [[ -f "$intersection_dup" ]]; then
         cat "$intersection_del" "$intersection_dup" | \
         sort -k1,1 -k2,2n > "$intersection_combined"
-        echo "Created $intersection_combined"
+        # echo "Created $intersection_combined"
     fi
-    
+
     # Combine union files
     union_del="$outdir/unions/${sample}.DEL.union.bed"
     union_dup="$outdir/unions/${sample}.DUP.union.bed"
     union_combined="$outdir/unions/${sample}.union.bed"
-    
+
     if [[ -f "$union_del" ]] && [[ -f "$union_dup" ]]; then
         cat "$union_del" "$union_dup" | \
         sort -k1,1 -k2,2n > "$union_combined"
-        echo "Created $union_combined"
+        # echo "Created $union_combined"
     fi
 done
 

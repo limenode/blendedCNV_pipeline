@@ -7,23 +7,14 @@ import glob
 import pandas as pd
 
 class CNVParser:
-    def __init__(self, input_map_file: str):
-        self.tool_patterns = {}
-        self.parse_input_map(input_map_file)
-
-    def parse_input_map(self, input_map_file: str):
-        """Parse the input map file to extract tool names and path patterns."""
-        with open(input_map_file, 'r') as f:
-            for line in f:
-                if line and line.startswith('#'):
-                    continue
-                
-                parts = line.strip().split('\t')
-                if len(parts) < 2:
-                    print (f"Warning: Skipping malformed line: {line.strip()}")
-                    continue
-                tool_name, path_pattern = parts[0], parts[1]
-                self.tool_patterns[tool_name] = path_pattern
+    def __init__(self, input_map: dict):
+        """
+        Initialize CNVParser with tool patterns from config.
+        
+        Args:
+            input_map: Dictionary mapping tool names to path patterns
+        """
+        self.tool_patterns = input_map
     
     def has_id_field(self, pattern: str) -> bool:
         """Check if the path pattern contains an {id} field."""
@@ -56,7 +47,7 @@ class CNVParser:
             print(f"Warning: Could not extract ID from path {path} using pattern {pattern}")
             return Path(path).stem
         
-    def find_vcf_files(self, tool_name: str, base_dir: str = ".") -> List[Tuple[str, str]]:
+    def find_vcf_files(self, tool_name: str) -> List[Tuple[str, str]]:
         """Find VCF files for a given tool based on its path pattern."""
         if tool_name not in self.tool_patterns:
             print(f"Warning: Tool {tool_name} not found in input map.")
@@ -64,9 +55,8 @@ class CNVParser:
         
         pattern = self.tool_patterns[tool_name]
         search_pattern = pattern.replace('{id}', '*')
-        full_search_pattern = os.path.join(base_dir, search_pattern)
         
-        vcf_files = glob.glob(full_search_pattern, recursive=True)
+        vcf_files = glob.glob(search_pattern, recursive=True)
         results = []
         
         for vcf_path in vcf_files:
@@ -78,15 +68,15 @@ class CNVParser:
         
         return results
     
-    def get_all_vcf_files(self, base_dir: str = ".") -> Dict[str, List[Tuple[str, str]]]:
+    def get_all_vcf_files(self) -> Dict[str, List[Tuple[str, str]]]:
         """Get all VCF files for all tools."""
         all_results = {}
         for tool_name in self.tool_patterns.keys():
-            all_results[tool_name] = self.find_vcf_files(tool_name, base_dir)
+            all_results[tool_name] = self.find_vcf_files(tool_name)
         return all_results
 
 
-    def determine_sex_threshold(self, vcf_path: str) -> float:
+    def determine_sex_threshold(self, vcf_path: str | Path) -> float:
         """
         Determine sex chromosome threshold (1.0 for XY, 2.0 for XX) based on sex chromosome RDCN values.
         
