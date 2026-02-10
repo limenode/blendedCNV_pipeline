@@ -8,3 +8,6 @@ __pycache__/
 # user directories
 in/
 out/
+
+# user-defined config
+config.yaml
