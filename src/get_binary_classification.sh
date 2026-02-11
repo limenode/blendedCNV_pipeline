@@ -20,7 +20,7 @@ process_sample() {
 
     # Get predicted CNV .bed and truth CNV .bed files for the sample and SV type
     predicted_file=$(ls "$predicted_dir"/${sample}.${svtype}.*.bed)
-    truth_file=$(ls "$truth_dir"/${sample}/${sample}_${svtype}.bed)
+    truth_file=$(ls "$truth_dir"/${sample}/${sample}.merged.${svtype}.bed)
 
     # Sort bed files by chromosome and start position, using genome file for correct sorting
 
@@ -31,9 +31,9 @@ process_sample() {
     bedtools sort -i "$truth_file" -g "$genome_file" > "$sorted_truth"
 
     # Use bedtools intersect to find true positives (TP), false positives (FP), and false negatives (FN)
-    tp_file=$output_dir/binary_classification/"${sample}.${svtype}.TP.bed"
-    fp_file=$output_dir/binary_classification/"${sample}.${svtype}.FP.bed"
-    fn_file=$output_dir/binary_classification/"${sample}.${svtype}.FN.bed"
+    tp_file=$output_dir/"${sample}.${svtype}.TP.bed"
+    fp_file=$output_dir/"${sample}.${svtype}.FP.bed"
+    fn_file=$output_dir/"${sample}.${svtype}.FN.bed"
 
     # True positives: predicted CNVs that overlap truth CNVs by at least 50%
     bedtools intersect \
