@@ -6,6 +6,7 @@ import argparse
 
 from pathlib import Path
 from cnv_parser import CNVParser
+from benchmark_handler import BenchmarkParser
 
 def _parse_args():
     parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
@@ -17,7 +18,7 @@ def _convert_vcfs_to_bed(config: dict):
 
     # For each input set, create a CNVParser instance and convert VCF files to BED format
     for key, input_map in config['input'].items():
-        print(f"Processing input set: {key}")
+        print(f"Converting input set: {key}")
 
         # Remove whitespace from key to create a valid directory name
         output_subdir_name = key.replace(" ", "_")
@@ -70,6 +71,44 @@ def _run_consensus_calls_script(config: dict):
 
         subprocess.run(command, check=True)
 
+def _run_benchmark_parsing_script(config: dict):
+    
+    benchmark_parser = BenchmarkParser(config['benchmark_map'])
+    output_dir = Path(config['output_dir'])
+    output_subdir = output_dir / "benchmark_parsing"
+    os.makedirs(output_subdir, exist_ok=True)
+
+    benchmark_parser.process_all_benchmarks(output_subdir, common_samples_only=True)
+
+def _run_binary_classification_script(config: dict):
+    output_dir = Path(config['output_dir'])
+
+    for key, input_map in config['input'].items():
+        print(f"Running binary classification script for input set: {key}")
+        # Remove whitespace from key to create a valid directory name
+        output_subdir_name = key.replace(" ", "_")
+        output_subdir = output_dir / output_subdir_name
+
+        command = [
+            "./src/get_binary_classification.sh",
+            output_subdir / "intersections",
+            output_subdir / "binary_classification",
+            config['benchmark_map']['1000G'],
+            config['genome_file']
+        ]
+
+        subprocess.run(command, check=True)
+
+        command = [
+            "./src/get_binary_classification.sh",
+            output_subdir / "unions",
+            output_subdir / "binary_classification",
+            config['benchmark_map']['1000G'],
+            config['genome_file']
+        ]
+
+        subprocess.run(command, check=True)
+
 def main():
     # Parse command-line arguments
     args = _parse_args()
@@ -78,8 +117,17 @@ def main():
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     
+    print("\nStep 1: Converting VCF files to BED format...")
     _convert_vcfs_to_bed(config)
+
+    print("\nStep 2: Running consensus calls script...")
     _run_consensus_calls_script(config)
+
+    print("\nStep 3: Running benchmark parsing script...")
+    _run_benchmark_parsing_script(config)
+
+    # print("\nStep 4: Running binary classification script...")
+    # _run_binary_classification_script(config)
 
     
 
