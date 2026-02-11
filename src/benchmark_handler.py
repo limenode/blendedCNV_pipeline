@@ -75,7 +75,8 @@ class BenchmarkParser:
     def parse_benchmark_vcf(
         self, 
         vcf_path: str, 
-        sample_ids: Optional[List[str]] = None
+        sample_ids: Optional[List[str]] = None,
+        genome_file_path: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
         Parse benchmark VCF file and extract CNV calls for specified samples.
@@ -90,6 +91,22 @@ class BenchmarkParser:
         """
         print(f"Processing {vcf_path}")
         
+        # Get valid chromosomes from genome file if provided
+        valid_chroms = set()
+        if genome_file_path is not None:
+            try:
+                with open(genome_file_path) as f:
+                    for line in f:
+                        chrom = line.split()[0]
+                        valid_chroms.add(self.ensure_chr_prefix(chrom))
+                print(f"Loaded {len(valid_chroms)} valid chromosomes from {genome_file_path}")
+            except Exception as e:
+                print(f"Error reading genome file {genome_file_path}: {e}")
+                print("Proceeding without chromosome filtering.")
+        else:
+            print("No genome file provided, skipping chromosome filtering.")
+
+
         # Parse VCF
         sample_data = {}
         
@@ -114,12 +131,16 @@ class BenchmarkParser:
             
             # Process records
             for record in vcf:
+                # Skip if chromosome is not in valid set (if genome file provided)
+                chrom = self.ensure_chr_prefix(record.CHROM)
+                if valid_chroms and chrom not in valid_chroms:
+                    continue
+
                 # Skip records without ALT alleles
                 if not record.ALT or len(record.ALT) == 0:
                     continue
                 
                 # Extract basic info
-                chrom = self.ensure_chr_prefix(record.CHROM)
                 start = record.POS - 1  # Convert to 0-based
                 record_id = record.ID if record.ID else "."
                 
@@ -221,7 +242,7 @@ class BenchmarkParser:
         del_df = sample_df[sample_df['svtype'] == 'DEL']
         counts['DEL'] = len(del_df)
         if not del_df.empty:
-            del_bed = sample_dir / f"{sample_id}_DEL.bed"
+            del_bed = sample_dir / f"{sample_id}.DEL.bed"
             del_df[['chrom', 'start', 'end', 'id', 'svtype', 'genotype']].to_csv(
                 del_bed, sep='\t', header=False, index=False
             )
@@ -230,18 +251,19 @@ class BenchmarkParser:
         dup_df = sample_df[sample_df['svtype'] == 'DUP']
         counts['DUP'] = len(dup_df)
         if not dup_df.empty:
-            dup_bed = sample_dir / f"{sample_id}_DUP.bed"
+            dup_bed = sample_dir / f"{sample_id}.DUP.bed"
             dup_df[['chrom', 'start', 'end', 'id', 'svtype', 'genotype']].to_csv(
                 dup_bed, sep='\t', header=False, index=False
             )
         
         return counts
     
-    def process_all_benchmarks(
+    def parse_all_benchmarks_to_bed(
         self, 
         output_base_dir: str | Path, 
         sample_ids: Optional[List[str]] = None,
-        common_samples_only: bool = False
+        common_samples_only: bool = False,
+        genome_file_path: Optional[str] = None
     ) -> Dict[str, Dict[str, Dict[str, int]]]:
         """
         Process all benchmarks and write per-sample BED files.
@@ -281,10 +303,10 @@ class BenchmarkParser:
                 continue
             
             # Parse VCF
-            sample_data = self.parse_benchmark_vcf(vcf_path, sample_ids)
+            sample_data = self.parse_benchmark_vcf(vcf_path, sample_ids, genome_file_path=genome_file_path)
             
             # Create output directory for this benchmark
-            output_dir = Path(output_base_dir) / benchmark_name / "per_sample_bed_files"
+            output_dir = Path(output_base_dir) / benchmark_name
             output_dir.mkdir(parents=True, exist_ok=True)
             
             # Write BED files for each sample
@@ -305,6 +327,82 @@ class BenchmarkParser:
             print(f"\nCompleted {benchmark_name}: {len(sample_data)} samples processed")
         
         return all_results
+    
+    def merge_across_benchmarks(
+        self,
+        output_base_dir: str | Path,
+        merge_distance: int = 0,  # bp to merge nearby intervals,
+        genome_file_path: Optional[str] = None
+    ) -> Dict[str, Dict[str, int]]:
+        """
+        Merge BED files across all benchmarks for each sample+svtype.
+        
+        Args:
+            output_base_dir: Base directory containing benchmark subdirectories
+            merge_distance: Distance for merging nearby intervals (default: 0)
+            
+        Returns:
+            Dictionary: sample -> {'DEL': count, 'DUP': count}
+        """
+        import subprocess
+        from collections import defaultdict
+        
+        base_path = Path(output_base_dir)
+        merged_dir = base_path / "merged"
+        merged_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Collect all samples across benchmarks
+        samples_svtypes = defaultdict(lambda: defaultdict(list))
+        
+        for benchmark_name in self.benchmark_map.keys():
+            benchmark_dir = base_path / benchmark_name
+            if not benchmark_dir.exists():
+                continue
+                
+            for sample_dir in benchmark_dir.iterdir():
+                if not sample_dir.is_dir():
+                    continue
+                sample_id = sample_dir.name
+                
+                # Collect DEL and DUP files
+                for svtype in ['DEL', 'DUP']:
+                    bed_file = sample_dir / f"{sample_id}.{svtype}.bed"
+                    if bed_file.exists():
+                        samples_svtypes[sample_id][svtype].append(bed_file)
+        
+        # Merge for each sample+svtype
+        results = {}
+        for sample_id, svtype_files in samples_svtypes.items():
+            sample_merged_dir = merged_dir / sample_id
+            sample_merged_dir.mkdir(exist_ok=True)
+            results[sample_id] = {}
+            
+            for svtype, bed_files in svtype_files.items():
+                if not bed_files:
+                    continue
+                    
+                output_file = sample_merged_dir / f"{sample_id}.merged.{svtype}.bed"
+                
+                if genome_file_path is not None:
+                    sort_command = f"bedtools sort -g {genome_file_path} -i -"
+                else:
+                    sort_command = "sort -k1,1 -k2,2n"
+    
+                # Concatenate, sort, and merge
+                # Build command as string for shell execution (pipes and redirects require shell=True)
+                bed_files_str = ' '.join(str(bf) for bf in bed_files)
+                command = f"cat {bed_files_str} | {sort_command} | bedtools merge -i - > {output_file}"
+                
+                subprocess.run(command, shell=True, check=True)
+                
+                # Count results
+                with open(output_file) as f:
+                    count = sum(1 for _ in f)
+                results[sample_id][svtype] = count
+                
+                print(f"{sample_id} {svtype}: {len(bed_files)} files -> {count} merged intervals")
+        
+        return results
 
 
 # Example usage
@@ -317,14 +415,14 @@ if __name__ == "__main__":
     }
     
     # Initialize merger
-    merger = BenchmarkParser(benchmark_map)
+    bm_parser = BenchmarkParser(benchmark_map)
     
     # Process specific samples (or None for all samples)
     sample_ids = ['HG00096', 'HG00171', 'HG00268']  # Example sample IDs
     
     # Process all benchmarks
     output_dir = '/lab01/Projects/Lionel_Projects/biodatabases/cnv_benchmarks/tester'
-    results = merger.process_all_benchmarks(output_dir, sample_ids=sample_ids)
+    results = bm_parser.parse_all_benchmarks_to_bed(output_dir, sample_ids=sample_ids)
     
     # Print summary
     print(f"\n{'='*60}")
