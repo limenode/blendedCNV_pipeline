@@ -7,11 +7,7 @@ import argparse
 from pathlib import Path
 from cnv_parser import CNVParser
 from benchmark_handler import BenchmarkParser
-
-def _parse_args():
-    parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
-    parser.add_argument('config', type=Path, help='Path to configuration YAML file')
-    return parser.parse_args()
+from utils import parse_args
 
 def _convert_vcfs_to_bed(config: dict):
     output_dir = Path(config['output_dir'])
@@ -71,14 +67,18 @@ def _run_consensus_calls_script(config: dict):
 
         subprocess.run(command, check=True)
 
-def _run_benchmark_parsing_script(config: dict):
+def _run_benchmark_processing_script(config: dict):
     
     benchmark_parser = BenchmarkParser(config['benchmark_map'])
     output_dir = Path(config['output_dir'])
     output_subdir = output_dir / "benchmark_parsing"
     os.makedirs(output_subdir, exist_ok=True)
 
-    benchmark_parser.process_all_benchmarks(output_subdir, common_samples_only=True)
+    print("Parsing all benchmarks to BED format...")
+    # benchmark_parser.parse_all_benchmarks_to_bed(output_subdir, common_samples_only=True, genome_file_path=config['genome_file'])
+
+    print("Merging parsed benchmarks across all benchmarks...")
+    benchmark_parser.merge_across_benchmarks(output_subdir, genome_file_path=config['genome_file'])
 
 def _run_binary_classification_script(config: dict):
     output_dir = Path(config['output_dir'])
@@ -93,7 +93,7 @@ def _run_binary_classification_script(config: dict):
             "./src/get_binary_classification.sh",
             output_subdir / "intersections",
             output_subdir / "binary_classification",
-            config['benchmark_map']['1000G'],
+            output_dir / "benchmark_parsing" / "merged",
             config['genome_file']
         ]
 
@@ -103,7 +103,7 @@ def _run_binary_classification_script(config: dict):
             "./src/get_binary_classification.sh",
             output_subdir / "unions",
             output_subdir / "binary_classification",
-            config['benchmark_map']['1000G'],
+            output_dir / "benchmark_parsing" / "merged",
             config['genome_file']
         ]
 
@@ -111,7 +111,7 @@ def _run_binary_classification_script(config: dict):
 
 def main():
     # Parse command-line arguments
-    args = _parse_args()
+    args = parse_args()
     
     # Load configuration from YAML file
     with open(args.config, 'r') as f:
@@ -123,11 +123,11 @@ def main():
     print("\nStep 2: Running consensus calls script...")
     _run_consensus_calls_script(config)
 
-    print("\nStep 3: Running benchmark parsing script...")
-    _run_benchmark_parsing_script(config)
+    print("\nStep 3: Running benchmark processing script...")
+    _run_benchmark_processing_script(config)
 
-    # print("\nStep 4: Running binary classification script...")
-    # _run_binary_classification_script(config)
+    print("\nStep 4: Running binary classification script...")
+    _run_binary_classification_script(config)
 
     
 
