@@ -75,7 +75,7 @@ def _run_benchmark_processing_script(config: dict):
     os.makedirs(output_subdir, exist_ok=True)
 
     print("Parsing all benchmarks to BED format...")
-    # benchmark_parser.parse_all_benchmarks_to_bed(output_subdir, common_samples_only=True, genome_file_path=config['genome_file'])
+    benchmark_parser.parse_all_benchmarks_to_bed(output_subdir, common_samples_only=True, genome_file_path=config['genome_file'])
 
     print("Merging parsed benchmarks across all benchmarks...")
     benchmark_parser.merge_across_benchmarks(output_subdir, genome_file_path=config['genome_file'])
@@ -92,7 +92,7 @@ def _run_binary_classification_script(config: dict):
         command = [
             "./src/get_binary_classification.sh",
             output_subdir / "intersections",
-            output_subdir / "binary_classification",
+            output_subdir / "binary_classification"/ "intersections",
             output_dir / "benchmark_parsing" / "merged",
             config['genome_file']
         ]
@@ -102,7 +102,7 @@ def _run_binary_classification_script(config: dict):
         command = [
             "./src/get_binary_classification.sh",
             output_subdir / "unions",
-            output_subdir / "binary_classification",
+            output_subdir / "binary_classification" / "unions",
             output_dir / "benchmark_parsing" / "merged",
             config['genome_file']
         ]

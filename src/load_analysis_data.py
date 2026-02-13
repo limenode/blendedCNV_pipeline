@@ -138,23 +138,17 @@ def load_sample_data(sample_id: str, sample_files: Dict[str, Dict[str, List[Path
     return result
 
 
-def build_analysis_data_structure(config: dict, input_set_key: str) -> Dict[str, pd.DataFrame]:
+def build_analysis_data_structure(binary_classification_dir: Path) -> Dict[str, pd.DataFrame]:
     """
     Build the complete data structure for analysis.
     
     Args:
-        config: The configuration dictionary from YAML
-        input_set_key: The key for the input set (e.g., "Low Coverage", "High Coverage")
+        binary_classification_dir: Path to the directory containing TP/FP/FN files for the input set.
     
     Returns:
         Dictionary mapping classification ('TP', 'FP', 'FN') -> concatenated dataframe
         Each dataframe contains all samples with 'sample' and 'svtype' columns
     """
-    output_dir = Path(config['output_dir'])
-    
-    # Convert input set key to directory name
-    output_subdir_name = input_set_key.replace(" ", "_")
-    binary_classification_dir = output_dir / output_subdir_name / "binary_classification"
     
     print(f"\nLoading data from: {binary_classification_dir}")
     
@@ -327,18 +321,27 @@ def main():
         config = yaml.safe_load(f)
     
     # Get all input set keys
-    input_sets = list(config['input'].keys())
-    print(f"Available input sets: {input_sets}")
+    input_sets_raw = list(config['input'].keys())
+    print(f"Available input sets: {input_sets_raw}")
+
+    # Append "Intersection" and "Union" to input set keys for binary classification results
+    output_dir = Path(config['output_dir'])
+    input_sets_paths = []
+    for key in input_sets_raw:
+        key_path = key.replace(" ", "_")
+        input_sets_paths.append(output_dir / key_path / "binary_classification" / "intersections")
+        input_sets_paths.append(output_dir / key_path / "binary_classification" / "unions")
+
     
     # For now, load data from all input sets
     all_data = {}
-    for input_set_key in input_sets:
+    for input_set_path in input_sets_paths:
         print(f"\n{'='*80}")
-        print(f"Processing input set: {input_set_key}")
+        print(f"Processing input set at: {input_set_path}")
         print(f"{'='*80}")
         
-        analysis_data = build_analysis_data_structure(config, input_set_key)
-        all_data[input_set_key] = analysis_data
+        analysis_data = build_analysis_data_structure(input_set_path)
+        all_data[input_set_path] = analysis_data
         
         # Print summary statistics for all data
         print_summary_statistics(analysis_data, title="All Sizes")

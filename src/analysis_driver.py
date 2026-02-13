@@ -388,17 +388,25 @@ def main():
         config = yaml.safe_load(f)
     
     # Get all input set keys
-    input_sets = list(config['input'].keys())
-    print(f"Available input sets: {input_sets}")
+    input_sets_raw = list(config['input'].keys())
+    print(f"Available input sets: {input_sets_raw}")
+
+    # Append "Intersection" and "Union" to input set keys for binary classification results
+    output_dir = Path(config['output_dir'])
+    input_sets_paths = {}
+    for key in input_sets_raw:
+        key_path = key.replace(" ", "_")
+        input_sets_paths[key_path + "_intersections"] = output_dir / key_path / "binary_classification" / "intersections"
+        input_sets_paths[key_path + "_unions"] = output_dir / key_path / "binary_classification" / "unions"
     
-    # For now, load data from all input sets
+    # Load data for all input sets
     all_data = {}
-    for input_set_key in input_sets:
+    for input_set_key, input_set_path in input_sets_paths.items():
         print(f"\n{'='*80}")
         print(f"Processing input set: {input_set_key}")
         print(f"{'='*80}")
         
-        analysis_data = build_analysis_data_structure(config, input_set_key)
+        analysis_data = build_analysis_data_structure(input_set_path)
         filtered_data = filter_by_size(analysis_data, lower_bound=100, upper_bound=1_000_000)
         all_data[input_set_key] = filtered_data
 
