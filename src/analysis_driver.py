@@ -8,8 +8,34 @@ from matplotlib import colormaps
 import seaborn as sns
 from scipy.ndimage import gaussian_filter1d
 from typing import List, Tuple, Callable, Dict, Optional
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from load_analysis_data import build_analysis_data_structure, print_summary_statistics, filter_by_size
+
+# Test Functions:
+def _test1(all_data):
+    # Get precision of high coverage input set for CNVs between 1kb and 2kb
+    high_cov_data = all_data.get("High Coverage", {})
+    if high_cov_data:
+        filtered = filter_by_size(high_cov_data, lower_bound=1000, upper_bound=1500)
+        tp_count = len(filtered.get('TP', pd.DataFrame()))
+        fp_count = len(filtered.get('FP', pd.DataFrame()))
+        fn_count = len(filtered.get('FN', pd.DataFrame()))
+        precision_value = precision(tp_count, fp_count, fn_count)
+        print(f"\nPrecision for High Coverage (1kb-2kb): {precision_value:.4f}")
+
+# Define metric functions
+def precision(tp, fp, fn):
+    """Calculate precision: TP / (TP + FP)"""
+    return tp / (tp + fp) if (tp + fp) > 0 else 0
+
+def recall(tp, fp, fn):
+    """Calculate recall/sensitivity: TP / (TP + FN)"""
+    return tp / (tp + fn) if (tp + fn) > 0 else 0
+
+def f1_score(tp, fp, fn):
+    """Calculate F1 score: 2 * (precision * recall) / (precision + recall)"""
+    return (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0
 
 
 def generate_size_intervals(
@@ -83,7 +109,7 @@ def generate_size_intervals(
     
     return intervals
 
-
+# TODO: Filter by binned intervals and merge intervals for cumulative distributions for better performance.
 def plot_statistical_distribution(
     all_data: Dict[str, Dict[str, pd.DataFrame]], 
     metric_function: Callable[[int, int, int], float],
@@ -91,7 +117,7 @@ def plot_statistical_distribution(
     end: float = 1e6,
     n_points: int = 50,
     distribution_type: str = "histogram",
-    svtype: Optional[str] = None,
+    svtypes: Optional[List[str]] = None,
     output_path: Optional[str] = None,
     title: str = "CNV Performance by Size",
     xlabel: str = "CNV Size (bp)",
@@ -105,7 +131,7 @@ def plot_statistical_distribution(
     Plot a statistical distribution of CNV metrics across size ranges with smoothing.
     
     Creates a plot with CNV size on the x-axis and a computed metric on the y-axis.
-    One line is plotted for each input set (e.g., "Low Coverage", "High Coverage").
+    Multiple lines are plotted for each combination of input set and svtype.
     Applies Gaussian smoothing to reduce noise from sparse intervals.
     
     Args:
@@ -115,99 +141,113 @@ def plot_statistical_distribution(
         end: Ending size for intervals (default: 1Mb)
         n_points: Number of points to generate along the x-axis
         distribution_type: Type of size intervals ("histogram", "cumulative", "complementary_cumulative")
-        svtype: Filter by specific svtype ('DEL', 'DUP') or None for all
+        svtypes: List of svtypes to plot (['ALL', 'DEL', 'DUP']) or None for ['ALL'] only
         output_path: Path to save the figure (if None, displays instead)
         title: Plot title
         xlabel: X-axis label
         ylabel: Y-axis label
         figsize: Figure size as (width, height) tuple
         smoothing_sigma: Sigma parameter for Gaussian smoothing (0 = no smoothing)
-        show_raw_points: Whether to show raw data points faintly beneath smoothed line
+        show_raw_points: Whether to show raw data points faintly beneath smoothed line. Only shown if svtypes is ['ALL'] or if there is only one svtype to avoid clutter.
         min_samples: Minimum number of total samples (TP+FP+FN) required to include a point
     
     Example:
         >>> def precision(tp, fp, fn):
         ...     return tp / (tp + fp) if (tp + fp) > 0 else 0
-        >>> plot_statistical_distribution(all_data, precision, ylabel="Precision", smoothing_sigma=5)
+        >>> plot_statistical_distribution(all_data, precision, svtypes=['ALL', 'DEL', 'DUP'], ylabel="Precision")
     """
     # Set seaborn style
     sns.set_style("whitegrid")
     
+    # Default to ['ALL'] if svtypes not specified
+    if svtypes is None:
+        svtypes = ['ALL']
+    
     # Generate size intervals
     intervals = generate_size_intervals(start, end, n_points, distribution_type)
     
-    # Collect data by input set
-    data_by_input = {}
+    # Collect data by input set and svtype combination
+    data_by_combination = {}
     
     for input_set_name, analysis_data in all_data.items():
-        x_values = []
-        metric_values = []
-        total_samples = []
-        
-        for lower, upper in intervals:
-            # Filter data by size
-            filtered = filter_by_size(analysis_data, lower_bound=int(lower), upper_bound=int(upper))
+        for svtype in svtypes:
+            x_values = []
+            metric_values = []
+            total_samples = []
             
-            # Apply svtype filter if specified
-            if svtype is not None:
-                tp_df = filtered.get('TP', pd.DataFrame())
-                fp_df = filtered.get('FP', pd.DataFrame())
-                fn_df = filtered.get('FN', pd.DataFrame())
+            for lower, upper in intervals:
+                # Filter data by size
+                filtered = filter_by_size(analysis_data, lower_bound=int(lower), upper_bound=int(upper))
                 
-                if not tp_df.empty:
-                    tp_df = tp_df[tp_df['svtype'] == svtype]
-                if not fp_df.empty:
-                    fp_df = fp_df[fp_df['svtype'] == svtype]
-                if not fn_df.empty:
-                    fn_df = fn_df[fn_df['svtype'] == svtype]
+                # Apply svtype filter if not 'ALL'
+                if svtype != 'ALL':
+                    tp_df = filtered.get('TP', pd.DataFrame())
+                    fp_df = filtered.get('FP', pd.DataFrame())
+                    fn_df = filtered.get('FN', pd.DataFrame())
+                    
+                    if not tp_df.empty:
+                        tp_df = tp_df[tp_df['svtype'] == svtype]
+                    if not fp_df.empty:
+                        fp_df = fp_df[fp_df['svtype'] == svtype]
+                    if not fn_df.empty:
+                        fn_df = fn_df[fn_df['svtype'] == svtype]
+                    
+                    tp_count = len(tp_df)
+                    fp_count = len(fp_df)
+                    fn_count = len(fn_df)
+                else:
+                    # Count all records for 'ALL'
+                    tp_count = len(filtered.get('TP', pd.DataFrame()))
+                    fp_count = len(filtered.get('FP', pd.DataFrame()))
+                    fn_count = len(filtered.get('FN', pd.DataFrame()))
                 
-                tp_count = len(tp_df)
-                fp_count = len(fp_df)
-                fn_count = len(fn_df)
-            else:
-                # Count all records
-                tp_count = len(filtered.get('TP', pd.DataFrame()))
-                fp_count = len(filtered.get('FP', pd.DataFrame()))
-                fn_count = len(filtered.get('FN', pd.DataFrame()))
+                total = tp_count + fp_count + fn_count
+                
+                # Skip if below minimum sample threshold
+                if total < min_samples:
+                    continue
+                
+                # Calculate metric using the provided function
+                metric_value = metric_function(tp_count, fp_count, fn_count)
+                
+                # Use geometric mean for x-axis on log scale (histogram mode)
+                if distribution_type == "histogram":
+                    x_value = np.sqrt(lower * upper)
+                elif distribution_type == "cumulative":
+                    x_value = upper
+                elif distribution_type == "complementary_cumulative":
+                    x_value = lower
+                else:
+                    x_value = (lower + upper) / 2
+                
+                x_values.append(x_value)
+                metric_values.append(metric_value)
+                total_samples.append(total)
             
-            total = tp_count + fp_count + fn_count
-            
-            # Skip if below minimum sample threshold
-            if total < min_samples:
-                continue
-            
-            # Calculate metric using the provided function
-            metric_value = metric_function(tp_count, fp_count, fn_count)
-            
-            # Use geometric mean for x-axis on log scale (histogram mode)
-            if distribution_type == "histogram":
-                x_value = np.sqrt(lower * upper)
-            elif distribution_type == "cumulative":
-                x_value = upper
-            elif distribution_type == "complementary_cumulative":
-                x_value = lower
-            else:
-                x_value = (lower + upper) / 2
-            
-            x_values.append(x_value)
-            metric_values.append(metric_value)
-            total_samples.append(total)
-        
-        # Store data for this input set
-        data_by_input[input_set_name] = {
-            'x': np.array(x_values),
-            'y': np.array(metric_values),
-            'samples': np.array(total_samples)
-        }
+            # Store data for this combination
+            data_by_combination[(input_set_name, svtype)] = {
+                'x': np.array(x_values),
+                'y': np.array(metric_values),
+                'samples': np.array(total_samples)
+            }
     
     # Create the plot
     fig, ax = plt.subplots(figsize=figsize)
     
-    # Plot each input set
+    # Define colors for input sets and line styles for svtypes
+    input_set_names = list(all_data.keys())
     cmap = colormaps["tab10"]
-    colors = [cmap(i) for i in range(len(data_by_input))]
+    color_map = {name: cmap(i) for i, name in enumerate(input_set_names)}
     
-    for idx, (input_set_name, data) in enumerate(data_by_input.items()):
+    # Line styles for different svtypes
+    linestyle_map = {
+        'ALL': '-',      # solid
+        'DEL': '--',     # dashed
+        'DUP': ':',      # dotted
+    }
+    
+    # Plot each combination
+    for (input_set_name, svtype), data in data_by_combination.items():
         if len(data['x']) == 0:
             continue
         
@@ -222,26 +262,43 @@ def plot_statistical_distribution(
         else:
             y_smoothed = y_sorted
         
-        color = colors[idx]
+        color = color_map[input_set_name]
+        linestyle = linestyle_map.get(svtype, '-')
         
+        # Create label
+        label = f"{input_set_name} - {svtype}"
+        
+        # If "ALL" is in svtypes and len(svtypes) > 1, reduce alpha of others to highlight "ALL"
+        if 'ALL' in svtypes and len(svtypes) > 1:
+            if svtype == 'ALL':
+                alpha = 0.9
+                linewidth = 3.0
+            else:
+                alpha = 0.45
+                linewidth = 2.0
+        else:
+            alpha = 0.9
+            linewidth = 2.5
+
         # Plot smoothed line
         ax.plot(
             x_sorted,
             y_smoothed,
-            label=input_set_name,
+            label=label,
             color=color,
-            linewidth=2.5,
-            alpha=0.9
+            linestyle=linestyle,
+            linewidth=linewidth,
+            alpha=alpha
         )
         
         # Optionally show raw data points
-        if show_raw_points:
+        if show_raw_points and (len(svtypes) == 1 or svtype == 'ALL'):
             ax.scatter(
                 x_sorted,
                 y_sorted,
                 color=color,
-                alpha=0.2,
-                s=20,
+                alpha=0.15,
+                s=15,
                 zorder=2
             )
     
@@ -252,7 +309,7 @@ def plot_statistical_distribution(
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
     ax.set_title(title, fontsize=14, fontweight='bold')
-    ax.legend(title='Input Set', fontsize=10, title_fontsize=11)
+    ax.legend(fontsize=9, title_fontsize=10, loc='best')
     ax.grid(True, alpha=0.3)
     
     # Improve layout
@@ -266,6 +323,60 @@ def plot_statistical_distribution(
         plt.show()
     
     plt.close()
+
+
+def _generate_single_plot(args_tuple):
+    """
+    Worker function for multiprocessing plot generation.
+    
+    Args:
+        args_tuple: Tuple of (all_data, dist_type, svtypes, metric_func, ylabel, 
+                              start, end, npoints, output_dir, smoothing_sigma, 
+                              show_raw_points, min_samples)
+    
+    Returns:
+        String indicating success or failure
+    """
+    (all_data, dist_type, svtypes, metric_func, ylabel, 
+     start, end, npoints, output_dir, smoothing_sigma, 
+     show_raw_points, min_samples) = args_tuple
+    
+    # Get metric name from function
+    metric_name = metric_func.__name__
+    
+    # Create filename based on svtypes list
+    svtypes_str = "_".join(svtypes) if svtypes else "all"
+    filename = f"{metric_name}_{dist_type}_{svtypes_str}.png"
+    
+    # Create title
+    if len(svtypes) == 1:
+        svtype_title = f"({svtypes[0]})"
+    else:
+        svtype_title = f"({', '.join(svtypes)})"
+    dist_type_name = dist_type.replace('_', ' ').title()
+    title = f"{ylabel} by CNV Size - {dist_type_name} {svtype_title}"
+    
+    output_path = str(Path(output_dir) / filename)
+    
+    try:
+        plot_statistical_distribution(
+            all_data,
+            metric_function=metric_func,
+            start=start,
+            end=end,
+            n_points=npoints,
+            distribution_type=dist_type,
+            svtypes=svtypes,
+            output_path=output_path,
+            title=title,
+            ylabel=ylabel,
+            smoothing_sigma=smoothing_sigma,
+            show_raw_points=show_raw_points,
+            min_samples=min_samples
+        )
+        return f"✓ {filename}"
+    except Exception as e:
+        return f"✗ {filename}: {str(e)}"
 
 
 def main():
@@ -299,19 +410,6 @@ def main():
         for classification_key, df in analysis_data.items():
             print(f"  Classification: {classification_key}, Number of records: {len(df)}")
     
-    # Define metric functions
-    def precision(tp, fp, fn):
-        """Calculate precision: TP / (TP + FP)"""
-        return tp / (tp + fp) if (tp + fp) > 0 else 0
-    
-    def recall(tp, fp, fn):
-        """Calculate recall/sensitivity: TP / (TP + FN)"""
-        return tp / (tp + fn) if (tp + fn) > 0 else 0
-    
-    def f1_score(tp, fp, fn):
-        """Calculate F1 score: 2 * (precision * recall) / (precision + recall)"""
-        return (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0
-    
     # Example: Plot precision distribution
     print("\n" + "="*80)
     print("Generating plots...")
@@ -320,69 +418,62 @@ def main():
     output_dir = Path(config['output_dir']) / "plots"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    plot_statistical_distribution(
-        all_data,
-        metric_function=precision,
-        start=1e2,
-        end=1e6,
-        n_points=100,  # High resolution
-        distribution_type="histogram",
-        svtype=None,  # All types
-        output_path=str(output_dir / "precision_by_size.png"),
-        title="Precision by CNV Size (All Types)",
-        ylabel="Precision",
-        smoothing_sigma=5.0,  # Apply smoothing
-        show_raw_points=True,  # Show underlying data
-        min_samples=5  # Filter sparse intervals
-    )
+    start = 100
+    end = 1_000_000
+    npoints = 100
+
+    distribution_types = ["histogram", "cumulative", "complementary_cumulative"]
+    # Define svtype combinations to plot
+    svtype_combinations = [
+        # ['ALL'],              # Just aggregate
+        # ['DEL'],              # Just deletions  
+        # ['DUP'],              # Just duplications
+        ['ALL', 'DEL', 'DUP'] # All three on one plot for comparison
+    ]
+    metrics = [(precision, 'Precision'), (recall, 'Recall/Sensitivity'), (f1_score, 'F1 Score')]
+
+    smoothing_sigma = 5.0
+    min_samples = 5
+    show_raw_points = True
+
+    # Create all combinations of (distribution_type, svtypes, metric_func, ylabel)
+    plot_configs = []
+    for dist_type in distribution_types:
+        for svtypes in svtype_combinations:
+            for (metric_func, ylabel) in metrics:
+                plot_configs.append((dist_type, svtypes, metric_func, ylabel))
     
-    # Plot recall for DEL only
-    plot_statistical_distribution(
-        all_data,
-        metric_function=recall,
-        start=1e2,
-        end=1e6,
-        n_points=100,
-        distribution_type="histogram",
-        svtype="DEL",
-        output_path=str(output_dir / "recall_by_size_DEL.png"),
-        title="Recall by CNV Size (Deletions)",
-        ylabel="Recall/Sensitivity",
-        smoothing_sigma=5.0,
-        show_raw_points=True,
-        min_samples=5
-    )
+    # Prepare arguments for multiprocessing
+    # Each tuple contains all the data needed for one plot
+    plot_args = []
+    for dist_type, svtypes, metric_func, ylabel in plot_configs:
+        args_tuple = (
+            all_data, dist_type, svtypes, metric_func, ylabel,
+            start, end, npoints, output_dir, smoothing_sigma,
+            show_raw_points, min_samples
+        )
+        plot_args.append(args_tuple)
     
-    # Plot F1 score for DUP only
-    plot_statistical_distribution(
-        all_data,
-        metric_function=f1_score,
-        start=1e2,
-        end=1e6,
-        n_points=100,
-        distribution_type="histogram",
-        svtype="DUP",
-        output_path=str(output_dir / "f1_score_by_size_DUP.png"),
-        title="F1 Score by CNV Size (Duplications)",
-        ylabel="F1 Score",
-        smoothing_sigma=5.0,
-        show_raw_points=True,
-        min_samples=5
-    )
+    # Generate all plots in parallel using multiprocessing
+    print(f"\nGenerating {len(plot_configs)} plots using multiprocessing ({len(plot_configs)} workers)...")
     
-    print(f"\nPlots saved to: {output_dir}")
+    with ProcessPoolExecutor() as executor:
+        # Submit all plot generation tasks
+        futures = [executor.submit(_generate_single_plot, args) for args in plot_args]
+        
+        # Collect results as they complete
+        for future in as_completed(futures):
+            result = future.result()
+            print(result)
+    
+    print(f"\n{'='*80}")
+    print(f"All plots completed! Saved to: {output_dir}")
     print("="*80)
 
-    # Get precision of high coverage input set for CNVs between 1kb and 2kb
-    high_cov_data = all_data.get("High Coverage", {})
-    if high_cov_data:
-        filtered = filter_by_size(high_cov_data, lower_bound=1000, upper_bound=1500)
-        tp_count = len(filtered.get('TP', pd.DataFrame()))
-        fp_count = len(filtered.get('FP', pd.DataFrame()))
-        fn_count = len(filtered.get('FN', pd.DataFrame()))
-        precision_value = precision(tp_count, fp_count, fn_count)
-        print(f"\nPrecision for High Coverage (1kb-2kb): {precision_value:.4f}")
+    # _test1(all_data)
+
     
 
 if __name__ == "__main__":
     main()
+
