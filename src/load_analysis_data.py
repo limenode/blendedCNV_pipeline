@@ -138,12 +138,13 @@ def load_sample_data(sample_id: str, sample_files: Dict[str, Dict[str, List[Path
     return result
 
 
-def build_analysis_data_structure(binary_classification_dir: Path) -> Dict[str, pd.DataFrame]:
+def build_analysis_data_structure(binary_classification_dir: Path, samples_to_include: Optional[set] = None) -> Dict[str, pd.DataFrame]:
     """
     Build the complete data structure for analysis.
     
     Args:
         binary_classification_dir: Path to the directory containing TP/FP/FN files for the input set.
+        samples_to_include: Optional list of sample names to include in the analysis. If None, all samples are included.
     
     Returns:
         Dictionary mapping classification ('TP', 'FP', 'FN') -> concatenated dataframe
@@ -152,6 +153,7 @@ def build_analysis_data_structure(binary_classification_dir: Path) -> Dict[str, 
     
     print(f"\nLoading data from: {binary_classification_dir}")
     
+    
     # Discover all files
     files_by_sample = discover_classification_files(binary_classification_dir)
     
@@ -159,6 +161,11 @@ def build_analysis_data_structure(binary_classification_dir: Path) -> Dict[str, 
     classification_dfs = defaultdict(list)
     
     for sample_id, sample_files in files_by_sample.items():
+        # Filter by sample if specified
+        if samples_to_include is not None and sample_id not in samples_to_include:
+            print(f"Skipping sample {sample_id} (not in specified sample list)")
+            continue
+
         print(f"Loading data for sample: {sample_id}")
         sample_data = load_sample_data(sample_id, sample_files)
         

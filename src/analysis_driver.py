@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
+from matplotlib_venn import venn2, venn3, venn2_circles, venn3_circles
 import seaborn as sns
 from scipy.ndimage import gaussian_filter1d
 from typing import List, Tuple, Callable, Dict, Optional
@@ -325,6 +326,229 @@ def plot_statistical_distribution(
     plt.close()
 
 
+def plot_venn_diagram(
+    all_data: Dict[str, Dict[str, pd.DataFrame]],
+    input_set_keys: List[str],
+    svtype: Optional[str] = None,
+    input_set_name_map: Optional[Dict[str, str]] = None,
+    title: str = "",
+    figsize: Tuple[int, int] = (10, 8),
+    output_path: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Create a Venn diagram showing overlap of benchmark records recalled by different methods.
+    
+    Reads true positives from each input set and creates a Venn diagram showing which
+    benchmark CNVs are detected by each method, including overlaps. Benchmark records are
+    identified by their (truth_chrom, truth_start, truth_end, svtype) tuple.
+    
+    Args:
+        all_data: Dictionary mapping input_set_name -> {classification -> dataframe}
+        input_set_keys: List of 2-3 input set names to compare (must exist in all_data)
+        svtype: Optional filter for specific svtype ('DEL', 'DUP', or None for all)
+        input_set_name_map: Optional mapping for display names
+        title: Plot title (auto-generated if empty)
+        figsize: Figure size as (width, height) tuple
+        output_path: Path to save the figure (if None, displays instead)
+    
+    Returns:
+        DataFrame with detection information for each benchmark record
+    
+    Example:
+        >>> plot_venn_diagram(
+        ...     all_data,
+        ...     input_set_keys=['High_Coverage_intersections', 'Low_Coverage_intersections'],
+        ...     svtype='DEL',
+        ...     title="Deletion Detection Overlap"
+        ... )
+    """
+    if len(input_set_keys) < 2 or len(input_set_keys) > 3:
+        raise ValueError("Venn diagram requires 2 or 3 input sets")
+    
+    print(len(input_set_keys), "input sets provided for Venn diagram:", input_set_keys)
+
+    # Verify all keys exist in all_data
+    for key in input_set_keys:
+        if key not in all_data:
+            raise ValueError(f"Input set key '{key}' not found in all_data")
+    
+    # Required columns for building benchmark IDs
+    required_cols = ['truth_chrom', 'truth_start', 'truth_end', 'svtype']
+    
+    # Extract TP DataFrames and create sets of benchmark IDs
+    tp_sets = {}
+    
+    for input_set_key in input_set_keys:
+        tp_df = all_data[input_set_key].get('TP', pd.DataFrame())
+        
+        if tp_df.empty:
+            print(f"Warning: No true positives found for '{input_set_key}'")
+            tp_sets[input_set_key] = set()
+            continue
+        
+        # Verify required columns exist
+        missing_cols = [col for col in required_cols if col not in tp_df.columns]
+        if missing_cols:
+            raise ValueError(
+                f"Missing required columns {missing_cols} in TP DataFrame for '{input_set_key}'. "
+                f"Available columns: {list(tp_df.columns)}"
+            )
+        
+        # Apply svtype filter if specified
+        if svtype and 'svtype' in tp_df.columns:
+            tp_df = tp_df[tp_df['svtype'] == svtype].copy()
+        
+        # Build benchmark IDs as tuples (chrom, start, end, svtype)
+        # Using tuples for fast comparison - start position is first for quick filtering
+        benchmark_ids = set(
+            tp_df[required_cols].itertuples(index=False, name=None)
+        )
+        tp_sets[input_set_key] = benchmark_ids
+    
+    # Calculate universal set (all benchmark IDs across all input sets)
+    all_benchmark_ids = set().union(*tp_sets.values())
+    total_unique_cnvs = len(all_benchmark_ids)
+    
+    # Create detection summary DataFrame
+    detection_records = []
+    for bench_id_tuple in all_benchmark_ids:
+        detected_by = [set_key for set_key, tp_set in tp_sets.items() if bench_id_tuple in tp_set]
+        detection_records.append({
+            'truth_chrom': bench_id_tuple[0],
+            'truth_start': bench_id_tuple[1],
+            'truth_end': bench_id_tuple[2],
+            'svtype': bench_id_tuple[3],
+            'detected_by': detected_by,
+            'detection_count': len(detected_by)
+        })
+    
+    detection_df = pd.DataFrame(detection_records)
+    
+    # Calculate statistics
+    total_detected_by_at_least_one = len(detection_df[detection_df['detection_count'] > 0])
+    
+    # Apply name mapping and add counts to labels
+    display_names_with_counts = []
+    for input_set_key in input_set_keys:
+        count = len(tp_sets[input_set_key])
+        pct_total = (count / total_unique_cnvs) * 100 if total_unique_cnvs > 0 else 0
+        
+        if input_set_name_map:
+            display_name = input_set_name_map.get(input_set_key, input_set_key)
+        else:
+            display_name = input_set_key
+        
+        label = f"{display_name}\n(n={count}, {pct_total:.1f}%)"
+        display_names_with_counts.append(label)
+    
+    # Create Venn diagram
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    if len(input_set_keys) == 2:
+        display_names_2: Tuple[str, str] = (display_names_with_counts[0], display_names_with_counts[1])
+        venn_obj = venn2(
+            subsets=tuple(tp_sets.values()),
+            set_labels=display_names_2,
+            ax=ax
+        )
+        venn_circles_obj = venn2_circles(subsets=tuple(tp_sets.values()), ax=ax)
+    else:  # 3 input sets
+        display_names_3: Tuple[str, str, str] = (
+            display_names_with_counts[0], 
+            display_names_with_counts[1], 
+            display_names_with_counts[2]
+        )
+        venn_obj = venn3(
+            subsets=tuple(tp_sets.values()),
+            set_labels=display_names_3,
+            ax=ax
+        )
+        venn_circles_obj = venn3_circles(subsets=tuple(tp_sets.values()), ax=ax)
+    
+    # Customize appearance
+    for circle in venn_circles_obj:
+        circle.set_linewidth(2)
+        circle.set_linestyle('--')
+    
+    # Generate title
+    if not title:
+        svtype_str = f" ({svtype})" if svtype else ""
+        title = f"Benchmark CNV Recall Overlap{svtype_str}\n({total_unique_cnvs} total unique benchmark records)"
+    
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    
+    # Add summary statistics text box
+    stats_text = (
+        f"Total unique CNVs: {total_unique_cnvs} | "
+        f"Detected by ≥1: {total_detected_by_at_least_one} "
+        f"({total_detected_by_at_least_one/total_unique_cnvs*100:.1f}%)"
+    )
+    ax.text(
+        0.5, -0.15, stats_text, 
+        ha='center', 
+        transform=ax.transAxes,
+        fontsize=10, 
+        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3)
+    )
+    
+    plt.tight_layout()
+    
+    # Save or show
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Venn diagram saved to: {output_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+    
+    # Print detailed statistics
+    print(f"\n{'='*60}")
+    print(f"Venn Diagram Detection Statistics")
+    print(f"{'='*60}")
+    print(f"Total unique benchmark CNVs: {total_unique_cnvs}")
+    print(f"Detected by at least one method: {total_detected_by_at_least_one} "
+          f"({total_detected_by_at_least_one/total_unique_cnvs*100:.1f}%)")
+    
+    print(f"\nDetection by individual methods:")
+    for input_set_key in input_set_keys:
+        count = len(tp_sets[input_set_key])
+        display_name = input_set_name_map.get(input_set_key, input_set_key) if input_set_name_map else input_set_key
+        pct_total = (count / total_unique_cnvs) * 100 if total_unique_cnvs > 0 else 0
+        print(f"  {display_name}: {count} ({pct_total:.1f}% of total)")
+    
+    # Print detailed overlap counts
+    print(f"\nDetailed Overlap Counts:")
+    subsets = venn_obj.get_label_by_id
+    if len(input_set_keys) == 2:
+        combinations = ['10', '01', '11']
+    else:
+        combinations = ['100', '010', '001', '110', '101', '011', '111']
+    
+    for comb in combinations:
+        label = subsets(comb)
+        if label is None:
+            count = 0
+        else:
+            count = int(label.get_text())
+        
+        pct_total = (count / total_unique_cnvs) * 100 if total_unique_cnvs > 0 else 0
+        
+        # Calculate % of each method involved in this combination
+        involved_indices = [i for i, bit in enumerate(comb) if bit == '1']
+        pct_each_method = []
+        for i in involved_indices:
+            method_count = len(tp_sets[input_set_keys[i]])
+            pct_method = (count / method_count) * 100 if method_count > 0 else 0
+            method_name = input_set_name_map.get(input_set_keys[i], input_set_keys[i]) if input_set_name_map else input_set_keys[i]
+            pct_each_method.append(f"{method_name}: {pct_method:.1f}%")
+        pct_each_method_str = "; ".join(pct_each_method)
+        
+        print(f"  Combination {comb}: {count} ({pct_total:.1f}% of total) | {pct_each_method_str}")
+    
+    return detection_df
+
+
 def _generate_single_plot(args_tuple):
     """
     Worker function for multiprocessing plot generation.
@@ -377,48 +601,61 @@ def _generate_single_plot(args_tuple):
         return f"✓ {filename}"
     except Exception as e:
         return f"✗ {filename}: {str(e)}"
-
-
-def main():
-    # Parse command-line arguments
-    args = parse_args()
-        
-    # Load configuration from YAML file
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
     
-    # Get all input set keys
-    input_sets_raw = list(config['input'].keys())
-    print(f"Available input sets: {input_sets_raw}")
 
-    # Append "Intersection" and "Union" to input set keys for binary classification results
-    output_dir = Path(config['output_dir'])
-    input_sets_paths = {}
-    for key in input_sets_raw:
-        key_path = key.replace(" ", "_")
-        input_sets_paths[key_path + "_intersections"] = output_dir / key_path / "binary_classification" / "intersections"
-        input_sets_paths[key_path + "_unions"] = output_dir / key_path / "binary_classification" / "unions"
-    
-    # Load data for all input sets
+def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samples_only: bool = True) -> Dict[str, Dict[str, pd.DataFrame]]:
     all_data = {}
+    sample_sets = []
+    shared_samples = None
+
+    # First pass to discover shared samples across classifications if needed
     for input_set_key, input_set_path in input_sets_paths.items():
         print(f"\n{'='*80}")
         print(f"Processing input set: {input_set_key}")
         print(f"{'='*80}")
+
+        # Discover shared samples across TP, FP, FN for this input set
+        if shared_samples_only:
+            sample_sets = []
+            # Use glob to discover all classification .bed files, then extract sample names
+            for classification in ['TP', 'FP', 'FN']:
+                if not input_set_path.exists():
+                    print(f"Warning: Path '{input_set_path}' does not exist. Skipping sample discovery for '{classification}'.")
+                    continue
+                
+                bed_files = list(input_set_path.glob("*.bed"))
+                if not bed_files:
+                    print(f"Warning: No .bed files found in '{input_set_path}'. Skipping.")
+                    continue
+                
+                samples_in_classification = set()
+                for bed_file in bed_files:
+                    # Extract sample name from filename (assuming format: sample.<svtype>.<classification>.bed)
+                    sample_name = bed_file.stem.split('.')[0]
+                    samples_in_classification.add(sample_name)
+                
+                sample_sets.append(samples_in_classification)
+    
+    # Print information
+    print("\nData loading complete for all input sets.")
+    if shared_samples_only and shared_samples is not None:
+        print(f"{len(shared_samples)} shared samples across classifications: {shared_samples}")
         
-        analysis_data = build_analysis_data_structure(input_set_path)
+    # If we have sample sets, find the intersection (shared samples)
+    if sample_sets:
+        shared_samples = set.intersection(*sample_sets) if len(sample_sets) > 1 else sample_sets[0]
+    else:
+        shared_samples = None
+
+    # Second pass to load data with optional filtering by shared samples
+    for input_set_key, input_set_path in input_sets_paths.items():
+        analysis_data = build_analysis_data_structure(input_set_path, samples_to_include=shared_samples)
         filtered_data = filter_by_size(analysis_data, lower_bound=100, upper_bound=1_000_000)
         all_data[input_set_key] = filtered_data
-
-    print("\nSummary of loaded data:")
-
-    for input_set_key, analysis_data in all_data.items():
-        print("\ninput_set_key:", input_set_key)
-        print("Keys in analysis_data:", analysis_data.keys())
-        for classification_key, df in analysis_data.items():
-            print(f"  Classification: {classification_key}, Number of records: {len(df)}")
     
-    # Example: Plot precision distribution
+    return all_data
+
+def _plot_all_data(config: dict, all_data: Dict[str, Dict[str, pd.DataFrame]]):
     print("\n" + "="*80)
     print("Generating plots...")
     print("="*80)
@@ -478,9 +715,71 @@ def main():
     print(f"All plots completed! Saved to: {output_dir}")
     print("="*80)
 
-    # _test1(all_data)
-
+def main():
+    # Parse command-line arguments
+    args = parse_args()
+        
+    # Load configuration from YAML file
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
     
+    # Get all input set keys
+    input_sets_raw = list(config['input'].keys())
+    print(f"Available input sets: {input_sets_raw}")
+
+    # Append "Intersection" and "Union" to input set keys for binary classification results
+    output_dir = Path(config['output_dir'])
+    input_sets_paths = {}
+    for key in input_sets_raw:
+        key_path = key.replace(" ", "_")
+        input_sets_paths[key_path + "_intersections"] = output_dir / key_path / "binary_classification" / "intersections"
+        input_sets_paths[key_path + "_unions"] = output_dir / key_path / "binary_classification" / "unions"
+    
+    # Append control set
+    input_sets_paths["SNP_Array"] = output_dir / "SNP_Array" / "binary_classification"
+    
+    # Load data for all input sets
+    all_data = _load_data_for_all_input_sets(input_sets_paths)
+
+    print("\nSummary of loaded data:")
+    for input_set_key, analysis_data in all_data.items():
+        print("\ninput_set_key:", input_set_key)
+        print("Keys in analysis_data:", analysis_data.keys())
+        for classification_key, df in analysis_data.items():
+            print(f"  Classification: {classification_key}, Number of records: {len(df)}")
+    
+    # Plot all distributions
+    _plot_all_data(config, all_data)
+
+    _test1(all_data)
+
+    # # Example: Generate Venn diagrams comparing methods
+    print("\n" + "="*80)
+    print("Generating Venn diagrams...")
+    print("="*80)
+    
+    venn_output_dir = Path(config['output_dir']) / "venn_diagrams"
+    venn_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Example: Compare intersections across coverage levels for ALL svtypes
+    keys_of_interest = ["Low_Coverage_intersections", "High_Coverage_intersections", "SNP_Array"]
+    if len(keys_of_interest) >= 2:
+        input_set_name_map = {key: key.replace('_', ' ').title() for key in keys_of_interest}
+        venn_output_path = venn_output_dir / "venn_diagram.png"
+        
+        detection_df = plot_venn_diagram(
+            all_data=all_data,
+            input_set_keys=keys_of_interest,
+            svtype=None,  # All svtypes
+            input_set_name_map=input_set_name_map,
+            title="CNV Detection Overlap Across Methods",
+            output_path=str(venn_output_path)
+        )
+        print(f"\n✓ Venn diagram saved. Detection DataFrame shape: {detection_df.shape}")
+    
+    print(f"\n{'='*80}")
+    print("Analysis complete!")
+    print("="*80)
 
 if __name__ == "__main__":
     main()
