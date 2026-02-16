@@ -10,7 +10,6 @@ from liftover import get_lifter
 from pathlib import Path
 from cnv_parser import CNVParser
 from benchmark_handler import BenchmarkParser
-from utils import parse_args
 
 def _perform_liftover(config: dict):
     """
@@ -451,14 +450,13 @@ def _run_binary_classification_script(config: dict):
 
         subprocess.run(command, check=True)
 
-def main():
-    # Parse command-line arguments
-    args = parse_args()
+def main(config: dict):
+    """
+    Main computation pipeline.
     
-    # Load configuration from YAML file
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
-    
+    Args:
+        config: Configuration dictionary loaded from YAML
+    """
     print("\nStep 1: Converting VCF files to BED format...")
     _convert_vcfs_to_bed(config)
 
@@ -480,4 +478,15 @@ def main():
     
 
 if __name__ == "__main__":
-    main()
+    # Allow running standalone for testing
+    import yaml
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='BlendedCNV Computation Pipeline')
+    parser.add_argument('--config', '-c', required=True, help='Path to configuration YAML file')
+    args = parser.parse_args()
+    
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    main(config)

@@ -1,4 +1,3 @@
-from utils import parse_args
 from pathlib import Path
 import yaml
 import numpy as np
@@ -715,14 +714,13 @@ def _plot_all_data(config: dict, all_data: Dict[str, Dict[str, pd.DataFrame]]):
     print(f"All plots completed! Saved to: {output_dir}")
     print("="*80)
 
-def main():
-    # Parse command-line arguments
-    args = parse_args()
-        
-    # Load configuration from YAML file
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
+def main(config: dict):
+    """
+    Main analysis pipeline.
     
+    Args:
+        config: Configuration dictionary loaded from YAML
+    """
     # Get all input set keys
     input_sets_raw = list(config['input'].keys())
     print(f"Available input sets: {input_sets_raw}")
@@ -782,5 +780,15 @@ def main():
     print("="*80)
 
 if __name__ == "__main__":
-    main()
+    # Allow running standalone for testing
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='BlendedCNV Analysis Pipeline')
+    parser.add_argument('--config', '-c', required=True, help='Path to configuration YAML file')
+    args = parser.parse_args()
+    
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    main(config)
 
