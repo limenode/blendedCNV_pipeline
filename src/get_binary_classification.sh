@@ -19,7 +19,7 @@ process_sample() {
     local svtype="$2"
 
     # Get predicted CNV .bed and truth CNV .bed files for the sample and SV type
-    predicted_file=$(ls "$predicted_dir"/${sample}.${svtype}.*.bed)
+    predicted_file=$(ls "$predicted_dir"/${sample}.${svtype}*bed)
     truth_file=$(ls "$truth_dir"/${sample}/${sample}.merged.${svtype}.bed)
 
     # Sort bed files by chromosome and start position, using genome file for correct sorting
