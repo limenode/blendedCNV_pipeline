@@ -404,29 +404,3 @@ class BenchmarkParser:
         
         return results
 
-
-# Example usage
-if __name__ == "__main__":
-    # Define benchmark file paths
-    benchmark_map = {
-        '1000G': '/lab01/Projects/Lionel_Projects/biodatabases/cnv_benchmarks/1000G/ALL.wgs.integrated_sv_map_v2_GRCh38.20130502.svs.genotypes.vcf.gz',
-        'HGSVC3': '/lab01/Projects/Lionel_Projects/biodatabases/cnv_benchmarks/HGSVC3/HGSVC3_sv_insdel_alt.vcf.gz',
-        'ont_vienna': '/lab01/Projects/Lionel_Projects/biodatabases/cnv_benchmarks/ont_vienna/svim.asm.hg38.bcf'
-    }
-    
-    # Initialize merger
-    bm_parser = BenchmarkParser(benchmark_map)
-    
-    # Process specific samples (or None for all samples)
-    sample_ids = ['HG00096', 'HG00171', 'HG00268']  # Example sample IDs
-    
-    # Process all benchmarks
-    output_dir = '/lab01/Projects/Lionel_Projects/biodatabases/cnv_benchmarks/tester'
-    results = bm_parser.parse_all_benchmarks_to_bed(output_dir, sample_ids=sample_ids)
-    
-    # Print summary
-    print(f"\n{'='*60}")
-    print("SUMMARY")
-    print(f"{'='*60}")
-    for benchmark, samples in results.items():
-        print(f"\n{benchmark}: {len(samples)} samples")
