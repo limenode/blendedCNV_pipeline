@@ -10,4 +10,4 @@ in/
 out/
 
 # user-defined config
-config.yaml
+internal.config.yaml
