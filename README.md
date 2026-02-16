@@ -12,27 +12,8 @@ This pipeline integrates CNV calls from multiple detection tools (CNVpytor, Dell
 
 - **Multi-tool integration**: Combines CNV detection results from CNVpytor, Delly, and GATK-gCNV in a 2/3 consensus call approach.
 - **Control datasets**: Allows incorporation of SNP Microarray-based CNV calls from PennCNV to serve as a control.
-- **Benchmark evaluation**: Binary classification against reference datasets. Derives Precision, Recall/Sensitivity, and F1-score and generates density, cumulative, and complementary cumulative distribution plots.
 - **Coordinate liftover**: Automatic genome build conversion (e.g., hg18 → hg38)
-- **Comprehensive analysis**: Statistical metrics, venn diagrams, and performance plots
-
-## Installation
-
-### Requirements
-
-- Python 3.8+
-- Bedtools
-
-### Setup
-
-```bash
-# Clone repository
-git clone https://github.com/limenode/blendedCNV_pipeline.git
-cd blendedCNV_pipeline
-
-# Install dependencies
-# [INSERT INSTALLATION COMMANDS]
-```
+- **Benchmark evaluation**: Binary classification against reference datasets. Derives Precision, Recall/Sensitivity, and F1-score and generates density, cumulative, and complementary cumulative distribution plots.
 
 ## Pipeline Workflow
 
@@ -62,6 +43,51 @@ Classifies predictions as TP/FP/FN against gold-standard benchmarks.
 
 ### Step 6: Analysis
 Generates performance metrics, plots, and visualizations.
+
+## Installation
+
+### Requirements
+
+- Python 3.8+
+- Bedtools
+
+### Setup
+
+#### Unix/macOS
+
+```bash
+# Clone repository
+git clone https://github.com/limenode/blendedCNV_pipeline.git
+cd blendedCNV_pipeline
+
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install Python dependencies
+pip install -r requirements.txt
+```
+
+#### Windows
+
+```bash
+# Clone repository
+git clone https://github.com/limenode/blendedCNV_pipeline.git
+cd blendedCNV_pipeline
+
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+venv\Scripts\activate
+
+# Install Python dependencies
+pip install -r requirements.txt
+```
+
+**Note:** Make sure Bedtools is installed and available in your system PATH. It should be accessable via the command `bedtools`.
 
 ## Usage
 
