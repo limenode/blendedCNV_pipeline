@@ -201,7 +201,12 @@ def build_analysis_data_structure(binary_classification_dir: Path, samples_to_in
     return analysis_data
 
 
-def filter_by_size(analysis_data: Dict[str, pd.DataFrame], lower_bound: int, upper_bound: int) -> Dict[str, pd.DataFrame]:
+def filter_by_size(
+        analysis_data: Dict[str, pd.DataFrame], 
+        lower_bound: int, 
+        upper_bound: int, 
+        strict: bool = False
+    ) -> Dict[str, pd.DataFrame]:
     """
     Filter all dataframes in analysis_data by CNV size.
     
@@ -221,8 +226,8 @@ def filter_by_size(analysis_data: Dict[str, pd.DataFrame], lower_bound: int, upp
         Filtered analysis data with the same structure
     """
     # Calculate relaxed bounds for truth sizes
-    truth_lower = lower_bound * 0.50
-    truth_upper = upper_bound / 0.50
+    truth_lower = lower_bound * 0.50 if not strict else lower_bound
+    truth_upper = upper_bound / 0.50 if not strict else upper_bound
     
     filtered_data = {}
     
