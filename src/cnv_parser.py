@@ -1,5 +1,4 @@
 from cyvcf2 import VCF
-import os
 import re
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple

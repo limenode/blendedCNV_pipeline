@@ -2,24 +2,10 @@ from pathlib import Path
 import yaml
 import pandas as pd
 from typing import List, Tuple, Callable, Dict, Optional
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from load_analysis_data import build_analysis_data_structure, print_summary_statistics, filter_by_size
-from plotting_functions import plot_performance_distributions, plot_venn_diagram_wrapper, plot_size_distribution
-
-# Test Functions:
-def _test1(all_data):
-    from utils import precision, recall, f1_score
-
-    # Get precision of high coverage input set for CNVs between 1kb and 2kb
-    high_cov_data = all_data.get("High Coverage", {})
-    if high_cov_data:
-        filtered = filter_by_size(high_cov_data, lower_bound=1000, upper_bound=1500)
-        tp_count = len(filtered.get('TP', pd.DataFrame()))
-        fp_count = len(filtered.get('FP', pd.DataFrame()))
-        fn_count = len(filtered.get('FN', pd.DataFrame()))
-        precision_value = precision(tp_count, fp_count, fn_count)
-        print(f"\nPrecision for High Coverage (1kb-2kb): {precision_value:.4f}")
+from cnv_plotter import CNVPlotter
+from utils import precision, recall, f1_score
     
 
 def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samples_only: bool = True) -> Dict[str, Dict[str, pd.DataFrame]]:
@@ -90,6 +76,9 @@ def main(config: dict):
     input_sets_raw = list(config['input'].keys())
     print(f"Available input sets: {input_sets_raw}")
 
+    # Setup input name mapping for user-friendly display
+    input_name_mapping = {}
+
     # Append "Intersection" and "Union" to input set keys for binary classification results
     output_dir = Path(config['output_dir'])
     input_sets_paths = {}
@@ -97,10 +86,17 @@ def main(config: dict):
         key_path = key.replace(" ", "_")
         input_sets_paths[key_path + "_intersections"] = output_dir / key_path / "binary_classification" / "intersections"
         input_sets_paths[key_path + "_unions"] = output_dir / key_path / "binary_classification" / "unions"
+
+        # Add to input name mapping
+        input_name_mapping[key_path + "_intersections"] = f"{key} Intersections"
+        input_name_mapping[key_path + "_unions"] = f"{key} Unions"
     
-    # Append control set
-    input_sets_paths["SNP_Array"] = output_dir / "SNP_Array" / "binary_classification"
-    
+    # Append control sets
+    control_sets_raw = list(config['control'].keys())
+    for key in control_sets_raw:
+        key_path = key.replace(" ", "_")
+        input_sets_paths[key_path] = output_dir / key_path / "binary_classification"
+        input_name_mapping[key_path] = key    
 
 
     # === Step 2: Load Data for All Input Sets ===
@@ -113,21 +109,31 @@ def main(config: dict):
         for classification_key, df in analysis_data.items():
             print(f"  Classification: {classification_key}, Number of records: {len(df)}")
     
+    plotter = CNVPlotter(all_data, config, input_name_mapping)
 
+    metrics = [(precision, "Precision"), (recall, "Recall"), (f1_score, "F1 Score")]
 
-    # # === Step 3: Generate Plots for All Distributions ===
-    plot_performance_distributions(config, all_data)
+    # === Step 3: Generate Plots for All Distributions ===
+    plotter.plot_statistical_distributions(
+        metrics=metrics,
+        bounds=(500, 1_000_000),
+        output_path=output_dir / "statistical_distributions" / "distribution.png",
+    )
 
     # # === Step 4: Generate Venn Diagrams ===
-    plot_venn_diagram_wrapper(config, all_data)
+    plotter.plot_venn_diagram(
+        set_keys=['Low_Coverage_intersections', 'High_Coverage_intersections', 'SNP_Array'],
+        output_path=output_dir / "venn_diagrams" / "venn_diagram_intersections.png",
+    )
+    plotter.plot_venn_diagram(
+        set_keys=['Low_Coverage_unions', 'High_Coverage_unions', 'SNP_Array'],
+        output_path=output_dir / "venn_diagrams" / "venn_diagram_unions.png",
+    )
 
-    # === Step 5: Generate Size Distribution Plots ===
-    plot_size_distribution(
-        all_data=all_data,
-        input_set_keys=list(all_data.keys()),
-        svtype=None,
-        output_path=output_dir / "size_distributions" / "size_distribution.png",
-        title="Size Distribution of Detected CNVs"
+    # # === Step 5: Generate Size Distribution Plots ===
+    plotter.plot_size_distribution(
+        set_keys=list(all_data.keys()),
+        output_dir=output_dir / "size_distributions",
     )
     
 
