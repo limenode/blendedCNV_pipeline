@@ -1,6 +1,8 @@
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+pixi.lock
+pixi.toml
 
 # python cache files
 __pycache__/
