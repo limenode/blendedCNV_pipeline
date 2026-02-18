@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple, Optional
 import pandas as pd
+from utils import get_count_from_bed_file
 
 
 class BenchmarkParser:
@@ -331,8 +332,7 @@ class BenchmarkParser:
     def merge_across_benchmarks(
         self,
         output_base_dir: str | Path,
-        merge_distance: int = 0,  # bp to merge nearby intervals,
-        genome_file_path: Optional[str] = None
+        genome_file_path: Optional[str] = None,
     ) -> Dict[str, Dict[str, int]]:
         """
         Merge BED files across all benchmarks for each sample+svtype.
@@ -340,6 +340,7 @@ class BenchmarkParser:
         Args:
             output_base_dir: Base directory containing benchmark subdirectories
             merge_distance: Distance for merging nearby intervals (default: 0)
+            log_path: Optional path to write log messages
             
         Returns:
             Dictionary: sample -> {'DEL': count, 'DUP': count}
@@ -350,6 +351,8 @@ class BenchmarkParser:
         base_path = Path(output_base_dir)
         merged_dir = base_path / "merged"
         merged_dir.mkdir(parents=True, exist_ok=True)
+
+        results = defaultdict(dict)
         
         # Collect all samples across benchmarks
         samples_svtypes = defaultdict(lambda: defaultdict(list))
@@ -371,16 +374,21 @@ class BenchmarkParser:
                         samples_svtypes[sample_id][svtype].append(bed_file)
         
         # Merge for each sample+svtype
-        results = {}
         for sample_id, svtype_files in samples_svtypes.items():
             sample_merged_dir = merged_dir / sample_id
             sample_merged_dir.mkdir(exist_ok=True)
-            results[sample_id] = {}
             
             for svtype, bed_files in svtype_files.items():
                 if not bed_files:
                     continue
-                    
+                
+                # Log number of records in each file before merging
+                for bed_file in bed_files:
+                    count = get_count_from_bed_file(bed_file)
+                    benchmark_name = bed_file.parent.parent.name # Get name of directory two levels up (benchmark name)
+                    results[f"{sample_id}.{svtype}"][benchmark_name] = count
+
+
                 output_file = sample_merged_dir / f"{sample_id}.merged.{svtype}.bed"
                 
                 if genome_file_path is not None:
@@ -396,11 +404,9 @@ class BenchmarkParser:
                 subprocess.run(command, shell=True, check=True)
                 
                 # Count results
-                with open(output_file) as f:
-                    count = sum(1 for _ in f)
-                results[sample_id][svtype] = count
-                
+                count = get_count_from_bed_file(output_file)
                 print(f"{sample_id} {svtype}: {len(bed_files)} files -> {count} merged intervals")
+                results[f"{sample_id}.{svtype}"]["merged"] = count
         
         return results
 

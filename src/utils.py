@@ -1,6 +1,6 @@
 import argparse
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple, Callable
 import numpy as np
 from enum import Enum
 
@@ -114,3 +114,9 @@ def generate_size_intervals(
         intervals.append((points[i], points[i + 1]))
 
     return intervals
+
+def get_count_from_bed_file(bed_file: str | Path) -> int:
+    """Count the number of records in a BED file."""
+    with open(bed_file, 'r') as f:
+        return sum(1 for _ in f)
+    

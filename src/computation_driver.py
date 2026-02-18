@@ -2,16 +2,20 @@ import os
 import sys
 import subprocess
 import yaml
+import json
 import argparse
 import re
 import pandas as pd
 from liftover import get_lifter
+from typing import Optional
+from collections import defaultdict
+from utils import get_count_from_bed_file
 
 from pathlib import Path
 from cnv_parser import CNVParser
 from benchmark_handler import BenchmarkParser
 
-def _perform_liftover(config: dict):
+def _perform_liftover(config: dict, log_file: Optional[str | Path] = None):
     """
     Perform liftover on BED files based on configuration specifications.
     Reads coordinates from BED files, converts them using liftover, and overwrites files.
@@ -19,6 +23,9 @@ def _perform_liftover(config: dict):
     Args:
         config: Configuration dictionary containing liftover specifications
     """
+
+    results = defaultdict(dict)
+
     if 'liftover' not in config:
         print("No liftover specifications found in config. Skipping liftover.")
         return
@@ -28,6 +35,7 @@ def _perform_liftover(config: dict):
     for dataset_name, liftover_spec in config['liftover'].items():
         print(f"Performing liftover for dataset: {dataset_name}")
         
+        # Validate liftover specification
         from_build = liftover_spec['from']
         to_build = liftover_spec['to']
 
@@ -36,6 +44,10 @@ def _perform_liftover(config: dict):
             continue
         
         print(f"  Converting from {from_build} to {to_build}")
+
+        # Log the liftover specifications for this dataset
+        results[dataset_name]['from_build'] = from_build
+        results[dataset_name]['to_build'] = to_build
         
         # Get the lifter
         converter = get_lifter(from_build, to_build, one_based=False)
@@ -51,7 +63,7 @@ def _perform_liftover(config: dict):
         # Find all .bed files recursively
         bed_files = list(database_dir.glob("**/*.bed"))
 
-        # Remove files from "binary_classification" subdirectories
+        # Remove files in list from "binary_classification" subdirectories
         bed_files = [f for f in bed_files if "binary_classification" not in f.parts]
         
         if not bed_files:
@@ -59,6 +71,16 @@ def _perform_liftover(config: dict):
             continue
         
         print(f"  Found {len(bed_files)} BED files to convert")
+
+        # Log the number of records in each BED file before liftover
+        results[dataset_name]['samples'] = {}
+        for bed_file in bed_files:
+            count = get_count_from_bed_file(bed_file)
+
+            sample_id = bed_file.stem
+            results[dataset_name]['samples'][sample_id] = {
+                'record_count_before_liftover': count
+            }
         
         total_converted = 0
         total_failed = 0
@@ -155,11 +177,23 @@ def _perform_liftover(config: dict):
             
             # Overwrite the original file
             df.to_csv(bed_file, sep='\t', index=False, header=False)
+
+            # Update results with post-liftover counts
+            sample_id = bed_file.stem
+            results[dataset_name]['samples'][sample_id]['record_count_after_liftover'] = len(df)
+            results[dataset_name]['samples'][sample_id]['failed_liftover'] = failed_count
+            results[dataset_name]['samples'][sample_id]['failed_size_change'] = size_failed_count
         
         print(f"  Liftover complete for {dataset_name}:")
         print(f"    Total records converted: {total_converted}")
         print(f"    Total records failed liftover: {total_failed}")
         print(f"    Total records failed size change filter: {total_size_failed}\n")
+        
+    # Save results to log file
+    if log_file:
+        os.makedirs(Path(log_file).parent, exist_ok=True)
+        with open(log_file, 'w') as f:
+            json.dump(results, f, indent=4) 
 
 def _parse_penncnv_to_bed(penncnv_file: str) -> pd.DataFrame:
     """
@@ -388,11 +422,16 @@ def _run_consensus_calls_script(config: dict):
             output_subdir / "bed/delly",
             output_subdir / "bed/gatk",
             output_subdir,
+            config['genome_file'],
+            config['excluded_regions_file']
         ]
 
         subprocess.run(command, check=True)
 
-def _run_benchmark_processing_script(config: dict):
+def _run_benchmark_processing_script(
+        config: dict, 
+        log_file: Optional[str | Path] = None
+    ):
     
     benchmark_parser = BenchmarkParser(config['benchmark_map'])
     output_dir = Path(config['output_dir'])
@@ -403,7 +442,13 @@ def _run_benchmark_processing_script(config: dict):
     benchmark_parser.parse_all_benchmarks_to_bed(output_subdir, common_samples_only=True, genome_file_path=config['genome_file'])
 
     print("Merging parsed benchmarks across all benchmarks...")
-    benchmark_parser.merge_across_benchmarks(output_subdir, genome_file_path=config['genome_file'])
+    results_dict = benchmark_parser.merge_across_benchmarks(output_subdir, genome_file_path=config['genome_file'])
+    
+    # Save merged results to file
+    if log_file:
+        os.makedirs(Path(log_file).parent, exist_ok=True)
+        with open(log_file, 'w') as f:
+            json.dump(results_dict, f, indent=4)
 
 def _run_binary_classification_script(config: dict):
     output_dir = Path(config['output_dir'])
@@ -467,10 +512,12 @@ def main(config: dict):
     _convert_control_to_bed(config)
 
     print("\nStep 4: Performing liftover on datasets (if configured)...")
-    _perform_liftover(config)
+    liftover_log = Path(config['output_dir']) / "logs" / "liftover_results.json"
+    _perform_liftover(config, log_file=liftover_log)
 
     print("\nStep 5: Running benchmark processing script...")
-    _run_benchmark_processing_script(config)
+    benchmark_log = Path(config['output_dir']) / "logs" / "benchmark_processing_results.json"
+    _run_benchmark_processing_script(config, log_file=benchmark_log)
 
     print("\nStep 6: Running binary classification script...")
     _run_binary_classification_script(config)

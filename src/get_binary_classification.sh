@@ -23,7 +23,6 @@ process_sample() {
     truth_file=$(ls "$truth_dir"/${sample}/${sample}.merged.${svtype}.bed)
 
     # Sort bed files by chromosome and start position, using genome file for correct sorting
-
     sorted_predicted=$temp_dir/"${sample}.${svtype}.predicted.sorted.bed"
     sorted_truth=$temp_dir/"${sample}.${svtype}.truth.sorted.bed"
 
@@ -39,6 +38,8 @@ process_sample() {
     bedtools intersect \
         -a "$sorted_predicted" \
         -b "$sorted_truth" \
+        -sorted \
+        -g "$genome_file" \
         -f 0.5 -r \
         -wa -wb \
         > "$tp_file"
@@ -47,6 +48,8 @@ process_sample() {
     bedtools intersect \
         -a "$sorted_predicted" \
         -b "$sorted_truth" \
+        -sorted \
+        -g "$genome_file" \
         -f 0.5 -r \
         -v \
         -wa -wb \
@@ -56,6 +59,8 @@ process_sample() {
     bedtools intersect \
         -a "$sorted_truth" \
         -b "$sorted_predicted" \
+        -sorted \
+        -g "$genome_file" \
         -f 0.5 -r \
         -v \
         -wa -wb \
