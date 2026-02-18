@@ -31,7 +31,7 @@ process_file() {
     sample_name=$(echo "$base_name" | cut -d. -f1)
 
     # Create log file for this sample and SV type
-    log_file="$log_dir/${sample_name}.${svtype}.log"
+    log_file="$log_dir/${sample_name}.${svtype}.json"
 
     delly_tmp=$(mktemp)
     cnvpytor_tmp=$(mktemp)
@@ -218,22 +218,20 @@ for sample in $samples; do
     fi
 done
 
-# Concatenate all log files into a single json
+# Concatenate all log files into a single json array
 master_log_file="$outdir/get_consensus_calls_summary.json"
-echo "{" > "$master_log_file"
-log_files=$(ls "$log_dir"/*.log)
+echo "[" > "$master_log_file"
+log_files=$(ls "$log_dir"/*.json)
 log_count=$(echo "$log_files" | wc -l)
 echo "Found $log_count log files to summarize."
 for log_file in $log_files; do
-    sample_name=$(basename "$log_file" .log)
-    echo "  \"$sample_name\": " >> "$master_log_file"
     cat "$log_file" >> "$master_log_file"
     echo "," >> "$master_log_file"
 done
 
-# Remove the last comma and add closing brace
+# Remove the last comma and add closing bracket
 sed -i '$ s/,$//' "$master_log_file"
-echo "}" >> "$master_log_file"
+echo "]" >> "$master_log_file"
 
 # Remove individual log files
 rm -r "$log_dir"
