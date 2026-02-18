@@ -72,15 +72,17 @@ def _perform_liftover(config: dict, log_file: Optional[str | Path] = None):
         
         print(f"  Found {len(bed_files)} BED files to convert")
 
-        # Log the number of records in each BED file before liftover
-        results[dataset_name]['samples'] = {}
+        # Initialize samples as a list instead of a dict
+        results[dataset_name]['samples'] = []
+        
+        # First pass: collect all sample info
+        sample_info = {}
         for bed_file in bed_files:
             count = get_count_from_bed_file(bed_file)
-
-            sample_id = bed_file.stem
-            results[dataset_name]['samples'][sample_id] = {
-                'record_count_before_liftover': count
-            }
+            sample_id = bed_file.stem  # Format: sample.svtype
+            
+            if sample_id not in sample_info:
+                sample_info[sample_id] = {'record_count_before_liftover': count}
         
         total_converted = 0
         total_failed = 0
@@ -178,11 +180,21 @@ def _perform_liftover(config: dict, log_file: Optional[str | Path] = None):
             # Overwrite the original file
             df.to_csv(bed_file, sep='\t', index=False, header=False)
 
-            # Update results with post-liftover counts
+            # Extract sample and svtype from filename (format: sample.svtype)
             sample_id = bed_file.stem
-            results[dataset_name]['samples'][sample_id]['record_count_after_liftover'] = len(df)
-            results[dataset_name]['samples'][sample_id]['failed_liftover'] = failed_count
-            results[dataset_name]['samples'][sample_id]['failed_size_change'] = size_failed_count
+            parts = sample_id.rsplit('.', 1)
+            sample_name = parts[0] if len(parts) > 1 else sample_id
+            svtype = parts[1] if len(parts) > 1 else "UNKNOWN"
+            
+            # Add record to samples list
+            results[dataset_name]['samples'].append({
+                'sample': sample_name,
+                'svtype': svtype,
+                'record_count_before_liftover': sample_info[sample_id]['record_count_before_liftover'],
+                'record_count_after_liftover': len(df),
+                'failed_liftover': failed_count,
+                'failed_size_change': size_failed_count
+            })
         
         print(f"  Liftover complete for {dataset_name}:")
         print(f"    Total records converted: {total_converted}")
