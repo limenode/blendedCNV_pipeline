@@ -553,23 +553,23 @@ def main(config: dict):
     plotter.plot_statistical_distributions(
         metrics=metrics,
         bounds=(500, 1_000_000),
-        output_path=output_dir / "statistical_distributions" / "distribution.png",
+        output_path=output_dir / "figures" / "statistical_distributions" / "distribution.png",
     )
 
     # === Step 4: Generate Venn Diagrams ===
     plotter.plot_venn_diagram(
         set_keys=['Low_Coverage_intersections', 'High_Coverage_intersections', 'SNP_Array'],
-        output_path=output_dir / "venn_diagrams" / "venn_diagram_intersections.png",
+        output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_intersections.png",
     )
     plotter.plot_venn_diagram(
         set_keys=['Low_Coverage_unions', 'High_Coverage_unions', 'SNP_Array'],
-        output_path=output_dir / "venn_diagrams" / "venn_diagram_unions.png",
+        output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_unions.png",
     )
 
     # === Step 5: Generate Size Distribution Plots ===
     plotter.plot_size_distribution(
         set_keys=list(all_data.keys()),
-        output_dir=output_dir / "size_distributions",
+        output_dir=output_dir / "figures" / "size_distributions",
     )
 
 
