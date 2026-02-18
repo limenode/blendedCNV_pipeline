@@ -409,6 +409,7 @@ def _convert_vcfs_to_bed(config: dict):
 
 def _run_consensus_calls_script(config: dict):
     output_dir = Path(config['output_dir'])
+    results = {}
 
     for key, input_map in config['input'].items():
         print(f"Running consensus calls script for input set: {key}")
@@ -427,6 +428,21 @@ def _run_consensus_calls_script(config: dict):
         ]
 
         subprocess.run(command, check=True)
+
+        # Read log file into results dictionary, and remove after reading
+        log_file = output_subdir / "get_consensus_calls_summary.json"
+        if log_file.exists():
+            with open(log_file, 'r') as f:
+                results[key] = json.load(f)
+        else:
+            print(f"Warning: Log file not found for consensus calls script: {log_file}")
+        os.remove(log_file)
+    
+    # Save results to file
+    log_output_file = Path(config['output_dir']) / "logs" / "consensus_calls_results.json"
+    os.makedirs(log_output_file.parent, exist_ok=True)
+    with open(log_output_file, 'w') as f:
+        json.dump(results, f, indent=4)
 
 def _run_benchmark_processing_script(
         config: dict, 

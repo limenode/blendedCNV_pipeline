@@ -178,7 +178,7 @@ NCORES=$((NCORES * 2 / 3))
 echo "Processing DEL and DUP files in parallel using $NCORES cores..."
 
 # Create log directory
-log_dir="$outdir/logs/get_consensus_calls"
+log_dir="$outdir/logs"
 mkdir -p "$log_dir"
 
 # Process DEL and DUP files in parallel
