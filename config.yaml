@@ -30,3 +30,6 @@ output_dir: "/path/to/output"
 
 # Reference genome file
 genome_file: "/path/to/genome.txt"
+
+# Excluded regions file (optional)
+excluded_regions_file: "/path/to/excluded_regions.bed"

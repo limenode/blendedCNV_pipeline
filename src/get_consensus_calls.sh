@@ -4,18 +4,18 @@ set -euo pipefail
 cnvpytor_dir=$1
 delly_dir=$2
 gatk_dir=$3
-
 outdir=$4
+genome_file=$5
+excluded_regions_file=$6
 
-# 5th argument (optional): expected number of samples (for assertion)
-expected_samples=${5:-}
 
 mkdir -p "$outdir/intersections" "$outdir/unions"
 
-export outdir delly_dir cnvpytor_dir gatk_dir
+export outdir delly_dir cnvpytor_dir gatk_dir genome_file excluded_regions_file
 
 process_file() {
     local file="$1"
+    local log_dir="$2"
     base_name=$(basename "$file")
 
     # Extract type (DEL or DUP) from filename
@@ -27,6 +27,12 @@ process_file() {
         svtype="UNKNOWN"
     fi
 
+    # Derive sample name (everything before first dot)
+    sample_name=$(echo "$base_name" | cut -d. -f1)
+
+    # Create log file for this sample and SV type
+    log_file="$log_dir/${sample_name}.${svtype}.log"
+
     delly_tmp=$(mktemp)
     cnvpytor_tmp=$(mktemp)
     gatk_tmp=$(mktemp)
@@ -35,6 +41,49 @@ process_file() {
     cut -f1-3 "$delly_dir/$base_name" > "$delly_tmp"
     cut -f1-3 "$cnvpytor_dir/$base_name" > "$cnvpytor_tmp"
     cut -f1-3 "$gatk_dir/$base_name" > "$gatk_tmp"
+
+    # Log the number of calls before filtering (dictionary/json format)
+    delly_count=$(wc -l < "$delly_tmp")
+    cnvpytor_count=$(wc -l < "$cnvpytor_tmp")
+    gatk_count=$(wc -l < "$gatk_tmp")
+    echo "{" > "$log_file"
+    echo "  \"sample\": \"$sample_name\"," >> "$log_file"
+    echo "  \"svtype\": \"$svtype\"," >> "$log_file"
+    echo "  \"before_excluded_regions\": {" >> "$log_file"
+    echo "    \"delly\": $delly_count," >> "$log_file"
+    echo "    \"cnvpytor\": $cnvpytor_count," >> "$log_file"
+    echo "    \"gatk\": $gatk_count" >> "$log_file"
+    echo "  }" >> "$log_file"
+
+    # Sort temporary files and remove CNVs that are 50% or more in excluded regions
+    for tmp in "$delly_tmp" "$cnvpytor_tmp" "$gatk_tmp"; do
+        # First filter by chromosome names listed in the genome file
+        # then sort the calls
+        # then filter out calls that overlap excluded regions by 50% or more
+        awk 'NR==FNR {chrom[$1]=1; next} ($1 in chrom)' "$genome_file" "$tmp" | \
+        bedtools sort \
+            -i - \
+            -g "$genome_file" | \
+        bedtools intersect \
+            -a - \
+            -b "$excluded_regions_file" \
+            -v \
+            -f 0.5 -r \
+            -sorted \
+            -g "$genome_file" > "$tmp.sorted.bed"
+        
+        mv "$tmp.sorted.bed" "$tmp"
+    done
+
+    # Log the number of calls after filtering
+    delly_count_after=$(wc -l < "$delly_tmp")
+    cnvpytor_count_after=$(wc -l < "$cnvpytor_tmp")
+    gatk_count_after=$(wc -l < "$gatk_tmp")
+    echo "  ,\"after_excluded_regions\": {" >> "$log_file"
+    echo "    \"delly\": $delly_count_after," >> "$log_file"
+    echo "    \"cnvpytor\": $cnvpytor_count_after," >> "$log_file"
+    echo "    \"gatk\": $gatk_count_after" >> "$log_file"
+    echo "  }" >> "$log_file"
 
     delly_cnvpytor_intersect=$(mktemp)
     delly_gatk_intersect=$(mktemp)
@@ -55,6 +104,16 @@ process_file() {
     bedtools intersect -a "$cnvpytor_tmp" -b "$gatk_tmp" -f 0.5 -r -wa -wb > "$cnvpytor_gatk"
 
     rm "$delly_tmp" "$cnvpytor_tmp" "$gatk_tmp"
+
+    # Log the number of intersecting calls for each pair of tools
+    delly_cnvpytor_count=$(wc -l < "$delly_cnvpytor_intersect")
+    delly_gatk_count=$(wc -l < "$delly_gatk_intersect")
+    cnvpytor_gatk_count=$(wc -l < "$cnvpytor_gatk_intersect")
+    echo "  ,\"intersections\": {" >> "$log_file"
+    echo "    \"delly_cnvpytor\": $delly_cnvpytor_count," >> "$log_file"
+    echo "    \"delly_gatk\": $delly_gatk_count," >> "$log_file"
+    echo "    \"cnvpytor_gatk\": $cnvpytor_gatk_count" >> "$log_file"
+    echo "  }" >> "$log_file"
 
     intersection_file="$outdir/intersections/${base_name%.bed}.intersection.bed"
     union_file="$outdir/unions/${base_name%.bed}.union.bed"
@@ -107,16 +166,24 @@ process_file() {
     deduplicate_tools "$intersection_file"
     deduplicate_tools "$union_file"
 
+    # Close log file with closing brace
+    echo "}" >> "$log_file"
 }
 
 export -f process_file
+
+# Determine number of cores to use for parallel processing (use 2/3 of available cores)
 NCORES=$(nproc)
 NCORES=$((NCORES * 2 / 3))
-
 echo "Processing DEL and DUP files in parallel using $NCORES cores..."
 
+# Create log directory
+log_dir="$outdir/logs/get_consensus_calls"
+mkdir -p "$log_dir"
+
+# Process DEL and DUP files in parallel
 ls "$delly_dir"/*.DEL.bed "$delly_dir"/*.DUP.bed | \
-parallel -j "$NCORES" process_file {}
+parallel -j "$NCORES" process_file {} "$log_dir"
 
 # Post-processing: combine DEL and DUP files for each sample
 echo "Combining DEL and DUP files for each sample..."
@@ -126,18 +193,8 @@ samples=$(ls "$outdir/intersections"/*.intersection.bed | \
     sed 's/.*\///; s/\..*//' | \
     sort -u)
 
-
-# Assert expected number of samples found (if provided)
-if [[ -n "$expected_samples" ]]; then
-    actual_sample_count=$(echo "$samples" | wc -l)
-    if [[ "$actual_sample_count" -ne "$expected_samples" ]]; then
-        echo "Error: Expected $expected_samples samples, but found $actual_sample_count."
-        exit 1
-    fi
-else
-    actual_sample_count=$(echo "$samples" | wc -l)
-    echo "Found $actual_sample_count unique samples."
-fi
+sample_count=$(echo "$samples" | wc -l)
+echo "Found $sample_count unique samples."
 
 for sample in $samples; do
     # Combine intersection files
@@ -147,8 +204,7 @@ for sample in $samples; do
 
     if [[ -f "$intersection_del" ]] && [[ -f "$intersection_dup" ]]; then
         cat "$intersection_del" "$intersection_dup" | \
-        sort -k1,1 -k2,2n > "$intersection_combined"
-        # echo "Created $intersection_combined"
+        bedtools sort -i - -g "$genome_file" > "$intersection_combined"
     fi
 
     # Combine union files
@@ -158,9 +214,28 @@ for sample in $samples; do
 
     if [[ -f "$union_del" ]] && [[ -f "$union_dup" ]]; then
         cat "$union_del" "$union_dup" | \
-        sort -k1,1 -k2,2n > "$union_combined"
-        # echo "Created $union_combined"
+        bedtools sort -i - -g "$genome_file" > "$union_combined"
     fi
 done
+
+# Concatenate all log files into a single json
+master_log_file="$outdir/get_consensus_calls_summary.json"
+echo "{" > "$master_log_file"
+log_files=$(ls "$log_dir"/*.log)
+log_count=$(echo "$log_files" | wc -l)
+echo "Found $log_count log files to summarize."
+for log_file in $log_files; do
+    sample_name=$(basename "$log_file" .log)
+    echo "  \"$sample_name\": " >> "$master_log_file"
+    cat "$log_file" >> "$master_log_file"
+    echo "," >> "$master_log_file"
+done
+
+# Remove the last comma and add closing brace
+sed -i '$ s/,$//' "$master_log_file"
+echo "}" >> "$master_log_file"
+
+# Remove individual log files
+rm -r "$log_dir"
 
 echo "Done!"
