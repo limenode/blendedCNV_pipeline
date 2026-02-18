@@ -173,7 +173,7 @@ output_dir/
 ├── {control 2...}/
 │   └── [same structure as above]
 ├── benchmark_parsing/            # Processed benchmark data
-├── plots/                        # Performance visualizations
+├── figures/                      # Contains plots for various analyses
 └── venn_diagrams/                # Detection overlap diagrams
 ```
 
