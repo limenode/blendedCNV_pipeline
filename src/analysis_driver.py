@@ -306,7 +306,7 @@ def _plot_liftover_results(liftover_results_dict: Dict, output_dir: Path) -> Non
     plt.close()
     print("Saved liftover_results_boxplot.png")
 
-def load_logs(log_dir: Path, samples: Optional[List[str]] = None):
+def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] = None):
 
     # benchmark_processing_results.json
     benchmark_merging_file = log_dir / "benchmark_processing_results.json"
@@ -341,10 +341,12 @@ def load_logs(log_dir: Path, samples: Optional[List[str]] = None):
     print("\nMean Changes by Input Set and Caller:")
     print(grouped_means)
 
-    figures_dir = log_dir / "figures"
+    figures_dir = output_dir / "figures"
+    figures_subdir = figures_dir / "excluded_regions_analysis"
+    figures_subdir.mkdir(parents=True, exist_ok=True)
     _plot_excluded_regions_violin_plots(
         changes_df,
-        output_path=figures_dir / "excluded_regions_analysis.png",
+        output_path=figures_subdir / "excluded_regions.png",
     )
 
     # liftover_results.json
@@ -432,8 +434,9 @@ def get_caller_source_distribution(
     print("\nCaller Source Distribution Summary:")
     print(df.head())
     
-    figures_dir = output_dir / "caller_source_distributions"
-    figures_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir = output_dir / "figures"
+    figures_subdir = figures_dir / "caller_source_distribution"
+    figures_subdir.mkdir(parents=True, exist_ok=True)
     
     # Generate 4 plots: DEL raw, DEL combo, DUP raw, DUP combo
     for svtype in ["DEL", "DUP"]:
@@ -479,7 +482,7 @@ def get_caller_source_distribution(
             plt.tight_layout()
             
             filename = f"{svtype.lower()}_{metric}_boxplot.png"
-            plt.savefig(figures_dir / filename, dpi=150)
+            plt.savefig(figures_subdir / filename, dpi=150)
             plt.close()
             print(f"Saved {filename}")
     
@@ -521,21 +524,20 @@ def main(config: dict):
         input_sets_paths[key_path] = output_dir / key_path / "binary_classification"
         input_name_mapping[key_path] = key    
 
-    # === Test Step 1: Load logs ===
+    # === Log Analysis Step 1: Load logs ===
     log_dir = Path(config['output_dir']) / "logs"
     samples_of_interest = ['HG01890', 'NA19347', 'HG00513', 'HG01596', 'NA19238', 'NA19331', 'HG00096', 'HG00171', 'NA18989', 'HG00268', 'NA20847', 'HG00731', 'NA19129']
-    load_logs(log_dir, samples=samples_of_interest)
-
-
-    return
+    analyze_logs(log_dir, output_dir=output_dir, samples=samples_of_interest)
 
     # === Step 2: Load Data for All Input Sets ===
     all_data = _load_data_for_all_input_sets(input_sets_paths)
     samples = get_samples_from_data(all_data, classification_key='TP')
 
+    # === Log Analysis Step 2: Caller Source Distribution Analysis ===
     sets_to_include_for_distribution = [key for key in all_data.keys() if "intersections" in key]
     get_caller_source_distribution(all_data, sets_to_include_for_distribution, output_dir)
 
+    # === Print summary of loaded data ===
     print("\nSummary of loaded data:")
     for input_set_key, analysis_data in all_data.items():
         print("\ninput_set_key:", input_set_key)
