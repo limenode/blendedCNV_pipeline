@@ -10,6 +10,7 @@ from matplotlib_venn import venn3, venn3_circles
 from scipy.ndimage import gaussian_filter1d
 from multiprocessing import Pool, cpu_count
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import seaborn as sns
 
 from load_analysis_data import filter_by_size
 from utils import generate_size_intervals, DistributionType, SVType
@@ -621,299 +622,174 @@ class CNVPlotter:
         self,
         set_keys: List[str],
         svtype: SVType = SVType.ALL,
-        figsize: Tuple[int, int] = (10, 8),
+        figsize: Tuple[int, int] = (12, 6),
         output_dir: Optional[str | Path] = None,
+        include_benchmark: bool = True,
     ):
         """
-        Generate size distribution plot comparing TP/FP/FN sets for a specific SV type across all input sets.
+        Generate size distribution plots (histogram and KDE) for CNVs.
         
         Args:
-            svtype: SV type to filter by (e.g., 'DEL', 'DUP', or None for all)
+            set_keys: List of input set keys to plot
+            svtype: SV type to filter by (DEL, DUP, or ALL)
             figsize: Figure size tuple
-            output_path: Path to save the plot (if None, plot will be shown instead)
+            output_dir: Directory to save plots (if None, plots will be shown)
+            include_benchmark: Whether to include benchmark truth set in plots
         """
 
-        datasets = defaultdict(dict)
-        # Collect all predicted records from TP + FP for the specified sets and svtype
-        for set_key in set_keys:
-            predicted_records = []
-            for classification in ['TP', 'FP']:
-                df = self.data[set_key].get(classification, None)
-                
-                if df is None or df.empty:
-                    continue
-
-                if svtype != SVType.ALL and 'svtype' in df.columns:
-                    df = df[df['svtype'] == svtype.value]
-                
-                predicted_records.append(df)
-
-            if predicted_records:
-                datasets['pred'][set_key] = pd.concat(predicted_records, ignore_index=True)
-            else:
-                datasets['pred'][set_key] = pd.DataFrame()  # Empty DataFrame if no records found
-            
-        # Collect all truth records from TP + FN for the specified sets and svtype
-        benchmark_records = []
-        for classification in ['TP', 'FN']:
-            df = self.data[set_keys[0]].get(classification, None)
-            
-            if df is None or df.empty:
-                continue
-
-            if svtype != SVType.ALL and 'svtype' in df.columns:
-                df = df[df['svtype'] == svtype.value]
-            
-            benchmark_records.append(df)
-        
-        if benchmark_records:
-            datasets['truth']['Benchmark'] = pd.concat(benchmark_records, ignore_index=True)
-        
-        # Set up color palette
-        cmap = colormaps["tab10"]
-        
         # Prepare output directory
         if output_dir:
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
         
-        # ==================== PLOT 1: HISTOGRAM WITHOUT TRUTH ====================
-        fig, ax = plt.subplots(figsize=figsize)
-        color_idx = 0
-        
-        # Collect all size data to determine common bin range
-        all_size_data = []
-        valid_datasets_pred = []
-        
-        for set_key, df in datasets['pred'].items():
-            if df.empty or 'pred_size' not in df.columns:
-                continue
-            
-            size_data = df['pred_size'].dropna()
-            size_data = size_data[size_data > 0]
-            
-            if len(size_data) == 0:
-                continue
-            
-            all_size_data.extend(size_data.values)
-            valid_datasets_pred.append((set_key, size_data))
-        
-        if len(all_size_data) > 0:
-            log_min = np.log10(min(all_size_data))
-            log_max = np.log10(max(all_size_data))
-            common_bins = np.logspace(log_min, log_max, 51)
-            
-            for set_key, size_data in valid_datasets_pred:
-                display_name = self.input_name_mapping.get(set_key, set_key)
-                color = cmap(color_idx % 10)
-                
-                ax.hist(
-                    size_data,
-                    bins=common_bins,
-                    density=True,
-                    histtype='step',
-                    label=display_name,
-                    color=color,
-                    linewidth=2,
-                    alpha=0.8
-                )
-                color_idx += 1
-        
-        ax.set_xlabel("Size (bp)", fontsize=12)
-        ax.set_ylabel("Density", fontsize=12)
-        ax.set_xscale('log')
         svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
-        ax.set_title(f"CNV Size Distribution - Histogram (exclude Truth Set){svtype_str}", fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10, loc='best')
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
         
-        if output_dir:
-            histogram_no_truth_path = output_dir / f"size_distribution_histogram_no_truth{svtype_str.replace(' ', '_')}.png"
-            plt.savefig(histogram_no_truth_path, dpi=300, bbox_inches='tight')
-            print(f"✓ Histogram (exclude truth set) saved to: {histogram_no_truth_path}")
-        else:
-            plt.show()
-        plt.close()
+        # Collect all data into a single DataFrame
+        all_data = []
         
-        # ==================== PLOT 2: HISTOGRAM WITH TRUTH ====================
-        fig, ax = plt.subplots(figsize=figsize)
-        color_idx = 0
-        
-        # Collect all size data including truth
-        all_size_data_with_truth = all_size_data.copy()
-        valid_datasets_with_truth = valid_datasets_pred.copy()
-        
-        if 'Benchmark' in datasets['truth']:
-            truth_df = datasets['truth']['Benchmark']
-            if not truth_df.empty and 'truth_size' in truth_df.columns:
-                truth_size_data = truth_df['truth_size'].dropna()
-                truth_size_data = truth_size_data[truth_size_data > 0]
+        # Collect prediction data (TP + FP)
+        for set_key in set_keys:
+            for classification in ['TP', 'FP']:
+                df = self.data[set_key].get(classification)
+                if df is None or df.empty or 'pred_size' not in df.columns:
+                    continue
                 
-                if len(truth_size_data) > 0:
-                    all_size_data_with_truth.extend(truth_size_data.values)
-                    valid_datasets_with_truth.append(('Benchmark', truth_size_data))
-        
-        if len(all_size_data_with_truth) > 0:
-            log_min = np.log10(min(all_size_data_with_truth))
-            log_max = np.log10(max(all_size_data_with_truth))
-            common_bins = np.logspace(log_min, log_max, 51)
-            
-            for set_key, size_data in valid_datasets_with_truth:
-                if set_key == 'Benchmark':
-                    display_name = 'Benchmark (Truth)'
-                else:
+                # Apply svtype filter
+                if svtype != SVType.ALL and 'svtype' in df.columns:
+                    df = df[df['svtype'] == svtype.value].copy()
+                
+                # Extract sizes and add metadata
+                sizes = df['pred_size'].dropna()
+                sizes = sizes[sizes > 0]
+                
+                if len(sizes) > 0:
                     display_name = self.input_name_mapping.get(set_key, set_key)
-                color = cmap(color_idx % 10)
+                    temp_df = pd.DataFrame({
+                        'size': sizes,
+                        'source': display_name,
+                        'type': 'prediction'
+                    })
+                    all_data.append(temp_df)
+        
+        # Collect benchmark data (TP + FN) if requested
+        if include_benchmark and set_keys:
+            for classification in ['TP', 'FN']:
+                df = self.data[set_keys[0]].get(classification)
+                if df is None or df.empty or 'truth_size' not in df.columns:
+                    continue
                 
-                ax.hist(
-                    size_data,
-                    bins=common_bins,
-                    density=True,
-                    histtype='step',
-                    label=display_name,
-                    color=color,
-                    linewidth=2,
-                    alpha=0.8
-                )
-                color_idx += 1
+                # Apply svtype filter
+                if svtype != SVType.ALL and 'svtype' in df.columns:
+                    df = df[df['svtype'] == svtype.value].copy()
+                
+                # Extract sizes and add metadata
+                sizes = df['truth_size'].dropna()
+                sizes = sizes[sizes > 0]
+                
+                if len(sizes) > 0:
+                    temp_df = pd.DataFrame({
+                        'size': sizes,
+                        'source': 'Benchmark (Truth)',
+                        'type': 'benchmark'
+                    })
+                    all_data.append(temp_df)
         
-        ax.set_xlabel("Size (bp)", fontsize=12)
-        ax.set_ylabel("Density", fontsize=12)
-        ax.set_xscale('log')
-        ax.set_title(f"CNV Size Distribution - Histogram (include Truth Set){svtype_str}", fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10, loc='best')
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
+        # Combine all data
+        if not all_data:
+            print("Warning: No data available for plotting.")
+            return
         
-        if output_dir:
-            histogram_with_truth_path = output_dir / f"size_distribution_histogram_with_truth{svtype_str.replace(' ', '_')}.png"
-            plt.savefig(histogram_with_truth_path, dpi=300, bbox_inches='tight')
-            print(f"✓ Histogram (include truth set) saved to: {histogram_with_truth_path}")
-        else:
-            plt.show()
-        plt.close()
+        plot_df = pd.concat(all_data, ignore_index=True)
+
+        # Get min and max sizes for setting x-axis limits
+        min_size = plot_df['size'].min()
+        max_size = plot_df['size'].max()
         
-        # ==================== PLOT 3: KDE WITHOUT TRUTH ====================
+        # ==================== PLOT 1: HISTOGRAM ====================
         fig, ax = plt.subplots(figsize=figsize)
-        color_idx = 0
         
-        for set_key, size_data in valid_datasets_pred:
-            display_name = self.input_name_mapping.get(set_key, set_key)
-            color = cmap(color_idx % 10)
-            
-            if len(size_data) < 2:
-                print(f"Warning: Insufficient data for KDE for '{display_name}'. Skipping.")
-                color_idx += 1
-                continue
-            
-            # Compute KDE on log-transformed data
-            log_data = np.log10(size_data)
-            
-            try:
-                from scipy.stats import gaussian_kde
-                kde = gaussian_kde(log_data)
-                
-                log_min = log_data.min()
-                log_max = log_data.max()
-                log_range = log_max - log_min
-                log_eval = np.linspace(log_min - 0.1 * log_range, log_max + 0.1 * log_range, 500)
-                
-                density = kde(log_eval)
-                eval_points = 10 ** log_eval
-                
-                ax.plot(
-                    eval_points,
-                    density,
-                    label=display_name,
-                    color=color,
-                    linewidth=2.5,
-                    alpha=0.8
-                )
-            except Exception as e:
-                print(f"Warning: Could not compute KDE for '{display_name}': {e}")
-            
-            color_idx += 1
+        sns.histplot(
+            data=plot_df,
+            x='size',
+            hue='source',
+            log_scale=True,
+            element='step',
+            stat='density',
+            common_norm=False,
+            linewidth=2,
+            legend=True,
+            ax=ax
+        )
         
         ax.set_xlabel("Size (bp)", fontsize=12)
         ax.set_ylabel("Density", fontsize=12)
-        ax.set_xscale('log')
-        ax.set_title(f"CNV Size Distribution - KDE (exclude Truth Set){svtype_str}", fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10, loc='best')
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
+        ax.set_xlim(min_size * 0.9, max_size * 1.1)
+        title_suffix = " (with Benchmark)" if include_benchmark else ""
+        ax.set_title(f"CNV Size Distribution - Histogram{svtype_str}{title_suffix}", 
+                    fontsize=14, fontweight='bold')
         
-        if output_dir:
-            kde_no_truth_path = output_dir / f"size_distribution_kde_no_truth{svtype_str.replace(' ', '_')}.png"
-            plt.savefig(kde_no_truth_path, dpi=300, bbox_inches='tight')
-            print(f"✓ KDE (exclude truth set) saved to: {kde_no_truth_path}")
-        else:
-            plt.show()
-        plt.close()
-        
-        # ==================== PLOT 4: KDE WITH TRUTH ====================
-        fig, ax = plt.subplots(figsize=figsize)
-        color_idx = 0
-        
-        for set_key, size_data in valid_datasets_with_truth:
-            if set_key == 'Benchmark':
-                display_name = 'Benchmark (Truth)'
-            else:
-                display_name = self.input_name_mapping.get(set_key, set_key)
-            color = cmap(color_idx % 10)
-            
-            if len(size_data) < 2:
-                print(f"Warning: Insufficient data for KDE for '{display_name}'. Skipping.")
-                color_idx += 1
-                continue
-            
-            # Compute KDE on log-transformed data
-            log_data = np.log10(size_data)
-            
-            try:
-                from scipy.stats import gaussian_kde
-                kde = gaussian_kde(log_data)
-                
-                log_min = log_data.min()
-                log_max = log_data.max()
-                log_range = log_max - log_min
-                log_eval = np.linspace(log_min - 0.1 * log_range, log_max + 0.1 * log_range, 500)
-                
-                density = kde(log_eval)
-                eval_points = 10 ** log_eval
-                
-                ax.plot(
-                    eval_points,
-                    density,
-                    label=display_name,
-                    color=color,
-                    linewidth=2.5,
-                    alpha=0.8
-                )
-            except Exception as e:
-                print(f"Warning: Could not compute KDE for '{display_name}': {e}")
-            
-            color_idx += 1
-        
-        ax.set_xlabel("Size (bp)", fontsize=12)
-        ax.set_ylabel("Density", fontsize=12)
-        ax.set_xscale('log')
-        ax.set_title(f"CNV Size Distribution - KDE (include Truth Set){svtype_str}", fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10, loc='best')
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        
-        if output_dir:
-            kde_with_truth_path = output_dir / f"size_distribution_kde_with_truth{svtype_str.replace(' ', '_')}.png"
-            plt.savefig(kde_with_truth_path, dpi=300, bbox_inches='tight')
-            print(f"✓ KDE (include truth set) saved to: {kde_with_truth_path}")
-        else:
-            plt.show()
-        plt.close()
-        
-        print(f"\n✓ All 4 size distribution plots completed!")
+        # Customize legend
+        legend = ax.get_legend()
+        if legend:
+            legend.set_title('Source')
+            plt.setp(legend.get_texts(), fontsize=10)
+            plt.setp(legend.get_title(), fontsize=10)
 
 
-            
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        if output_dir:
+            histogram_path = output_dir / f"size_distribution_histogram{svtype_str.replace(' ', '_')}.png"
+            plt.savefig(histogram_path, dpi=300, bbox_inches='tight')
+            print(f"✓ Histogram saved to: {histogram_path}")
+        else:
+            plt.show()
+        plt.close()
+        
+        # ==================== PLOT 2: KDE ====================
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        sns.kdeplot(
+            data=plot_df,
+            x='size',
+            hue='source',
+            log_scale=True,
+            common_norm=False,
+            fill=True,
+            alpha=0.4,
+            linewidth=2.5,
+            legend=True,
+            ax=ax
+        )
+        
+        ax.set_xlabel("Size (bp)", fontsize=12)
+        ax.set_ylabel("Density", fontsize=12)
+        ax.set_xlim(min_size * 0.9, max_size * 1.1)
+        ax.set_title(f"CNV Size Distribution - KDE{svtype_str}{title_suffix}", 
+                    fontsize=14, fontweight='bold')
+        
+        # Customize legend
+        legend = ax.get_legend()
+        if legend:
+            legend.set_title('Source')
+            plt.setp(legend.get_texts(), fontsize=10)
+            plt.setp(legend.get_title(), fontsize=10)
+
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        if output_dir:
+            kde_path = output_dir / f"size_distribution_kde{svtype_str.replace(' ', '_')}.png"
+            plt.savefig(kde_path, dpi=300, bbox_inches='tight')
+            print(f"✓ KDE saved to: {kde_path}")
+        else:
+            plt.show()
+        plt.close()
+        
+        print(f"✓ Size distribution plots completed!")
+
+
+
 
             
