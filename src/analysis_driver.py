@@ -9,7 +9,7 @@ from matplotlib.patches import Rectangle
 import numpy as np
 from collections import defaultdict
 
-from load_analysis_data import build_analysis_data_structure, print_summary_statistics, filter_by_size
+from load_analysis_data import build_analysis_data_structure, filter_by_size
 from cnv_plotter import CNVPlotter
 from utils import precision, recall, f1_score
     
@@ -353,140 +353,11 @@ def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] =
     liftover_results_file = log_dir / "liftover_results.json"
     if liftover_results_file.exists():
         liftover_results_dict = json.loads(liftover_results_file.read_text())
-        _plot_liftover_results(liftover_results_dict, log_dir / "figures")
+        _plot_liftover_results(liftover_results_dict, figures_dir / "liftover_results")
     else:
         print(f"Warning: Liftover results file not found: {liftover_results_file}")
 
-    
-def get_caller_source_distribution(
-        all_data: Dict[str, Dict[str, pd.DataFrame]], 
-        input_sets_to_include: List[str], 
-        output_dir: Path
-    ):
-    """
-    Analyze caller source distributions per sample and svtype, then generate box plots.
-    
-    Args:
-        all_data: Dictionary of analysis data per input set
-        output_dir: Directory to save plots
-    """
-    rows = []
 
-    for input_set_key, analysis_data in all_data.items():
-        if input_set_key not in input_sets_to_include:
-            print(f"Skipping input set '{input_set_key}' for caller source distribution analysis")
-            continue
-
-        if "TP" in analysis_data:
-            tp_df = analysis_data["TP"]
-            if "sources" in tp_df.columns and "sample" in tp_df.columns and "svtype" in tp_df.columns:
-                # Group by sample and svtype
-                for (sample, svtype), group in tp_df.groupby(["sample", "svtype"]):
-                    raw_caller_counts = defaultdict(int)
-                    combination_counts = defaultdict(int)
-                    
-                    total_calls = len(group["sources"].dropna())
-                    
-                    if total_calls == 0:
-                        continue
-                    
-                    for source_list in group["sources"].dropna():
-                        sources = source_list.split("|")
-                        
-                        # Count raw caller occurrences
-                        for source in sources:
-                            raw_caller_counts[source] += 1
-                        
-                        # Count combinations
-                        combination_key = "|".join(sorted(sources))
-                        combination_counts[combination_key] += 1
-                    
-                    # Add raw caller percentages as separate rows
-                    for caller, count in raw_caller_counts.items():
-                        percentage = (count / total_calls) * 100
-                        rows.append({
-                            "input_set": input_set_key,
-                            "sample": sample,
-                            "svtype": svtype,
-                            "metric": "raw_count",
-                            "caller_or_combination": caller,
-                            "percentage": percentage,
-                        })
-                    
-                    # Add combination percentages as separate rows
-                    for combination, count in combination_counts.items():
-                        percentage = (count / total_calls) * 100
-                        rows.append({
-                            "input_set": input_set_key,
-                            "sample": sample,
-                            "svtype": svtype,
-                            "metric": "combination_count",
-                            "caller_or_combination": combination,
-                            "percentage": percentage,
-                        })
-
-    df = pd.DataFrame(rows)
-    
-    if df.empty:
-        print("No source distribution data found")
-        return df
-    
-    print("\nCaller Source Distribution Summary:")
-    print(df.head())
-    
-    figures_dir = output_dir / "figures"
-    figures_subdir = figures_dir / "caller_source_distribution"
-    figures_subdir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate 4 plots: DEL raw, DEL combo, DUP raw, DUP combo
-    for svtype in ["DEL", "DUP"]:
-        for metric in ["raw_count", "combination_count"]:
-            subset = df[(df["svtype"] == svtype) & (df["metric"] == metric)]
-            
-            if subset.empty:
-                print(f"No data for {svtype} {metric}")
-                continue
-            
-            # Get unique callers/combinations
-            entities = sorted(subset["caller_or_combination"].unique())
-            
-            fig, ax = plt.subplots(figsize=(max(10, len(entities) * 1.5), 6))
-            
-            # Prepare data for box plot
-            data_to_plot = []
-            labels = []
-            for entity in entities:
-                entity_data = subset[subset["caller_or_combination"] == entity]["percentage"].values
-                if len(entity_data) > 0:
-                    data_to_plot.append(entity_data)
-                    labels.append(entity)
-            
-            if data_to_plot:
-                bp = ax.boxplot(data_to_plot, tick_labels=labels, patch_artist=True, showfliers=True)
-                
-                # Style boxes
-                for box in bp['boxes']:
-                    box.set_facecolor('lightblue')
-                    box.set_alpha(0.5)
-                
-                # Overlay individual points with jitter
-                for i, vals in enumerate(data_to_plot, start=1):
-                    jitter = np.random.normal(loc=0, scale=0.04, size=len(vals))
-                    ax.scatter(np.full(len(vals), i) + jitter, vals, s=15, alpha=0.6, color='black')
-            
-            metric_label = "Raw Caller" if metric == "raw_count" else "Caller Combination"
-            ax.set_title(f"{svtype} {metric_label} Distribution", fontsize=14, fontweight='bold')
-            ax.set_ylabel("Percentage per Sample (%)")
-            ax.set_xlabel("Caller" if metric == "raw_count" else "Caller Combination")
-            plt.xticks(rotation=45, ha='right')
-            plt.tight_layout()
-            
-            filename = f"{svtype.lower()}_{metric}_boxplot.png"
-            plt.savefig(figures_subdir / filename, dpi=150)
-            plt.close()
-            print(f"Saved {filename}")
-    
-    return df
 
 def main(config: dict):
     """
@@ -533,10 +404,6 @@ def main(config: dict):
     all_data = _load_data_for_all_input_sets(input_sets_paths)
     samples = get_samples_from_data(all_data, classification_key='TP')
 
-    # === Log Analysis Step 2: Caller Source Distribution Analysis ===
-    sets_to_include_for_distribution = [key for key in all_data.keys() if "intersections" in key]
-    get_caller_source_distribution(all_data, sets_to_include_for_distribution, output_dir)
-
     # === Print summary of loaded data ===
     print("\nSummary of loaded data:")
     for input_set_key, analysis_data in all_data.items():
@@ -570,6 +437,13 @@ def main(config: dict):
     plotter.plot_size_distribution(
         set_keys=list(all_data.keys()),
         output_dir=output_dir / "figures" / "size_distributions",
+    )
+
+    # === Log Analysis Step 2: Caller Source Distribution Analysis ===
+    sets_to_include_for_distribution = [key for key in all_data.keys() if "intersections" in key]
+    plotter.get_caller_source_distribution(
+        sets_to_include_for_distribution, 
+        output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png"
     )
 
 

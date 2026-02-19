@@ -4,6 +4,7 @@ from enum import Enum
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
 from matplotlib_venn import venn3, venn3_circles
@@ -11,6 +12,8 @@ from scipy.ndimage import gaussian_filter1d
 from multiprocessing import Pool, cpu_count
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import seaborn as sns
+from matplotlib.patches import Rectangle
+import os
 
 from load_analysis_data import filter_by_size
 from utils import generate_size_intervals, DistributionType, SVType
@@ -789,7 +792,211 @@ class CNVPlotter:
         
         print(f"✓ Size distribution plots completed!")
 
+    def get_caller_source_distribution(
+            self,
+            input_sets_to_include: List[str], 
+            output_file: Path
+        ):
+        """
+        Analyze caller source distributions per sample and svtype, then generate box plots.
+        
+        Args:
+            all_data: Dictionary of analysis data per input set
+            output_dir: Directory to save plots
+        """
+        rows = []
 
+        for input_set_key, analysis_data in self.data.items():
+            if input_set_key not in input_sets_to_include:
+                print(f"Skipping input set '{input_set_key}' for caller source distribution analysis")
+                continue
 
+            if "TP" in analysis_data:
+                tp_df = analysis_data["TP"]
+                if "sources" in tp_df.columns and "sample" in tp_df.columns and "svtype" in tp_df.columns:
+                    # Group by sample and svtype
+                    for (sample, svtype), group in tp_df.groupby(["sample", "svtype"]):
+                        raw_caller_counts = defaultdict(int)
+                        combination_counts = defaultdict(int)
+                        
+                        total_calls = len(group["sources"].dropna())
+                        
+                        if total_calls == 0:
+                            continue
+                        
+                        for source_list in group["sources"].dropna():
+                            sources = source_list.split("|")
+                            
+                            # Count raw caller occurrences
+                            for source in sources:
+                                raw_caller_counts[source] += 1
+                            
+                            # Count combinations
+                            combination_key = "|".join(sorted(sources))
+                            combination_counts[combination_key] += 1
+                        
+                        # Add raw caller percentages as separate rows
+                        for caller, count in raw_caller_counts.items():
+                            percentage = (count / total_calls) * 100
+                            rows.append({
+                                "input_set": input_set_key,
+                                "sample": sample,
+                                "svtype": svtype,
+                                "metric": "raw_count",
+                                "caller_or_combination": caller,
+                                "percentage": percentage,
+                            })
+                        
+                        # Add combination percentages as separate rows
+                        for combination, count in combination_counts.items():
+                            percentage = (count / total_calls) * 100
+                            rows.append({
+                                "input_set": input_set_key,
+                                "sample": sample,
+                                "svtype": svtype,
+                                "metric": "combination_count",
+                                "caller_or_combination": combination,
+                                "percentage": percentage,
+                            })
 
+        df = pd.DataFrame(rows)
+        
+        if df.empty:
+            print("No source distribution data found")
+            return df
+        
+        print("\nCaller Source Distribution Summary:")
+        print(df.head())
+        
+        # Custom sorting function: most combinations first (by count), then alphabetically
+        def sort_key(entity):
+            parts = entity.split("|")
+            return (-len(parts), entity)
+        
+        # Get unique input sets
+        input_sets = sorted(df["input_set"].unique())
+        num_input_sets = len(input_sets)
+        
+        # Create a single figure with 4 subplots (2x2 grid)
+        fig, axes = plt.subplots(2, 2, figsize=(24, 14))
+        
+        # Define the layout: (row, col, svtype, metric, metric_label)
+        plot_config = [
+            (0, 0, "DEL", "raw_count", "Raw Caller"),
+            (0, 1, "DEL", "combination_count", "Caller Combination"),
+            (1, 0, "DUP", "raw_count", "Raw Caller"),
+            (1, 1, "DUP", "combination_count", "Caller Combination"),
+        ]
+        
+        # Get all unique entities across all subplots for consistent coloring
+        all_entities_raw = set()
+        all_entities_combo = set()
+        for svtype in ["DEL", "DUP"]:
+            for metric in ["raw_count", "combination_count"]:
+                subset = df[(df["svtype"] == svtype) & (df["metric"] == metric)]
+                if metric == "raw_count":
+                    all_entities_raw.update(subset["caller_or_combination"].unique())
+                else:
+                    all_entities_combo.update(subset["caller_or_combination"].unique())
+        
+        # Sort entities
+        entities_raw_sorted = sorted(all_entities_raw, key=sort_key)
+        entities_combo_sorted = sorted(all_entities_combo, key=sort_key)
+        
+        # Create color mappings for entities (callers/combinations)
+        colors_raw = matplotlib.colormaps['tab10'](np.linspace(0, 1, max(len(entities_raw_sorted), 1)))
+        colors_combo = matplotlib.colormaps['tab20'](np.linspace(0, 1, max(len(entities_combo_sorted), 1)))
+        
+        color_map_raw = {entity: colors_raw[i] for i, entity in enumerate(entities_raw_sorted)}
+        color_map_combo = {entity: colors_combo[i] for i, entity in enumerate(entities_combo_sorted)}
+        
+        # Create color mapping for input sets (different patterns/shades)
+        input_set_colors = matplotlib.colormaps['Set2'](np.linspace(0, 1, num_input_sets))
+        input_set_color_map = {input_set: input_set_colors[i] for i, input_set in enumerate(input_sets)}
+        
+        # Generate each subplot
+        for row, col, svtype, metric, metric_label in plot_config:
+            ax = axes[row, col]
+            subset = df[(df["svtype"] == svtype) & (df["metric"] == metric)]
             
+            if subset.empty:
+                ax.text(0.5, 0.5, f'No data', ha='center', va='center', transform=ax.transAxes)
+                ax.set_title(f"{svtype} {metric_label}", fontsize=12, fontweight='bold')
+                continue
+            
+            # Get sorted entities for this subplot
+            if metric == "raw_count":
+                entities = [e for e in entities_raw_sorted if e in subset["caller_or_combination"].values]
+                entity_color_map = color_map_raw
+            else:
+                entities = [e for e in entities_combo_sorted if e in subset["caller_or_combination"].values]
+                entity_color_map = color_map_combo
+            
+            # Calculate positions for grouped box plots
+            box_width = 0.8 / num_input_sets
+            group_gap = 1.0
+            
+            all_positions = []
+            all_entity_data = []
+            all_colors = []
+            
+            # Prepare data grouped by entity, with input sets side-by-side
+            for entity_idx, entity in enumerate(entities):
+                base_position = entity_idx * group_gap + 1
+                
+                for input_set_idx, input_set in enumerate(input_sets):
+                    entity_input_data = subset[
+                        (subset["caller_or_combination"] == entity) & 
+                        (subset["input_set"] == input_set)
+                    ]["percentage"].values
+                    
+                    if len(entity_input_data) > 0:
+                        position = base_position + (input_set_idx - (num_input_sets - 1) / 2) * box_width
+                        all_positions.append(position)
+                        all_entity_data.append(entity_input_data)
+                        all_colors.append(input_set_color_map[input_set])
+            
+            if all_entity_data:
+                # Create box plots
+                bp = ax.boxplot(all_entity_data, positions=all_positions, widths=box_width * 0.8, 
+                            patch_artist=True, showfliers=False)
+                
+                # Style boxes with input set colors
+                for box, color in zip(bp['boxes'], all_colors):
+                    box.set_facecolor(color)
+                    box.set_alpha(0.7)
+                    box.set_linewidth(1.5)
+                
+                # Overlay individual points with jitter
+                for pos, vals, color in zip(all_positions, all_entity_data, all_colors):
+                    jitter = np.random.normal(loc=0, scale=box_width * 0.15, size=len(vals))
+                    ax.scatter(np.full(len(vals), pos) + jitter, vals, s=20, alpha=0.6, 
+                            color='black', zorder=3)
+            
+            # Set x-axis labels at entity group centers
+            entity_positions = [i * group_gap + 1 for i in range(len(entities))]
+            ax.set_xticks(entity_positions)
+            ax.set_xticklabels(entities, rotation=45, ha='right')
+            ax.set_xlim(0.5, len(entities) * group_gap + 0.5)
+            
+            ax.set_title(f"{svtype} {metric_label}", fontsize=12, fontweight='bold')
+            ax.set_ylabel("Percentage per Sample (%)")
+            ax.set_xlabel("Caller" if metric == "raw_count" else "Caller Combination")
+            ax.grid(axis='y', alpha=0.3, linestyle='--')
+        
+        # Create legend for input sets (only once, placed at the top)
+        legend_elements = [Rectangle((0, 0), 1, 1, fc=input_set_color_map[input_set], 
+                                        alpha=0.7, label=self.input_name_mapping.get(input_set, input_set)) 
+                        for input_set in input_sets]
+        fig.legend(handles=legend_elements, loc='upper center', ncol=num_input_sets, 
+                bbox_to_anchor=(0.5, 0.98), fontsize=10, frameon=True)
+        
+        plt.suptitle("Caller Source Distribution by Input Set", fontsize=16, fontweight='bold', y=0.995)
+        plt.tight_layout(rect=(0, 0, 1, 0.96))
+        
+        os.makedirs(output_file.parent, exist_ok=True)
+        plt.savefig(output_file, dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"Saved {output_file} with caller source distribution box plots")
+        
+        return df

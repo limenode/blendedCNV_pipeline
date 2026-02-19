@@ -68,7 +68,7 @@ process_file() {
             -a - \
             -b "$excluded_regions_file" \
             -v \
-            -f 0.5 -r \
+            -f 0.5 \
             -sorted \
             -g "$genome_file" > "$tmp.sorted.bed"
         
