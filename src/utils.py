@@ -6,7 +6,7 @@ from enum import Enum
 
 
 class DistributionType(Enum):
-    HISTOGRAM = "histogram"
+    DENSITY = "density"
     CUMULATIVE = "cumulative"
     COMPLEMENTARY_CUMULATIVE = "complementary_cumulative"
 
@@ -24,14 +24,14 @@ def generate_size_intervals_old(
     start: float, 
     end: float, 
     n_points: int, 
-    distribution_type: DistributionType = DistributionType.HISTOGRAM
+    distribution_type: DistributionType = DistributionType.DENSITY
 ) -> List[Tuple[float, float]]:
     """
     Generate size intervals for different distribution analyses.
     
     Creates logarithmically-spaced points and generates intervals based on the
     distribution type:
-    - histogram: Adjacent pairs (bin intervals)
+    - density: Adjacent pairs (bin intervals)
     - cumulative: Start value to each point (cumulative from beginning)
     - complementary_cumulative: Each point to end value (cumulative from end)
     
@@ -44,7 +44,7 @@ def generate_size_intervals_old(
         List of (lower, upper) tuples representing size intervals
     
     Examples:
-        >>> generate_size_intervals(1e3, 1e6, 10, "histogram")
+        >>> generate_size_intervals(1e3, 1e6, 10, "density")
         [(1000, 2154), (2154, 4642), ..., (464159, 1000000)]
         
         >>> generate_size_intervals(1e3, 1e6, 10, "cumulative")
@@ -58,8 +58,8 @@ def generate_size_intervals_old(
     
     intervals = []
     
-    if distribution_type == DistributionType.HISTOGRAM:
-        # Adjacent pairs: bin intervals for histogram
+    if distribution_type == DistributionType.DENSITY:
+        # Adjacent pairs: bin intervals for density distribution
         for i in range(len(points) - 1):
             intervals.append((points[i], points[i + 1]))
     
@@ -82,7 +82,7 @@ def generate_size_intervals_old(
     else:
         raise ValueError(
             f"Unknown distribution_type: '{distribution_type}'. "
-            f"Must be 'histogram', 'cumulative', or 'complementary_cumulative'"
+            f"Must be 'density', 'cumulative', or 'complementary_cumulative'"
         )
     
     return intervals

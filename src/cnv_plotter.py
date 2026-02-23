@@ -101,25 +101,25 @@ def _process_input_sv_combination_worker(args):
         })
     
     # Pass 2: Store raw counts for ALL distribution types using set operations
-    histogram_data = {'x': [], 'tp_count': [], 'fp_count': [], 'fn_count': []}
+    density_data = {'x': [], 'tp_count': [], 'fp_count': [], 'fn_count': []}
     cumulative_data = {'x': [], 'tp_count': [], 'fp_count': [], 'fn_count': []}
     complementary_cumulative_data = {'x': [], 'tp_count': [], 'fp_count': [], 'fn_count': []}
     
-    # First pass: compute histogram data
+    # First pass: compute density distribution data
     for interval_info in interval_data:
         lower = interval_info['lower']
         upper = interval_info['upper']
         
-        tp_count_hist = len(interval_info['tp_ids'])
-        fp_count_hist = len(interval_info['fp_ids'])
-        fn_count_hist = len(interval_info['fn_ids'])
+        tp_count_density = len(interval_info['tp_ids'])
+        fp_count_density = len(interval_info['fp_ids'])
+        fn_count_density = len(interval_info['fn_ids'])
         
-        x_value_hist = np.sqrt(lower * upper)  # Geometric mean for log scale
+        x_value_density = np.sqrt(lower * upper)  # Geometric mean for log scale
         
-        histogram_data['x'].append(x_value_hist)
-        histogram_data['tp_count'].append(tp_count_hist)
-        histogram_data['fp_count'].append(fp_count_hist)
-        histogram_data['fn_count'].append(fn_count_hist)
+        density_data['x'].append(x_value_density)
+        density_data['tp_count'].append(tp_count_density)
+        density_data['fp_count'].append(fp_count_density)
+        density_data['fn_count'].append(fn_count_density)
     
     # Second pass: compute cumulative data with single forward pass
     tp_set_cum = set()
@@ -154,11 +154,11 @@ def _process_input_sv_combination_worker(args):
     # Convert to numpy arrays and return
     key = (input_set_name, svtype)
     result = {
-        DistributionType.HISTOGRAM: {
-            'x': np.array(histogram_data['x']),
-            'tp_count': np.array(histogram_data['tp_count']),
-            'fp_count': np.array(histogram_data['fp_count']),
-            'fn_count': np.array(histogram_data['fn_count'])
+        DistributionType.DENSITY: {
+            'x': np.array(density_data['x']),
+            'tp_count': np.array(density_data['tp_count']),
+            'fp_count': np.array(density_data['fp_count']),
+            'fn_count': np.array(density_data['fn_count'])
         },
         DistributionType.CUMULATIVE: {
             'x': np.array(cumulative_data['x']),
@@ -210,7 +210,7 @@ class CNVPlotter:
         
         # Initialize data structure for all distribution types
         data_by_distribution = {
-            DistributionType.HISTOGRAM: {},
+            DistributionType.DENSITY: {},
             DistributionType.CUMULATIVE: {},
             DistributionType.COMPLEMENTARY_CUMULATIVE: {}
         }
@@ -273,7 +273,7 @@ class CNVPlotter:
         """
         Generate and plot statistical distributions of CNV performance metrics across size ranges.
         
-        Creates three separate plots per metric (one for each distribution type: histogram, 
+        Creates three separate plots per metric (one for each distribution type: density, 
         cumulative, complementary_cumulative), each containing curves for all input_set/svtype 
         combinations.
         
@@ -630,7 +630,7 @@ class CNVPlotter:
         include_benchmark: bool = True,
     ):
         """
-        Generate size distribution plots (histogram and KDE) for CNVs.
+        Generate size distribution plots (bin density and KDE) for CNVs.
         
         Args:
             set_keys: List of input set keys to plot
@@ -708,7 +708,7 @@ class CNVPlotter:
         min_size = plot_df['size'].min()
         max_size = plot_df['size'].max()
         
-        # ==================== PLOT 1: HISTOGRAM ====================
+        # ==================== PLOT 1: BINNED DENSITY ====================
         fig, ax = plt.subplots(figsize=figsize)
         
         sns.histplot(
@@ -728,7 +728,7 @@ class CNVPlotter:
         ax.set_ylabel("Density", fontsize=12)
         ax.set_xlim(min_size * 0.9, max_size * 1.1)
         title_suffix = " (with Benchmark)" if include_benchmark else ""
-        ax.set_title(f"CNV Size Distribution - Histogram{svtype_str}{title_suffix}", 
+        ax.set_title(f"CNV Size Distribution - Binned Density{svtype_str}{title_suffix}", 
                     fontsize=14, fontweight='bold')
         
         # Customize legend
@@ -743,9 +743,9 @@ class CNVPlotter:
         plt.tight_layout()
         
         if output_dir:
-            histogram_path = output_dir / f"size_distribution_histogram{svtype_str.replace(' ', '_')}.png"
-            plt.savefig(histogram_path, dpi=300, bbox_inches='tight')
-            print(f"✓ Histogram saved to: {histogram_path}")
+            density_path = output_dir / f"size_distribution_binned_density{svtype_str.replace(' ', '_')}.png"
+            plt.savefig(density_path, dpi=300, bbox_inches='tight')
+            print(f"✓ Binned density plot saved to: {density_path}")
         else:
             plt.show()
         plt.close()
