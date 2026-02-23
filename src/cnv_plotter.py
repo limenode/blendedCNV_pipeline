@@ -615,7 +615,7 @@ class CNVPlotter:
                 pct_method = (count / method_count) * 100 if method_count > 0 else 0
                 method_name = self.input_name_mapping.get(set_keys[i], set_keys[i])
                 pct_each_method.append(f"{method_name}: {pct_method:.1f}%")
-            pct_each_method_str = "| ".join(pct_each_method)
+            pct_each_method_str = " | ".join(pct_each_method)
             
             print(f"  Combination {comb}: {count} ({detected:.1f}% of detected, {pct_truth:.1f}% of truth)")
             print(f"    - {pct_each_method_str}")
