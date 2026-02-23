@@ -14,7 +14,7 @@ from cnv_plotter import CNVPlotter
 from utils import precision, recall, f1_score
     
 
-def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samples_only: bool = True) -> Dict[str, Dict[str, pd.DataFrame]]:
+def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samples_only: bool = True, bounds: Tuple[int, int] = (500, 1_000_000)) -> Dict[str, Dict[str, pd.DataFrame]]:
     all_data = {}
     sample_sets = []
     shared_samples = None
@@ -61,10 +61,100 @@ def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samp
     # Second pass to load data with optional filtering by shared samples
     for input_set_key, input_set_path in input_sets_paths.items():
         analysis_data = build_analysis_data_structure(input_set_path, samples_to_include=shared_samples)
-        filtered_data = filter_by_size(analysis_data, lower_bound=500, upper_bound=1_000_000, strict=True)
+        filtered_data = filter_by_size(analysis_data, lower_bound=bounds[0], upper_bound=bounds[1], strict=True)
         all_data[input_set_key] = filtered_data
     
     return all_data
+
+def get_counts_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]]) -> dict:
+    """
+    Extract call counts for all input sets and benchmark data.
+    
+    For each input set, retrieves TP + FP (total calls made by method).
+    Benchmark data (TP + FN) is extracted from all input sets, verified to be identical,
+    and stored only once.
+    
+    Args:
+        all_data: Dictionary with structure {input_set: {classification: DataFrame}}
+    
+    Returns:
+        Dictionary with call counts for each input set plus benchmark:
+        {
+            'input_set_name': {
+                'call_count': {
+                    'total': <int>,
+                    'avg_per_sample': <float>,
+                    'by_sample': {sample: count, ...}
+                }
+            },
+            ...,
+            'Benchmark': {
+                'call_count': {
+                    'total': <int>,
+                    'avg_per_sample': <float>,
+                    'by_sample': {sample: count, ...}
+                }
+            }
+        }
+    """
+    results = {}
+    benchmark_data_list = []
+    
+    for input_set_name, classification_dict in all_data.items():
+        # Extract binary classification counts for this input set
+        tp_count = len(classification_dict.get('TP', pd.DataFrame()))
+        fp_count = len(classification_dict.get('FP', pd.DataFrame()))
+        fn_count = len(classification_dict.get('FN', pd.DataFrame()))
+        
+        tp_fp_by_sample = {}
+        for classification in ['TP', 'FP']:
+            df = classification_dict.get(classification, pd.DataFrame())
+            if not df.empty and 'sample' in df.columns:
+                for sample, count in df['sample'].value_counts().to_dict().items():
+                    tp_fp_by_sample[sample] = tp_fp_by_sample.get(sample, 0) + count
+        
+        call_count = tp_count + fp_count
+        avg_per_sample = call_count / len(tp_fp_by_sample) if tp_fp_by_sample else 0.0
+        
+        results[input_set_name] = {
+            'call_count': {
+                'total': call_count,
+                'avg_per_sample': avg_per_sample,
+                'by_sample': tp_fp_by_sample
+            }
+        }
+        
+        tp_fn_by_sample = {}
+        for classification in ['TP', 'FN']:
+            df = classification_dict.get(classification, pd.DataFrame())
+            if not df.empty and 'sample' in df.columns:
+                for sample, count in df['sample'].value_counts().to_dict().items():
+                    tp_fn_by_sample[sample] = tp_fn_by_sample.get(sample, 0) + count
+        
+        benchmark_total = tp_count + fn_count
+        benchmark_avg = benchmark_total / len(tp_fn_by_sample) if tp_fn_by_sample else 0.0
+        
+        benchmark_data = {
+            'total': benchmark_total,
+            'avg_per_sample': benchmark_avg,
+            'by_sample': tp_fn_by_sample
+        }
+        benchmark_data_list.append(benchmark_data)
+    
+    # Verify all benchmark data is identical and store only once
+    if benchmark_data_list:
+        first_benchmark = benchmark_data_list[0]
+        all_identical = all(b == first_benchmark for b in benchmark_data_list)
+        
+        if not all_identical:
+            print("Warning: Benchmark data differs across input sets")
+        
+        results['Benchmark'] = {
+            'call_count': first_benchmark
+        }
+    
+    return results
+
 
 def get_samples_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]], classification_key: str) -> set:
     """Extract sample names from a specific classification across all input sets."""
@@ -402,18 +492,24 @@ def main(config: dict):
 
     # === Step 2: Load Data for All Input Sets ===
     all_data = _load_data_for_all_input_sets(input_sets_paths)
+    all_data_no_filter = _load_data_for_all_input_sets(input_sets_paths, bounds=(0, 1_000_000_000))
     samples = get_samples_from_data(all_data, classification_key='TP')
 
     # === Print summary of loaded data ===
-    print("\nSummary of loaded data:")
-    for input_set_key, analysis_data in all_data.items():
-        print("\ninput_set_key:", input_set_key)
-        print("Keys in analysis_data:", analysis_data.keys())
-        for classification_key, df in analysis_data.items():
-            print(f"  Classification: {classification_key}, Number of records: {len(df)}")
+    
+    counts_dict = get_counts_from_data(all_data)
+    counts_dict_no_filter = get_counts_from_data(all_data_no_filter)
+    
+    # Dump counts to JSON for record-keeping
+    counts_output_path = output_dir / "analysis_counts_summary.json"
+    with open(counts_output_path, 'w') as f:
+        json.dump({
+            "filtered_counts": counts_dict,
+            "unfiltered_counts": counts_dict_no_filter
+        }, f, indent=4)
+    print(f"\nSaved counts summary to {counts_output_path}")
     
     plotter = CNVPlotter(all_data, config, input_name_mapping)
-
     metrics = [(precision, "Precision"), (recall, "Recall"), (f1_score, "F1 Score")]
 
     # === Step 3: Generate Plots for All Distributions ===
