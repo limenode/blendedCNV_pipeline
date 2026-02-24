@@ -15,7 +15,7 @@ from utils import precision, recall, f1_score, SVType
     
 
 def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samples_only: bool = True, bounds: Tuple[int, int] = (500, 1_000_000)) -> Dict[str, Dict[str, pd.DataFrame]]:
-    all_data = {}
+    all_input_sets_data = {}
     sample_sets = []
     shared_samples = None
 
@@ -62,7 +62,7 @@ def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samp
     for input_set_key, input_set_path in input_sets_paths.items():
         analysis_data = build_analysis_data_structure(input_set_path, samples_to_include=shared_samples)
         filtered_data = filter_by_size(analysis_data, lower_bound=bounds[0], upper_bound=bounds[1], strict=True)
-        all_data[input_set_key] = filtered_data
+        all_input_sets_data[input_set_key] = filtered_data
     
     # Third pass: Compute shared FNs (present in ALL input sets = undiscoverable by any method)
     print(f"\n{'='*80}")
@@ -71,10 +71,10 @@ def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samp
     
     shared_fn_data = {'FN': pd.DataFrame()}
     
-    if len(all_data) > 0:
+    if len(all_input_sets_data) > 0:
         # Collect FN sets from each input set
         fn_sets_by_input = {}
-        for input_set_key, analysis_data in all_data.items():
+        for input_set_key, analysis_data in all_input_sets_data.items():
             fn_df = analysis_data.get('FN', pd.DataFrame())
             if not fn_df.empty:
                 fn_ids = _create_record_ids(fn_df, 'FN')
@@ -89,8 +89,8 @@ def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samp
             # Create a DataFrame from the first input set's FNs that are in shared_fn_ids
             if shared_fn_ids:
                 # Use the first input set to get the actual DataFrame rows
-                first_input_key = list(all_data.keys())[0]
-                first_fn_df = all_data[first_input_key].get('FN', pd.DataFrame())
+                first_input_key = list(all_input_sets_data.keys())[0]
+                first_fn_df = all_input_sets_data[first_input_key].get('FN', pd.DataFrame())
                 
                 if not first_fn_df.empty:
                     # Filter to only include rows that match shared_fn_ids
@@ -111,7 +111,7 @@ def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samp
     
     # Return structured data with input_sets separated from shared_FN
     return {
-        'input_sets': all_data,
+        'input_sets': all_input_sets_data,
         'shared_FN': shared_fn_data
     }
 
