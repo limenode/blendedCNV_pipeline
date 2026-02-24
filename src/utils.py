@@ -96,9 +96,24 @@ def recall(tp: int, fp: int, fn: int) -> float:
     """Calculate recall/sensitivity: TP / (TP + FN)"""
     return tp / (tp + fn) if (tp + fn) > 0 else 0
 
+def f_beta_score(tp: int, fp: int, fn: int, beta: float = 1.0) -> float:
+    """Calculate F-beta score: (1 + beta^2) * (precision * recall) / (beta^2 * precision + recall)"""
+    p = precision(tp, fp, fn)
+    r = recall(tp, fp, fn)
+    beta_squared = beta ** 2
+    return ((1 + beta_squared) * p * r) / (beta_squared * p + r) if (beta_squared * p + r) > 0 else 0
+
 def f1_score(tp: int, fp: int, fn: int) -> float:
     """Calculate F1 score: 2 * (precision * recall) / (precision + recall)"""
-    return (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0
+    return f_beta_score(tp, fp, fn, beta=1.0)
+
+def f0_5_score(tp: int, fp: int, fn: int) -> float:
+    """Calculate F0.5 score: (1 + 0.5^2) * (precision * recall) / (0.5^2 * precision + recall)"""
+    return f_beta_score(tp, fp, fn, beta=0.5)
+
+def f2_score(tp: int, fp: int, fn: int) -> float:
+    """Calculate F2 score: (1 + 2^2) * (precision * recall) / (2^2 * precision + recall)"""
+    return f_beta_score(tp, fp, fn, beta=2.0)
 
 def generate_size_intervals(
     start: float, 

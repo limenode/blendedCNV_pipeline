@@ -1,17 +1,15 @@
 from pathlib import Path
 import yaml
 import pandas as pd
-from typing import List, Tuple, Callable, Dict, Optional
+from typing import List, Tuple, Dict, Optional
 import json
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 import numpy as np
-from collections import defaultdict
 
 from load_analysis_data import build_analysis_data_structure, filter_by_size
 from cnv_plotter import CNVPlotter, _create_record_ids
-from utils import precision, recall, f1_score, SVType
+from utils import f0_5_score, f2_score, precision, recall, f1_score
     
 
 def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samples_only: bool = True, bounds: Tuple[int, int] = (500, 1_000_000)) -> Dict[str, Dict[str, pd.DataFrame]]:
@@ -561,7 +559,7 @@ def main(config: dict):
     print(f"\nSaved counts summary to {counts_output_path}")
     
     plotter = CNVPlotter(all_data, config, input_name_mapping)
-    metrics = [(precision, "Precision"), (recall, "Recall"), (f1_score, "F1 Score")]
+    metrics = [(precision, "Precision"), (recall, "Recall"), (f1_score, "F1 Score"), (f0_5_score, "F 1/2 Score"), (f2_score, "F2 Score")]
 
     # === Step 3: Generate Plots for All Distributions ===
     plotter.plot_statistical_distributions(

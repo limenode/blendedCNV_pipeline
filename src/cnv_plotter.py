@@ -454,7 +454,7 @@ class CNVPlotter:
                     suffix = output_base.suffix
                     
                     # Create filename with metric name and distribution type
-                    metric_name_clean = metric_name.lower().replace(' ', '_')
+                    metric_name_clean = metric_name.lower().replace(' ', '_').replace('/', '_')
                     dist_type_str = dist_type.value if hasattr(dist_type, 'value') else str(dist_type).split('.')[-1].lower()
                     plot_path = output_dir / f"{stem}_{metric_name_clean}_{dist_type_str}{suffix}"
                     
