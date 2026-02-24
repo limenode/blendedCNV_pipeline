@@ -10,8 +10,8 @@ import numpy as np
 from collections import defaultdict
 
 from load_analysis_data import build_analysis_data_structure, filter_by_size
-from cnv_plotter import CNVPlotter
-from utils import precision, recall, f1_score
+from cnv_plotter import CNVPlotter, _create_record_ids
+from utils import precision, recall, f1_score, SVType
     
 
 def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samples_only: bool = True, bounds: Tuple[int, int] = (500, 1_000_000)) -> Dict[str, Dict[str, pd.DataFrame]]:
@@ -64,7 +64,56 @@ def _load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samp
         filtered_data = filter_by_size(analysis_data, lower_bound=bounds[0], upper_bound=bounds[1], strict=True)
         all_data[input_set_key] = filtered_data
     
-    return all_data
+    # Third pass: Compute shared FNs (present in ALL input sets = undiscoverable by any method)
+    print(f"\n{'='*80}")
+    print("Computing shared FNs (undiscoverable by any method)...")
+    print(f"{'='*80}")
+    
+    shared_fn_data = {'FN': pd.DataFrame()}
+    
+    if len(all_data) > 0:
+        # Collect FN sets from each input set
+        fn_sets_by_input = {}
+        for input_set_key, analysis_data in all_data.items():
+            fn_df = analysis_data.get('FN', pd.DataFrame())
+            if not fn_df.empty:
+                fn_ids = _create_record_ids(fn_df, 'FN')
+                fn_sets_by_input[input_set_key] = fn_ids
+                print(f"  {input_set_key}: {len(fn_ids)} FNs")
+        
+        # Compute intersection (FNs present in ALL input sets)
+        if fn_sets_by_input:
+            shared_fn_ids = set.intersection(*fn_sets_by_input.values())
+            print(f"\n  Shared FNs across all {len(fn_sets_by_input)} input sets: {len(shared_fn_ids)}")
+            
+            # Create a DataFrame from the first input set's FNs that are in shared_fn_ids
+            if shared_fn_ids:
+                # Use the first input set to get the actual DataFrame rows
+                first_input_key = list(all_data.keys())[0]
+                first_fn_df = all_data[first_input_key].get('FN', pd.DataFrame())
+                
+                if not first_fn_df.empty:
+                    # Filter to only include rows that match shared_fn_ids
+                    first_fn_indices = []
+                    for idx, row in first_fn_df.iterrows():
+                        row_id = tuple([row.get('truth_chrom'), row.get('truth_start'), 
+                                       row.get('truth_end'), row.get('svtype')])
+                        if row_id in shared_fn_ids:
+                            first_fn_indices.append(idx)
+                    
+                    shared_fn_df = first_fn_df.loc[first_fn_indices].copy()
+                    shared_fn_data = {'FN': shared_fn_df}
+                    print(f"  Stored {len(shared_fn_df)} shared FN records")
+        else:
+            print("  No FN data found in any input set")
+    
+    print(f"{'='*80}\n")
+    
+    # Return structured data with input_sets separated from shared_FN
+    return {
+        'input_sets': all_data,
+        'shared_FN': shared_fn_data
+    }
 
 def get_counts_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]]) -> dict:
     """
@@ -100,7 +149,8 @@ def get_counts_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]]) -> dict:
     results = {}
     benchmark_data_list = []
     
-    for input_set_name, classification_dict in all_data.items():
+    # Iterate only over input_sets (shared_FN is separate)
+    for input_set_name, classification_dict in all_data['input_sets'].items():
         # Extract binary classification counts for this input set
         tp_count = len(classification_dict.get('TP', pd.DataFrame()))
         fp_count = len(classification_dict.get('FP', pd.DataFrame()))
@@ -160,7 +210,8 @@ def get_samples_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]], classifi
     """Extract sample names from a specific classification across all input sets."""
 
     all_samples = set()
-    for _, analysis_data in all_data.items():
+    # Iterate only over input_sets (shared_FN is separate)
+    for input_set_name, analysis_data in all_data['input_sets'].items():
         if classification_key in analysis_data:
             df = analysis_data[classification_key]
             if 'sample' in df.columns:
@@ -531,12 +582,12 @@ def main(config: dict):
 
     # === Step 5: Generate Size Distribution Plots ===
     plotter.plot_size_distribution(
-        set_keys=list(all_data.keys()),
+        set_keys=list(all_data['input_sets'].keys()),
         output_dir=output_dir / "figures" / "size_distributions",
     )
 
     # === Log Analysis Step 2: Caller Source Distribution Analysis ===
-    sets_to_include_for_distribution = [key for key in all_data.keys() if "intersections" in key]
+    sets_to_include_for_distribution = [key for key in all_data['input_sets'].keys() if "intersections" in key]
     plotter.get_caller_source_distribution(
         sets_to_include_for_distribution, 
         output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png"

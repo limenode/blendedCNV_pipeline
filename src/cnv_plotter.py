@@ -57,13 +57,13 @@ def _process_input_sv_combination_worker(args):
     Designed to be called from multiprocessing pool.
     
     Args:
-        args: Tuple of (input_set_name, svtype, analysis_data, intervals)
+        args: Tuple of (input_set_name, svtype, analysis_data, intervals, undiscoverable_fns)
     
     Returns:
         Tuple of (key, result_dict) where key is (input_set_name, svtype)
         and result_dict contains data for all three distribution types
     """
-    input_set_name, svtype, analysis_data, intervals = args
+    input_set_name, svtype, analysis_data, intervals, undiscoverable_fns = args
     
     # Store record IDs for each interval and classification
     interval_data = []
@@ -91,6 +91,12 @@ def _process_input_sv_combination_worker(args):
         tp_ids = _create_record_ids(tp_df, 'TP')
         fp_ids = _create_record_ids(fp_df, 'FP')
         fn_ids = _create_record_ids(fn_df, 'FN')
+        
+        # Exclude undiscoverable FNs if provided
+        if undiscoverable_fns:
+            interval_key = (lower, upper, svtype)
+            if interval_key in undiscoverable_fns:
+                fn_ids -= undiscoverable_fns[interval_key]
         
         interval_data.append({
             'lower': lower,
@@ -189,6 +195,7 @@ class CNVPlotter:
         n_points: int = 50,
         svtypes: List[SVType] = [SVType.ALL, SVType.DEL, SVType.DUP],
         n_workers: Optional[int] = None,
+        exclude_undiscoverable_fn: bool = True
     ):
         """
         Compute distribution data with raw TP/FP/FN counts across size ranges.
@@ -198,6 +205,7 @@ class CNVPlotter:
             n_points: Number of intervals to generate
             svtypes: List of SVType values to include
             n_workers: Number of worker processes (default: cpu_count() - 1)
+            exclude_undiscoverable_fn: If True, exclude FNs present in all datasets (undiscoverable)
         
         Returns:
             Dictionary mapping distribution_type -> {(input_set, svtype): data_dict}
@@ -215,10 +223,45 @@ class CNVPlotter:
             DistributionType.COMPLEMENTARY_CUMULATIVE: {}
         }
         
+        # Use pre-computed shared FNs if requested and available
+        undiscoverable_fns = {}
+        if exclude_undiscoverable_fn and 'shared_FN' in self.data:
+            print("Using pre-computed shared FNs (undiscoverable by any method)...")
+            shared_fn_data = self.data.get('shared_FN', {}).get('FN', pd.DataFrame())
+            
+            if not shared_fn_data.empty:
+                # Group shared FNs by interval and svtype
+                for lower, upper in intervals:
+                    # Filter by size
+                    filtered_shared = filter_by_size({'FN': shared_fn_data}, 
+                                                     lower_bound=int(lower), 
+                                                     upper_bound=int(upper)).get('FN', pd.DataFrame())
+                    
+                    for svtype in svtypes:
+                        # Filter by svtype
+                        svtype_filtered = filtered_shared.copy()
+                        if svtype != SVType.ALL and not svtype_filtered.empty and 'svtype' in svtype_filtered.columns:
+                            svtype_filtered = svtype_filtered[svtype_filtered['svtype'] == svtype.value].copy()
+                        
+                        # Get FN IDs
+                        if not svtype_filtered.empty:
+                            fn_ids = _create_record_ids(svtype_filtered, 'FN')
+                            if fn_ids:
+                                interval_key = (lower, upper, svtype)
+                                undiscoverable_fns[interval_key] = fn_ids
+                
+                total_undiscoverable = sum(len(s) for s in undiscoverable_fns.values())
+                print(f"  Found {len(undiscoverable_fns)} interval-svtype combinations with undiscoverable FNs")
+                print(f"  Total undiscoverable FN records across intervals: {total_undiscoverable}")
+            else:
+                print("  No shared FNs found in data structure")
+        
         # Prepare tasks for all (input_set, svtype) combinations
+        # Only iterate over input_sets (shared_FN is separate)
+        input_sets = self.data.get('input_sets', {})
         tasks = [
-            (input_set_name, svtype, analysis_data, intervals)
-            for input_set_name, analysis_data in self.data.items()
+            (input_set_name, svtype, analysis_data, intervals, undiscoverable_fns)
+            for input_set_name, analysis_data in input_sets.items()
             for svtype in svtypes
         ]
         
@@ -269,6 +312,7 @@ class CNVPlotter:
         figsize: Tuple[int, int] = (12, 6),
         smoothing_sigma: float = 5.0,
         show_raw_points: bool = True,
+        exclude_undiscoverable_fn: bool = True
     ):
         """
         Generate and plot statistical distributions of CNV performance metrics across size ranges.
@@ -295,13 +339,15 @@ class CNVPlotter:
         distribution_data = self.get_distribution_data(
             bounds=bounds,
             n_points=n_points,
-            svtypes=svtypes
+            svtypes=svtypes,
+            exclude_undiscoverable_fn=exclude_undiscoverable_fn
         )
 
         time_1 = time.time()
         
         # Set up color palette
-        unique_input_sets = list(self.data.keys())
+        input_sets = self.data.get('input_sets', {})
+        unique_input_sets = list(input_sets.keys())
         cmap = colormaps["tab10"]
         color_map = {name: cmap(i % 10) for i, name in enumerate(unique_input_sets)}
         
@@ -462,7 +508,9 @@ class CNVPlotter:
         # Required columns for building benchmark IDs
         required_cols = ['truth_chrom', 'truth_start', 'truth_end', 'svtype']
 
-        data = self.data.copy()  # Work with a copy to avoid modifying original data
+        # Work with copy of input_sets only
+        input_sets = self.data.get('input_sets', {})
+        data = input_sets.copy()
 
         # Filter by size if bounds provided
         for key in set_keys:
@@ -651,9 +699,10 @@ class CNVPlotter:
         all_data = []
         
         # Collect prediction data (TP + FP)
+        input_sets = self.data.get('input_sets', {})
         for set_key in set_keys:
             for classification in ['TP', 'FP']:
-                df = self.data[set_key].get(classification)
+                df = input_sets.get(set_key, {}).get(classification)
                 if df is None or df.empty or 'pred_size' not in df.columns:
                     continue
                 
@@ -677,7 +726,7 @@ class CNVPlotter:
         # Collect benchmark data (TP + FN) if requested
         if include_benchmark and set_keys:
             for classification in ['TP', 'FN']:
-                df = self.data[set_keys[0]].get(classification)
+                df = input_sets.get(set_keys[0], {}).get(classification)
                 if df is None or df.empty or 'truth_size' not in df.columns:
                     continue
                 
@@ -806,7 +855,9 @@ class CNVPlotter:
         """
         rows = []
 
-        for input_set_key, analysis_data in self.data.items():
+        # Iterate only over input_sets (shared_FN is separate)
+        input_sets = self.data.get('input_sets', {})
+        for input_set_key, analysis_data in input_sets.items():
             if input_set_key not in input_sets_to_include:
                 print(f"Skipping input set '{input_set_key}' for caller source distribution analysis")
                 continue
