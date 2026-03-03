@@ -17,32 +17,53 @@ This pipeline integrates CNV calls from multiple detection tools (CNVpytor, Dell
 
 ## Pipeline Workflow
 
-<!-- Insert Workflow from Publication -->
+The pipeline consists of three distinct processing stages:
+
 ```
-Input VCFs → BED Conversion → Consensus Calling → Benchmark Processing → Binary Classification → Analysis
-                                       ↓
-                            Control Data Processing (Optional)
-                                       ↓
-                            Liftover (Optional)
+┌─────────────────────────────────────────────────────────────────┐
+│                      PROCESSING PIPELINE                        │
+│  Input VCFs → BED Conversion → Consensus Calling                │
+│                          ↓                                      │
+│              Control Data Processing (Optional)                 │
+│                          ↓                                      │
+│                   Liftover (Optional)                           │
+└────────────────────────────┬────────────────────────────────────┘
+                             ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                     COMPUTATION PIPELINE                        │
+│  Benchmark Download/Parsing → Binary Classification             │
+│                    (TP/FP/FN Assignment)                        │
+└────────────────────────────┬────────────────────────────────────┘
+                             ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                      ANALYSIS PIPELINE                          │
+│  Performance Metrics → Distribution Plots → Venn Diagrams       │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Step 1: BED Conversion
-Converts VCF files from CNV calling tools to standardized BED format.
+### Processing Pipeline
 
-### Step 2: Consensus Calling
-Generates intersection and union call sets across tools.
+**Purpose**: Prepare and standardize CNV call sets for evaluation
 
-### Step 3: Control Processing
-Parses SNP array data (e.g., PennCNV output) for comparison.
+1. **BED Conversion**: Converts VCF files from CNV calling tools (CNVpytor, Delly, GATK-gCNV) to standardized BED format
+2. **Consensus Calling**: Generates intersection and union call sets across tools using a 2/3 consensus approach
+3. **Control Processing** *(Optional)*: Parses SNP array data (e.g., PennCNV output) for comparison
+4. **Liftover** *(Optional)*: Converts genomic coordinates between reference builds (e.g., hg18 → hg38)
 
-### Step 4: Liftover
-Converts genomic coordinates between reference builds if needed.
+### Computation Pipeline
 
-### Step 5: Benchmark Evaluation
-Classifies predictions as TP/FP/FN against gold-standard benchmarks.
+**Purpose**: Evaluate CNV calls against gold-standard benchmarks
 
-### Step 6: Analysis
-Generates performance metrics, plots, and visualizations.
+1. **Benchmark Processing**: Downloads (if URL provided) and parses benchmark datasets
+2. **Binary Classification**: Classifies predictions as True Positives (TP), False Positives (FP), or False Negatives (FN) against reference benchmarks
+
+### Analysis Pipeline
+
+**Purpose**: Generate performance metrics and visualizations
+
+1. **Statistical Metrics**: Computes precision, recall/sensitivity, and F1-scores across CNV size distributions and SV types
+2. **Distribution Plots**: Creates density, cumulative, and complementary cumulative distribution plots
+3. **Venn Diagrams**: Visualizes detection overlap across tools and datasets
 
 ## Installation
 

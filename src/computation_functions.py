@@ -13,24 +13,36 @@ from pathlib import Path
 from cnv_parser import CNVParser
 from benchmark_handler import BenchmarkParser
 
-def perform_liftover(config: dict, log_file: Optional[str | Path] = None):
+def perform_liftover(
+    bed_files_map: dict[str, list[Path]], 
+    liftover_specs: dict[str, dict],
+) -> dict:
     """
-    Perform liftover on BED files based on configuration specifications.
+    Perform liftover on BED files based on liftover specifications.
     Reads coordinates from BED files, converts them using liftover, and overwrites files.
     
     Args:
-        config: Configuration dictionary containing liftover specifications
+        bed_files_map: Dictionary mapping dataset names to lists of BED file paths
+                      e.g., {'Low Coverage': [Path('sample1.bed'), Path('sample2.bed')]}
+        liftover_specs: Dictionary mapping dataset names to liftover specifications
+                       e.g., {'Low Coverage': {'from': 'hg18', 'to': 'hg38'}}
+    
+    Returns:
+        Dictionary containing liftover results for each dataset
     """
 
     results = defaultdict(dict)
 
-    if 'liftover' not in config:
-        print("No liftover specifications found in config. Skipping liftover.")
-        return
+    if not liftover_specs:
+        print("No liftover specifications provided. Skipping liftover.")
+        return results
     
-    output_dir = Path(config['output_dir'])
-    
-    for dataset_name, liftover_spec in config['liftover'].items():
+    for dataset_name, bed_files in bed_files_map.items():
+        if dataset_name not in liftover_specs:
+            # Dataset doesn't need liftover, skip it
+            continue
+            
+        liftover_spec = liftover_specs[dataset_name]
         print(f"Performing liftover for dataset: {dataset_name}")
         
         # Validate liftover specification
@@ -50,22 +62,8 @@ def perform_liftover(config: dict, log_file: Optional[str | Path] = None):
         # Get the lifter
         converter = get_lifter(from_build, to_build, one_based=False)
         
-        # Find the bed directory for this dataset
-        dataset_subdir = dataset_name.replace(" ", "_")
-        database_dir = output_dir / dataset_subdir
-        
-        if not database_dir.exists():
-            print(f"  Warning: Database directory not found: {database_dir}")
-            continue
-        
-        # Find all .bed files recursively
-        bed_files = list(database_dir.glob("**/*.bed"))
-
-        # Remove files in list from "binary_classification" subdirectories
-        bed_files = [f for f in bed_files if "binary_classification" not in f.parts]
-        
         if not bed_files:
-            print(f"  Warning: No BED files found in {database_dir}")
+            print(f"  Warning: No BED files provided for {dataset_name}")
             continue
         
         print(f"  Found {len(bed_files)} BED files to convert")
@@ -198,12 +196,97 @@ def perform_liftover(config: dict, log_file: Optional[str | Path] = None):
         print(f"    Total records converted: {total_converted}")
         print(f"    Total records failed liftover: {total_failed}")
         print(f"    Total records failed size change filter: {total_size_failed}\n")
+    
+    return results
+
+def prepare_bed_files_for_liftover(config: dict) -> dict:
+    """
+    Prepare a mapping of dataset names to BED file paths and run liftover on them.
+    
+    Args:
+        config: Configuration dictionary containing 'output_dir' and 'liftover' specifications
+    
+    Returns:
+        Dictionary containing the results of the liftover operation for each dataset.
+    """
+    if 'liftover' not in config:
+        return {}
+    
+    dataset_names_all = list(config.get('input', {}).keys())
+    if 'control' in config:
+        dataset_names_all.extend(config['control'].keys())
+
+    output_dir = Path(config['output_dir'])
+    dataset_names = [name for name in dataset_names_all if name in config['liftover']]
+
+    bed_files_map = {}
+    
+    for dataset_name in dataset_names:
+        dataset_subdir = dataset_name.replace(" ", "_")
+        database_dir = output_dir / dataset_subdir
         
-    # Save results to log file
-    if log_file:
-        os.makedirs(Path(log_file).parent, exist_ok=True)
-        with open(log_file, 'w') as f:
-            json.dump(results, f, indent=4) 
+        if not database_dir.exists():
+            print(f"  Warning: Database directory not found: {database_dir}")
+            bed_files_map[dataset_name] = []
+            continue
+        
+        # Find all .bed files recursively
+        bed_files = list(database_dir.glob("**/*.bed"))
+        
+        # Remove files from "binary_classification" subdirectories
+        bed_files = [f for f in bed_files if "binary_classification" not in f.parts]
+        
+        bed_files_map[dataset_name] = bed_files
+    
+    liftover_results = perform_liftover(bed_files_map, config['liftover'])
+    
+    return liftover_results
+
+def prepare_benchmark_bed_files_for_liftover(config: dict) -> dict:
+    """
+    Prepare a mapping of benchmark names to BED file paths and run liftover on them.
+    
+    Args:
+        config: Configuration dictionary containing 'output_dir', 'benchmark_map', and 'liftover' specifications
+    
+    Returns:
+        Dictionary containing the results of the liftover operation for each benchmark.
+    """
+    if 'liftover' not in config or 'benchmark_map' not in config:
+        return {}
+    
+    output_dir = Path(config['output_dir'])
+    benchmark_parsing_dir = output_dir / "benchmark_parsing"
+    
+    if not benchmark_parsing_dir.exists():
+        print(f"  Warning: Benchmark parsing directory not found: {benchmark_parsing_dir}")
+        return {}
+    
+    # Get benchmark names that need liftover
+    benchmark_names = [name for name in config['benchmark_map'].keys() if name in config['liftover']]
+    
+    bed_files_map = {}
+    
+    for benchmark_name in benchmark_names:
+        # Benchmark directories use the original name as provided in config
+        benchmark_dir = benchmark_parsing_dir / benchmark_name
+        
+        if not benchmark_dir.exists():
+            print(f"  Warning: Benchmark directory not found: {benchmark_dir}")
+            bed_files_map[benchmark_name] = []
+            continue
+        
+        # Find all .bed files in the benchmark directory (but not in merged subdirectory)
+        bed_files = []
+        for bed_file in benchmark_dir.glob("**/*.bed"):
+            if "merged" not in bed_file.parts:
+                bed_files.append(bed_file)
+        
+        bed_files_map[benchmark_name] = bed_files
+    
+    liftover_results = perform_liftover(bed_files_map, config['liftover'])
+    
+    return liftover_results 
 
 def parse_penncnv_to_bed(penncnv_file: str) -> pd.DataFrame:
     """
@@ -453,32 +536,6 @@ def run_consensus_calls_script(config: dict):
     os.makedirs(log_output_file.parent, exist_ok=True)
     with open(log_output_file, 'w') as f:
         json.dump(results, f, indent=4)
-
-def run_benchmark_processing_script(
-        config: dict, 
-        log_file: Optional[str | Path] = None
-    ):
-
-    if 'benchmark_map' not in config:
-        print("No benchmark map found in config. Skipping benchmark processing.")
-        return
-    
-    benchmark_parser = BenchmarkParser(config['benchmark_map'])
-    output_dir = Path(config['output_dir'])
-    output_subdir = output_dir / "benchmark_parsing"
-    os.makedirs(output_subdir, exist_ok=True)
-
-    print("Parsing all benchmarks to BED format...")
-    benchmark_parser.parse_all_benchmarks_to_bed(output_subdir, common_samples_only=True, genome_file_path=config['genome_file'])
-
-    print("Merging parsed benchmarks across all benchmarks...")
-    results_dict = benchmark_parser.merge_across_benchmarks(output_subdir, genome_file_path=config['genome_file'])
-    
-    # Save merged results to file
-    if log_file:
-        os.makedirs(Path(log_file).parent, exist_ok=True)
-        with open(log_file, 'w') as f:
-            json.dump(results_dict, f, indent=4)
 
 def run_binary_classification_script(config: dict):
     output_dir = Path(config['output_dir'])
