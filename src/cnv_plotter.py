@@ -183,6 +183,126 @@ def _process_input_sv_combination_worker(args):
     return key, result
 
 
+def _plot_single_metric_distribution_worker(args):
+    """
+    Worker function to create a single plot for a metric/distribution combination.
+    
+    Args:
+        args: Tuple containing all parameters needed for plotting
+    
+    Returns:
+        Tuple of (metric_name, dist_type, success_flag, output_path)
+    """
+    (metric_function, metric_name, dist_type, data_by_combination, 
+     color_map, linestyle_map, input_name_mapping, svtypes, 
+     figsize, smoothing_sigma, show_raw_points, output_path) = args
+    
+    try:
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        # Plot each combination of input_set and svtype
+        for (input_set_name, svtype), data in data_by_combination.items():
+            if len(data['x']) == 0:
+                continue
+            
+            # Compute metric values from raw counts
+            y_values = np.array([
+                metric_function(tp, fp, fn)
+                for tp, fp, fn in zip(data['tp_count'], data['fp_count'], data['fn_count'])
+            ])
+            
+            # Sort by x-axis values
+            sort_idx = np.argsort(data['x'])
+            x_sorted = data['x'][sort_idx]
+            y_sorted = y_values[sort_idx]
+            
+            # Apply Gaussian smoothing if sigma > 0
+            if smoothing_sigma > 0 and len(y_sorted) > 1:
+                y_smoothed = gaussian_filter1d(y_sorted, sigma=smoothing_sigma)
+            else:
+                y_smoothed = y_sorted
+            
+            # Get color and line style
+            color = color_map.get(input_set_name, 'black')
+            linestyle = linestyle_map.get(svtype, '-')
+            
+            # Create label with display name
+            display_name = input_name_mapping.get(input_set_name, input_set_name)
+            label = f"{display_name} - {svtype.value if hasattr(svtype, 'value') else svtype}"
+            
+            # Adjust alpha and linewidth based on svtype prominence
+            if SVType.ALL in svtypes and len(svtypes) > 1:
+                if svtype == SVType.ALL:
+                    alpha = 0.9
+                    linewidth = 3.0
+                else:
+                    alpha = 0.45
+                    linewidth = 2.0
+            else:
+                alpha = 0.9
+                linewidth = 2.5
+            
+            # Plot smoothed line
+            ax.plot(
+                x_sorted,
+                y_smoothed,
+                label=label,
+                color=color,
+                linestyle=linestyle,
+                linewidth=linewidth,
+                alpha=alpha
+            )
+            
+            # Optionally show raw data points
+            if show_raw_points and (len(svtypes) == 1 or svtype == SVType.ALL):
+                ax.scatter(
+                    x_sorted,
+                    y_sorted,
+                    color=color,
+                    alpha=0.15,
+                    s=15,
+                    zorder=2
+                )
+        
+        # Set log scale for x-axis
+        ax.set_xscale('log')
+        
+        # Format plot
+        ax.set_xlabel("CNV Size (bp)", fontsize=12)
+        ax.set_ylabel(metric_name, fontsize=12)
+        
+        # Create title with metric name and distribution type
+        dist_type_name = dist_type.value.replace('_', ' ').title() if hasattr(dist_type, 'value') else str(dist_type).replace('_', ' ').title()
+        plot_title = f"{metric_name} by CNV Size - {dist_type_name}"
+        ax.set_title(plot_title, fontsize=14, fontweight='bold')
+        
+        ax.legend(fontsize=9, title_fontsize=10, loc='best')
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Save the plot
+        output_base = Path(output_path)
+        output_dir = output_base.parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stem = output_base.stem
+        suffix = output_base.suffix
+        
+        # Create filename with metric name and distribution type
+        metric_name_clean = metric_name.lower().replace(' ', '_').replace('/', '_')
+        dist_type_str = dist_type.value if hasattr(dist_type, 'value') else str(dist_type).split('.')[-1].lower()
+        plot_path = output_dir / f"{stem}_{metric_name_clean}_{dist_type_str}{suffix}"
+        
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        return (metric_name, dist_type, True, str(plot_path))
+    
+    except Exception as e:
+        plt.close('all')
+        return (metric_name, dist_type, False, str(e))
+
+
 class CNVPlotter:
     def __init__(self, data: dict, config: dict, input_name_mapping: dict):
         self.data = data
@@ -358,116 +478,53 @@ class CNVPlotter:
             SVType.DUP: ':',      # dotted
         }
         
-        # Plot each metric separately
+        # Prepare plotting tasks for parallel execution
+        plotting_tasks = []
         for metric_function, metric_name in metrics:
-            # Plot each distribution type for this metric
             for dist_type, data_by_combination in distribution_data.items():
-                fig, ax = plt.subplots(figsize=figsize)
-                
-                # Plot each combination of input_set and svtype
-                for (input_set_name, svtype), data in data_by_combination.items():
-                    if len(data['x']) == 0:
-                        continue
-                    
-                    # Compute metric values from raw counts
-                    y_values = np.array([
-                        metric_function(tp, fp, fn)
-                        for tp, fp, fn in zip(data['tp_count'], data['fp_count'], data['fn_count'])
-                    ])
-                    
-                    # Sort by x-axis values
-                    sort_idx = np.argsort(data['x'])
-                    x_sorted = data['x'][sort_idx]
-                    y_sorted = y_values[sort_idx]
-                    
-                    # Apply Gaussian smoothing if sigma > 0
-                    if smoothing_sigma > 0 and len(y_sorted) > 1:
-                        y_smoothed = gaussian_filter1d(y_sorted, sigma=smoothing_sigma)
+                task_args = (
+                    metric_function, metric_name, dist_type, data_by_combination,
+                    color_map, linestyle_map, self.input_name_mapping, svtypes,
+                    figsize, smoothing_sigma, show_raw_points, output_path
+                )
+                plotting_tasks.append(task_args)
+        
+        # Execute plotting tasks in parallel
+        num_tasks = len(plotting_tasks)
+        print(f"\nGenerating {num_tasks} plots in parallel ({len(metrics)} metrics × {len(distribution_data)} distribution types)...")
+        
+        successful_plots = []
+        failed_plots = []
+        
+        with ProcessPoolExecutor(max_workers=min(num_tasks, cpu_count())) as executor:
+            futures = [executor.submit(_plot_single_metric_distribution_worker, task) 
+                      for task in plotting_tasks]
+            
+            completed = 0
+            for future in as_completed(futures):
+                completed += 1
+                try:
+                    metric_name, dist_type, success, result = future.result()
+                    if success:
+                        successful_plots.append((metric_name, dist_type, result))
+                        print(f"✓ [{completed}/{num_tasks}] Plot saved: {Path(result).name}")
                     else:
-                        y_smoothed = y_sorted
-                    
-                    # Get color and line style
-                    color = color_map.get(input_set_name, 'black')
-                    linestyle = linestyle_map.get(svtype, '-')
-                    
-                    # Create label with display name
-                    display_name = self.input_name_mapping.get(input_set_name, input_set_name)
-                    label = f"{display_name} - {svtype.value if hasattr(svtype, 'value') else svtype}"
-                    
-                    # Adjust alpha and linewidth based on svtype prominence
-                    if SVType.ALL in svtypes and len(svtypes) > 1:
-                        if svtype == SVType.ALL:
-                            alpha = 0.9
-                            linewidth = 3.0
-                        else:
-                            alpha = 0.45
-                            linewidth = 2.0
-                    else:
-                        alpha = 0.9
-                        linewidth = 2.5
-                    
-                    # Plot smoothed line
-                    ax.plot(
-                        x_sorted,
-                        y_smoothed,
-                        label=label,
-                        color=color,
-                        linestyle=linestyle,
-                        linewidth=linewidth,
-                        alpha=alpha
-                    )
-                    
-                    # Optionally show raw data points
-                    if show_raw_points and (len(svtypes) == 1 or svtype == SVType.ALL):
-                        ax.scatter(
-                            x_sorted,
-                            y_sorted,
-                            color=color,
-                            alpha=0.15,
-                            s=15,
-                            zorder=2
-                        )
-                
-                # Set log scale for x-axis
-                ax.set_xscale('log')
-                
-                # Format plot
-                ax.set_xlabel("CNV Size (bp)", fontsize=12)
-                ax.set_ylabel(metric_name, fontsize=12)
-                
-                # Create title with metric name and distribution type
-                dist_type_name = dist_type.value.replace('_', ' ').title() if hasattr(dist_type, 'value') else str(dist_type).replace('_', ' ').title()
-                plot_title = f"{metric_name} by CNV Size - {dist_type_name}"
-                ax.set_title(plot_title, fontsize=14, fontweight='bold')
-                
-                ax.legend(fontsize=9, title_fontsize=10, loc='best')
-                ax.grid(True, alpha=0.3)
-                
-                plt.tight_layout()
-                
-                # Save or show
-                if output_path:
-                    output_base = Path(output_path)
-                    output_dir = output_base.parent
-                    output_dir.mkdir(parents=True, exist_ok=True)
-                    stem = output_base.stem
-                    suffix = output_base.suffix
-                    
-                    # Create filename with metric name and distribution type
-                    metric_name_clean = metric_name.lower().replace(' ', '_').replace('/', '_')
-                    dist_type_str = dist_type.value if hasattr(dist_type, 'value') else str(dist_type).split('.')[-1].lower()
-                    plot_path = output_dir / f"{stem}_{metric_name_clean}_{dist_type_str}{suffix}"
-                    
-                    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-                    print(f"✓ Plot saved to: {plot_path}")
-                else:
-                    plt.show()
-                
-                plt.close()
+                        failed_plots.append((metric_name, dist_type, result))
+                        print(f"✗ [{completed}/{num_tasks}] Failed: {metric_name} - {dist_type}: {result}")
+                except Exception as e:
+                    completed += 1
+                    print(f"✗ [{completed}/{num_tasks}] Error: {e}")
+                    import traceback
+                    traceback.print_exc()
         
         time_2 = time.time()
+        print(f"\n{'='*60}")
+        print(f"Plotting Summary:")
+        print(f"  Successful: {len(successful_plots)}/{num_tasks}")
+        print(f"  Failed: {len(failed_plots)}/{num_tasks}")
         print(f"Time to compute distribution data: {time_1 - time_0:.2f} seconds")
-        print(f"Time to generate and save plots: {time_2 - time_1:.2f} seconds")
+        print(f"Time to generate and save plots (parallel): {time_2 - time_1:.2f} seconds")
+        print(f"{'='*60}")
 
     
     def plot_venn_diagram(
