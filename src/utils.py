@@ -4,6 +4,10 @@ from typing import Any, List, Tuple, Callable
 import numpy as np
 from enum import Enum
 import yaml
+import requests
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
+import os
 
 class DistributionType(Enum):
     DENSITY = "density"
@@ -25,7 +29,63 @@ def parse_args():
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     
+    # Process benchmark_map to handle URLs
+    if 'benchmark_map' in config and config['benchmark_map']:
+        # Get project root (parent of the config file's directory or workspace root)
+        project_root = Path(args.config).parent
+        tmp_dir = project_root / 'tmp'
+        tmp_dir.mkdir(exist_ok=True)
+        
+        for benchmark_name, benchmark_path in config['benchmark_map'].items():
+            if isinstance(benchmark_path, str) and _is_url(benchmark_path):
+                print(f"Downloading {benchmark_name} from {benchmark_path}...")
+                local_path = _download_benchmark(benchmark_path, tmp_dir, benchmark_name)
+                config['benchmark_map'][benchmark_name] = str(local_path)
+                print(f"Saved to: {local_path}")
+    
     return config
+
+def _is_url(path: str) -> bool:
+    """Check if a path is a URL."""
+    try:
+        result = urlparse(path)
+        return result.scheme in ('http', 'https', 'ftp', 'ftps')
+    except:
+        return False
+
+def _download_benchmark(url: str, tmp_dir: Path, benchmark_name: str) -> Path:
+    """Download a benchmark file from a URL to the tmp directory."""
+    # Extract filename from URL
+    parsed_url = urlparse(url)
+    filename = os.path.basename(parsed_url.path)
+    
+    # If no filename in URL, use benchmark name
+    if not filename:
+        filename = f"{benchmark_name}.vcf.gz"
+    
+    # Create a unique filename with benchmark name prefix
+    local_path = tmp_dir / f"{benchmark_name}_{filename}"
+    
+    # Check if file already exists
+    if local_path.exists():
+        print(f"File already exists at {local_path}, skipping download")
+        return local_path
+    
+    # Download the file (use urllib for FTP, requests for HTTP/HTTPS)
+    if parsed_url.scheme in ('ftp', 'ftps'):
+        # Use urllib for FTP downloads
+        urlretrieve(url, local_path)
+    else:
+        # Use requests for HTTP/HTTPS downloads with streaming
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        with open(local_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+    
+    return local_path
 
 def generate_size_intervals_old(
     start: float, 

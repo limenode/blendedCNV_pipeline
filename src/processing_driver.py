@@ -26,19 +26,21 @@ def main(config: dict, debug: bool = False):
     print("\nStep 3: Processing control datasets (SNP Array)...")
     convert_control_to_bed(config)
 
-    time_1 = time.time()
+    time_2 = time.time()
 
     print("\nStep 4: Performing liftover on datasets (if configured)...")
     liftover_log = Path(config['output_dir']) / "logs" / "liftover_results.json"
     perform_liftover(config, log_file=liftover_log)
 
-    time_2 = time.time()
+    time_3 = time.time()
 
     if debug:
         print("\n=== DEBUG TIMING INFO ===")
         print(f"VCF to BED conversion time: {time_1 - time_0:.2f} seconds")
         print(f"Consensus calls script time: {time_2 - time_1:.2f} seconds")
-        print(f"Total consensus pipeline time: {time_2 - time_0:.2f} seconds")
+        print(f"Control dataset processing time: {time_3 - time_2:.2f} seconds")
+        print(f"Liftover time: {time_3 - time_2:.2f} seconds")
+        print(f"Total processing pipeline time: {time_2 - time_0:.2f} seconds")
 
     
 
