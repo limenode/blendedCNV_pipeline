@@ -20,14 +20,9 @@ def main():
     Runs computation pipeline followed by analysis pipeline.
     """
     # Parse command-line arguments
-    args = parse_args()
+    config = parse_args()
     
     debug = True
-
-    # Load configuration from YAML file
-    print(f"Loading configuration from: {args.config}")
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
     
     print("\n" + "="*80)
     print("BLENDEDCNV PIPELINE - STARTING")

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, List, Tuple, Callable
 import numpy as np
 from enum import Enum
-
+import yaml
 
 class DistributionType(Enum):
     DENSITY = "density"
@@ -18,7 +18,14 @@ class SVType(Enum):
 def parse_args():
     parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
     parser.add_argument('config', type=Path, help='Path to configuration YAML file')
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # Load configuration from YAML file
+    print(f"Loading configuration from: {args.config}")
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    return config
 
 def generate_size_intervals_old(
     start: float, 

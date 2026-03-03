@@ -36,11 +36,6 @@ def main(config: dict, debug: bool = False):
 
 if __name__ == "__main__":
     # Allow running standalone for testing
-    args = parse_args()
-    
-    # Load configuration from YAML file
-    print(f"Loading configuration from: {args.config}")
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
+    config = parse_args()
     
     main(config)
