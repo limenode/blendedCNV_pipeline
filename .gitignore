@@ -12,4 +12,4 @@ in/
 out/
 
 # user-defined config
-internal.config.yaml
+internal.config*

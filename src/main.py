@@ -9,6 +9,7 @@ This script orchestrates the complete CNV analysis pipeline:
 
 import yaml
 from utils import parse_args
+from consensus_driver import main as consensus_main
 from computation_driver import main as computation_main
 from analysis_driver import main as analysis_main
 
@@ -21,6 +22,8 @@ def main():
     # Parse command-line arguments
     args = parse_args()
     
+    debug = True
+
     # Load configuration from YAML file
     print(f"Loading configuration from: {args.config}")
     with open(args.config, 'r') as f:
@@ -30,17 +33,25 @@ def main():
     print("BLENDEDCNV PIPELINE - STARTING")
     print("="*80)
     
-    # Step 1: Run computation pipeline
+
+
+    # Step 1: Run consensus pipeline
     print("\n" + "="*80)
-    print("PHASE 1: COMPUTATION PIPELINE")
+    print("PHASE 1: CONSENSUS PIPELINE")
     print("="*80)
-    computation_main(config)
+    consensus_main(config, debug=debug)
+
+    # Step 2: Run computation pipeline
+    print("\n" + "="*80)
+    print("PHASE 2: COMPUTATION PIPELINE")
+    print("="*80)
+    computation_main(config, debug=debug)
     
-    # Step 2: Run analysis pipeline
+    # Step 3: Run analysis pipeline
     print("\n" + "="*80)
-    print("PHASE 2: ANALYSIS PIPELINE")
+    print("PHASE 3: ANALYSIS PIPELINE")
     print("="*80)
-    analysis_main(config)
+    analysis_main(config, debug=debug)
     
     print("\n" + "="*80)
     print("BLENDEDCNV PIPELINE - COMPLETE")

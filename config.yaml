@@ -13,7 +13,7 @@ input:
 control:
   "SNP Array": "/path/to/array/data.cnv"
 
-# Benchmark datasets
+# Benchmark datasets (accepts URLs or paths)
 benchmark_map:
   "1000G": "/path/to/hgsvc2/benchmark.vcf"
   "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"

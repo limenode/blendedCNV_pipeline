@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple, Optional
 import pandas as pd
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from utils import get_count_from_bed_file
 
 
@@ -100,7 +101,6 @@ class BenchmarkParser:
                     for line in f:
                         chrom = line.split()[0]
                         valid_chroms.add(self.ensure_chr_prefix(chrom))
-                print(f"Loaded {len(valid_chroms)} valid chromosomes from {genome_file_path}")
             except Exception as e:
                 print(f"Error reading genome file {genome_file_path}: {e}")
                 print("Proceeding without chromosome filtering.")
@@ -259,19 +259,74 @@ class BenchmarkParser:
         
         return counts
     
+    def _process_single_benchmark_worker(
+        self,
+        benchmark_name: str,
+        vcf_path: str,
+        output_base_dir: Path,
+        sample_ids: Optional[List[str]],
+        genome_file_path: Optional[str]
+    ) -> Tuple[str, Dict[str, Dict[str, int]]]:
+        """
+        Worker function to process a single benchmark.
+        
+        Args:
+            benchmark_name: Name of the benchmark
+            vcf_path: Path to VCF file
+            output_base_dir: Base output directory
+            sample_ids: List of sample IDs to extract
+            genome_file_path: Path to genome file for filtering
+            
+        Returns:
+            Tuple of (benchmark_name, benchmark_results dictionary)
+        """
+        print(f"Processing benchmark: {benchmark_name}")
+        
+        if not os.path.exists(vcf_path):
+            print(f"Warning: File not found: {vcf_path}")
+            return (benchmark_name, {})
+        
+        # Parse VCF
+        sample_data = self.parse_benchmark_vcf(vcf_path, sample_ids, genome_file_path=genome_file_path)
+        
+        # Create output directory for this benchmark
+        output_dir = output_base_dir / benchmark_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Write BED files for each sample
+        benchmark_results = {}
+        for sample_id, sample_df in sample_data.items():
+            counts = self.write_sample_beds(sample_df, str(output_dir), sample_id)
+            benchmark_results[sample_id] = counts
+            
+            # print(f"Sample {sample_id}: {counts['all']} total, "
+            #       f"{counts['DEL']} DEL, {counts['DUP']} DUP")
+            
+            # Sanity check
+            if counts['all'] != (counts['DEL'] + counts['DUP']):
+                print(f"  Warning: Counts do not match! "
+                      f"Total: {counts['all']}, DEL: {counts['DEL']}, DUP: {counts['DUP']}")
+        
+        print(f"\nCompleted {benchmark_name}: {len(sample_data)} samples processed")
+        return (benchmark_name, benchmark_results)
+    
     def parse_all_benchmarks_to_bed(
         self, 
         output_base_dir: str | Path, 
         sample_ids: Optional[List[str]] = None,
         common_samples_only: bool = False,
-        genome_file_path: Optional[str] = None
+        genome_file_path: Optional[str] = None,
+        max_workers: Optional[int] = None
     ) -> Dict[str, Dict[str, Dict[str, int]]]:
         """
-        Process all benchmarks and write per-sample BED files.
+        Process all benchmarks and write per-sample BED files in parallel.
         
         Args:
             output_base_dir: Base directory for all outputs
             sample_ids: List of sample IDs to extract (None = all samples)
+            common_samples_only: If True, only process samples common to all benchmarks
+            genome_file_path: Path to genome file for chromosome filtering
+            max_workers: Maximum number of parallel workers (None = number of CPUs)
             
         Returns:
             Nested dictionary: benchmark -> sample -> counts
@@ -291,41 +346,35 @@ class BenchmarkParser:
             print(f"Common samples across all benchmarks: {len(common_samples)}")
             sample_ids = list(common_samples)
         
-        
+        output_base_path = Path(output_base_dir)
         all_results = {}
         
-        for benchmark_name, vcf_path in self.benchmark_map.items():
-            print(f"\n{'='*60}")
-            print(f"Processing benchmark: {benchmark_name}")
-            print(f"{'='*60}")
+        # Process benchmarks in parallel using ThreadPoolExecutor
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all benchmark processing tasks
+            future_to_benchmark = {
+                executor.submit(
+                    self._process_single_benchmark_worker,
+                    benchmark_name,
+                    vcf_path,
+                    output_base_path,
+                    sample_ids,
+                    genome_file_path
+                ): benchmark_name
+                for benchmark_name, vcf_path in self.benchmark_map.items()
+            }
             
-            if not os.path.exists(vcf_path):
-                print(f"Warning: File not found: {vcf_path}")
-                continue
-            
-            # Parse VCF
-            sample_data = self.parse_benchmark_vcf(vcf_path, sample_ids, genome_file_path=genome_file_path)
-            
-            # Create output directory for this benchmark
-            output_dir = Path(output_base_dir) / benchmark_name
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Write BED files for each sample
-            benchmark_results = {}
-            for sample_id, sample_df in sample_data.items():
-                counts = self.write_sample_beds(sample_df, str(output_dir), sample_id)
-                benchmark_results[sample_id] = counts
-                
-                print(f"Sample {sample_id}: {counts['all']} total, "
-                      f"{counts['DEL']} DEL, {counts['DUP']} DUP")
-                
-                # Sanity check
-                if counts['all'] != (counts['DEL'] + counts['DUP']):
-                    print(f"  Warning: Counts do not match! "
-                          f"Total: {counts['all']}, DEL: {counts['DEL']}, DUP: {counts['DUP']}")
-            
-            all_results[benchmark_name] = benchmark_results
-            print(f"\nCompleted {benchmark_name}: {len(sample_data)} samples processed")
+            # Collect results as they complete
+            for future in as_completed(future_to_benchmark):
+                benchmark_name = future_to_benchmark[future]
+                try:
+                    benchmark_name_result, benchmark_results = future.result()
+                    all_results[benchmark_name_result] = benchmark_results
+                except Exception as e:
+                    print(f"Error processing benchmark {benchmark_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    all_results[benchmark_name] = {}
         
         return all_results
     
