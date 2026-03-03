@@ -96,9 +96,9 @@ pip install -r requirements.txt
 Create a YAML configuration file (see `config.yaml` example):
 
 ```yaml
-# Input datasets (expects VCF-like format)
+# Input datasets
 input:
-  "Low Coverage": # Can assign any name desired with standard characters
+  "Low Coverage":
     cnvpytor: "/path/to/low_cov/cnvpytor/{id}.calls.1000bp.vcf"
     delly: "/path/to/low_cov/delly/{id}.bcf"
     gatk: "/path/to/low_cov/gatk/{id}/*_segments_{id}.vcf.gz"
@@ -107,53 +107,60 @@ input:
     delly: "/path/to/high_cov/delly/{id}.bcf"
     gatk: "/path/to/high_cov/gatk/{id}/*_segments_{id}.vcf.gz"
 
-# Control datasets (optional, expects PennCNV-like output format)
-control:
-  "SNP Array": "/path/to/array/data.cnv"
-
-# Benchmark datasets (expects VCF-like format)
-benchmark_map:
-  "1000G": "/path/to/hgsvc2/benchmark.vcf"
-  "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
-  "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
-
-# Liftover specifications (optional)
-liftover:
-  "SNP Array":
-    "from": "hg18"
-    "to": "hg38"
-
 # Output directory
 output_dir: "/path/to/output"
 
 # Reference genome file
 genome_file: "/path/to/genome.txt"
+
+# Excluded regions file [optional]
+excluded_regions_file: "/path/to/excluded_regions.bed"
+
+# Control datasets [optional]
+control:
+  "SNP Array": "/path/to/array/data.cnv"
+
+# Liftover specifications [optional]
+liftover:
+  "SNP Array":
+    "from": "hg18"
+    "to": "hg38"
+
+# Benchmark datasets [only required for computation/analysis step] (accepts URLs or paths)
+benchmark_map:
+  "1000G": "/path/to/hgsvc2/benchmark.vcf"
+  "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
+  "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
 ```
 
 ### Running the Pipeline
 
-#### Full Pipeline (Recommended)
+#### Full Pipeline (Benchmarking)
 
 Run the complete pipeline with a single command:
 
 ```bash
-python src/main.py --config config.yaml
+python src/main.py config.yaml
 ```
 
 This will execute:
-1. **Computation Pipeline**: VCF conversion, consensus calling, liftover, benchmarking
-2. **Analysis Pipeline**: Statistical metrics, plots, and Venn diagrams
+1. **Processing Pipeline**: VCF conversion of evaluated call sets and controls, consensus calling, liftover
+2. **Computation Pipeline**: VCF conversion of benchmarks, binary classification of evaluated call sets
+3. **Analysis Pipeline**: Statistical metrics, plots, and Venn diagrams
 
 #### Individual Pipeline Components
 
 You can also run each pipeline component separately:
 
 ```bash
+# Run only processing pipeline
+python src/processing_driver.py config.yaml
+
 # Run only computation pipeline
-python src/computation_driver.py --config config.yaml
+python src/computation_driver.py config.yaml
 
 # Run only analysis pipeline
-python src/analysis_driver.py --config config.yaml
+python src/analysis_driver.py config.yaml
 ```
 
 ## Output Structure

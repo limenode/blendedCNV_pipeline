@@ -1,9 +1,7 @@
 import os
 import sys
 import subprocess
-import yaml
 import json
-import argparse
 import re
 import pandas as pd
 from liftover import get_lifter

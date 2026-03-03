@@ -9,7 +9,7 @@ This script orchestrates the complete CNV analysis pipeline:
 
 import yaml
 from utils import parse_args
-from consensus_driver import main as consensus_main
+from processing_driver import main as processing_main
 from computation_driver import main as computation_main
 from analysis_driver import main as analysis_main
 
@@ -35,11 +35,11 @@ def main():
     
 
 
-    # Step 1: Run consensus pipeline
+    # Step 1: Run processing pipeline
     print("\n" + "="*80)
-    print("PHASE 1: CONSENSUS PIPELINE")
+    print("PHASE 1: PROCESSING PIPELINE")
     print("="*80)
-    consensus_main(config, debug=debug)
+    processing_main(config, debug=debug)
 
     # Step 2: Run computation pipeline
     print("\n" + "="*80)

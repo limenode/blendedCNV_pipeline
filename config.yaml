@@ -9,27 +9,27 @@ input:
     delly: "/path/to/high_cov/delly/{id}.bcf"
     gatk: "/path/to/high_cov/gatk/{id}/*_segments_{id}.vcf.gz"
 
-# Control datasets (optional)
-control:
-  "SNP Array": "/path/to/array/data.cnv"
-
-# Benchmark datasets (accepts URLs or paths)
-benchmark_map:
-  "1000G": "/path/to/hgsvc2/benchmark.vcf"
-  "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
-  "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
-
-# Liftover specifications (optional)
-liftover:
-  "SNP Array":
-    "from": "hg18"
-    "to": "hg38"
-
 # Output directory
 output_dir: "/path/to/output"
 
 # Reference genome file
 genome_file: "/path/to/genome.txt"
 
-# Excluded regions file (optional)
+# Excluded regions file [optional]
 excluded_regions_file: "/path/to/excluded_regions.bed"
+
+# Control datasets [optional]
+control:
+  "SNP Array": "/path/to/array/data.cnv"
+
+# Liftover specifications [optional]
+liftover:
+  "SNP Array":
+    "from": "hg18"
+    "to": "hg38"
+
+# Benchmark datasets [only required for computation/analysis step] (accepts URLs or paths)
+benchmark_map:
+  "1000G": "/path/to/hgsvc2/benchmark.vcf"
+  "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
+  "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
