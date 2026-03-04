@@ -218,6 +218,21 @@ Metrics are generated across:
 - Consensus methods (intersections, unions)
 - Sequencing depths
 
+## Included Files - Sources
+
+This repository hosts files in the `data/` directory that contains information derived from several repositories. If you choose to use these files for this pipeline, please cite the appropriate sources.
+
+- `genome_primary.txt`
+  - Human reference genome GRCh38/hg38 chromosome lengths for chr1-chr22, chrX, and chrY.
+  - Extracted from file provided in the 1000 Genomes database, hosted by IGSR: `https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa.fai`
+- `excluded_regions.bed`
+  - Output from performing `bedtools merge` between the following regions:
+    - Centromeric regions from file provided in the 1000 Genomes database, hosted by IGSR: `https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/20150713_location_of_centromeres_and_other_regions.txt`
+    - Regions defined in the gap table provided by the UCSC hg38 database: `https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/gap.txt.gz` 
+- `included_regions.bed`
+  - Genomic regions derived from a .bed representation of `genome_primary.txt` subtracted by `excluded_regions.bed`, performed using `bedtools subtract`.
+  - Is not directly used in the pipeline. Provided to the user as a convenient reference to the regions of interest if using the other two files when setting up a config.
+
 <!-- ## Citation
 
 If you use this pipeline, please cite:
