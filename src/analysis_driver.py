@@ -91,36 +91,36 @@ def main(config: dict, debug: bool = False):
     # Define all plotting tasks as partial functions for parallel execution
     plotting_tasks = [
         # Task 1: Statistical distributions
-        partial(
-            plotter.plot_statistical_distributions,
-            metrics=metrics,
-            bounds=(500, 1_000_000),
-            output_path=output_dir / "figures" / "statistical_distributions" / "distribution.png",
-        ),
+        # partial(
+        #     plotter.plot_statistical_distributions,
+        #     metrics=metrics,
+        #     bounds=(500, 1_000_000),
+        #     output_path=output_dir / "figures" / "statistical_distributions" / "distribution.png",
+        # ),
         # Task 2: Venn diagram for intersections
         partial(
             plotter.plot_venn_diagram,
             set_keys=['Low_Coverage_intersections', 'High_Coverage_intersections', 'SNP_Array'],
             output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_intersections.png",
         ),
-        # Task 3: Venn diagram for unions
-        partial(
-            plotter.plot_venn_diagram,
-            set_keys=['Low_Coverage_unions', 'High_Coverage_unions', 'SNP_Array'],
-            output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_unions.png",
-        ),
-        # Task 4: Size distribution plots
-        partial(
-            plotter.plot_size_distribution,
-            set_keys=list(all_data['input_sets'].keys()),
-            output_dir=output_dir / "figures" / "size_distributions",
-        ),
-        # Task 5: Caller source distribution
-        partial(
-            plotter.get_caller_source_distribution,
-            input_sets_to_include=[key for key in all_data['input_sets'].keys() if "intersections" in key],
-            output_file=output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png",
-        ),
+        # # Task 3: Venn diagram for unions
+        # partial(
+        #     plotter.plot_venn_diagram,
+        #     set_keys=['Low_Coverage_unions', 'High_Coverage_unions', 'SNP_Array'],
+        #     output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_unions.png",
+        # ),
+        # # Task 4: Size distribution plots
+        # partial(
+        #     plotter.plot_size_distribution,
+        #     set_keys=list(all_data['input_sets'].keys()),
+        #     output_dir=output_dir / "figures" / "size_distributions",
+        # ),
+        # # Task 5: Caller source distribution
+        # partial(
+        #     plotter.get_caller_source_distribution,
+        #     input_sets_to_include=[key for key in all_data['input_sets'].keys() if "intersections" in key],
+        #     output_file=output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png",
+        # ),
     ]
 
     # Execute plotting tasks in parallel

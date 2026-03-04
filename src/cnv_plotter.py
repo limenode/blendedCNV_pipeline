@@ -22,19 +22,23 @@ from utils import generate_size_intervals, DistributionType, SVType
 import time
 
 # Module-level helper function for multiprocessing
-def _create_record_ids(df: pd.DataFrame, classification: str) -> set:
+def _create_record_ids(df: pd.DataFrame, classification: str, svtype: SVType = SVType.ALL) -> set:
     """
     Create unique identifiers for records based on classification type.
     
     Args:
         df: DataFrame with records
         classification: One of 'TP', 'FP', or 'FN'
+        svtype: The structural variant type to filter by
     
     Returns:
         Set of tuples uniquely identifying each record
     """
     if df.empty:
         return set()
+    
+    if svtype != SVType.ALL and 'svtype' in df.columns:
+        df = df[df['svtype'] == svtype.value].copy()
     
     if classification in ['FP']:
         # Use predicted coordinates for FP + sample
@@ -555,7 +559,7 @@ class CNVPlotter:
 
         # Verify keys exist in data
         for key in set_keys:
-            if key not in self.data:
+            if key not in self.data.get('input_sets', {}):
                 print(f"Error: Input set '{key}' not found in data.")
                 return
         
@@ -565,7 +569,7 @@ class CNVPlotter:
             output_dir.mkdir(parents=True, exist_ok=True)
         
         # Required columns for building benchmark IDs
-        required_cols = ['truth_chrom', 'truth_start', 'truth_end', 'svtype']
+        required_cols = ['truth_chrom', 'truth_start', 'truth_end', 'svtype', 'sample']
 
         # Work with copy of input_sets only
         input_sets = self.data.get('input_sets', {})
@@ -576,47 +580,23 @@ class CNVPlotter:
             if bounds is not None:
                 start, end = bounds
                 data[key] = filter_by_size(data[key], lower_bound=int(start), upper_bound=int(end))
-            
-
-        # Extract TP tuples for each set
+        
+        # Use method to compare
         tp_sets = {}
         for key in set_keys:
             df = data[key].get('TP', pd.DataFrame())
-
-            if df.empty:
-                print(f"Warning: No TP records found for input set '{key}'.")
-                tp_sets[key] = set()
-                continue
-            
-            # Filter by svtype if specified
-            if svtype is not SVType.ALL and 'svtype' in df.columns:
-                df = df[df['svtype'] == svtype.value].copy()
-            
-            # Check if required columns are present
-            if all(col in df.columns for col in required_cols):
-                tp_sets[key] = set(df[required_cols].itertuples(index=False, name=None))
-            else:
-                print(f"Warning: Required columns not found for input set '{key}'. Using row hashes instead.")
-                tp_sets[key] = set(df.apply(lambda row: hash(tuple(row)), axis=1))
+            tp_sets[key] = _create_record_ids(df, 'TP', svtype=svtype)
         
+        print(sum(len(s) for s in tp_sets.values()), "total TP records across all sets after using _create_record_ids with svtype filtering.")
+
         # Calculate universal set (all benchmark IDs across all input sets)
         all_benchmark_ids = set().union(*tp_sets.values())
         total_unique_cnvs = len(all_benchmark_ids)
         
         # Extract FN (false negatives) from first set to get total truth records
         fn_df = data[set_keys[0]].get('FN', pd.DataFrame())
-        fn_set = set()
-        
-        if not fn_df.empty:
-            # Filter by svtype if specified
-            if svtype is not SVType.ALL and 'svtype' in fn_df.columns:
-                fn_df = fn_df[fn_df['svtype'] == svtype.value].copy()
-            
-            # Extract FN IDs
-            if all(col in fn_df.columns for col in required_cols):
-                fn_set = set(fn_df[required_cols].itertuples(index=False, name=None))
-            else:
-                fn_set = set(fn_df.apply(lambda row: hash(tuple(row)), axis=1))
+        fn_set = _create_record_ids(fn_df, 'FN', svtype=svtype)
+        print(f"FN records after _create_record_ids with svtype filtering: {len(fn_set)}")
         
         # Total truth records = all detected (TP from any method) + not detected (FN)
         all_truth_ids = all_benchmark_ids.union(fn_set)
