@@ -1,8 +1,8 @@
 from pathlib import Path
-import yaml
 import pandas as pd
 from typing import List, Tuple, Dict, Optional
 import json
+import subprocess
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -111,6 +111,210 @@ def load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_sampl
         'input_sets': all_input_sets_data,
         'shared_FN': shared_fn_data
     }
+
+def get_bed_counts(directory: Path, 
+                   bounds: Optional[Tuple[int, int]] = None, 
+                   script_path: Optional[Path] = None,
+                   samples: Optional[List[str]] = None) -> Dict[str, int]:
+    """
+    Call get_bed_counts.sh on a single directory and return sample counts.
+    
+    Args:
+        directory: Path to directory containing .bed files
+        bounds: Optional tuple (lower_bound, upper_bound) for CNV size filtering
+        script_path: Optional path to get_bed_counts.sh (defaults to same dir as this file)
+        samples: Optional list of sample names to include (filters files by sample name)
+    
+    Returns:
+        Dictionary mapping sample_id to count: {'sample_1': count, 'sample_2': count, ...}
+    """
+    if script_path is None:
+        script_path = Path(__file__).parent / 'get_bed_counts.sh'
+    
+    script_path = Path(script_path)
+    directory = Path(directory)
+    
+    if not script_path.exists():
+        raise FileNotFoundError(f"Script not found: {script_path}")
+    
+    if not directory.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+    
+    lower_bound = bounds[0] if bounds else None
+    upper_bound = bounds[1] if bounds else None
+
+    # Build command
+    cmd = [str(script_path), str(directory)]
+    if lower_bound is not None:
+        cmd.append(str(lower_bound))
+        if upper_bound is not None:
+            cmd.append(str(upper_bound))
+    elif upper_bound is not None:
+        # If only upper bound, need empty string for lower bound
+        cmd.extend(['', str(upper_bound)])
+    
+    # Add samples parameter if provided
+    if samples:
+        # If bounds weren't specified, need to fill in empty strings
+        while len(cmd) < 4:
+            cmd.append('')
+        cmd.append(','.join(samples))
+    
+    # Run script and capture output
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    
+    # Parse and return JSON output
+    return json.loads(result.stdout)
+
+def get_counts_from_config(config: Dict, 
+                           bounds: Optional[Tuple[int, int]] = None,
+                           samples: Optional[List[str]] = None) -> Tuple[dict, dict]:
+    """
+    Run get_bed_counts.sh on multiple directories specified in config.
+    
+    Args:
+        config: Dictionary containing:
+            - 'input_sets': Dict mapping input_set_name to directory path
+            - 'bounds': Optional tuple (lower, upper) for size filtering
+            - 'script_path': Optional path to get_bed_counts.sh (defaults to same dir as this file)
+        bounds: Optional tuple (lower, upper) for CNV size filtering
+        samples: Optional list of sample names to include (filters files by sample name)
+    
+    Returns:
+        Tuple of (raw_results, post_processed_results):
+        - raw_results: Dictionary mapping input_set_name to sample counts
+        - post_processed_results: Dictionary with aggregated counts by svtype 
+    """
+    results = {}
+    
+    # Get parameters from config
+    output_dir = config.get('output_dir', '')
+    if not output_dir:
+        print("Warning: 'output_dir' not specified in config.")
+        return {}, {}
+    output_dir = Path(output_dir)
+
+    sets_to_process = {}
+    input_names = []
+    control_names = []
+
+    input_sets = config.get('input', {})
+    for key, path in input_sets.items():
+        output_subdir = output_dir / key.replace(" ", "_") / "consensus_2of3"
+        sets_to_process[key] = output_subdir
+        input_names.append(key)
+    
+    controls = config.get('control', {})
+    for key, path in controls.items():
+        output_subdir = output_dir / key.replace(" ", "_") / "bed"
+        sets_to_process[key] = output_subdir
+        control_names.append(key)
+    
+    benchmarks = config.get('benchmark_map', {})
+    if benchmarks:
+        sets_to_process['Benchmark'] = output_dir / "benchmark_parsing" / "merged"
+
+    script_path = Path("./src/get_bed_counts.sh")
+
+    # Process each input set
+    for set_name, directory in sets_to_process.items():
+        directory = Path(directory)
+        
+        if not directory.exists():
+            print(f"Warning: Directory '{directory}' does not exist. Skipping {set_name}.")
+            continue
+        
+        print(f"Getting counts for {set_name} from {directory}")
+        
+        try:
+            counts_dict = get_bed_counts(directory, bounds, script_path, samples)
+            results[set_name] = counts_dict
+            
+            print(f"  Found {len(counts_dict)} samples with total {sum(counts_dict.values())} CNVs")
+            
+        except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"Error processing {set_name}: {e}")
+            results[set_name] = {}
+    
+    # Post-processing
+
+    post_results = {}
+    
+    # Input sets - aggregate by intersections/unions and svtype
+    for input_set_name in input_names:
+        if input_set_name not in results or not results[input_set_name]:
+            continue
+        
+        raw_counts = results[input_set_name]
+        aggregated = {
+            'intersections': {'DEL': 0, 'DUP': 0, 'ALL': 0},
+            'unions': {'DEL': 0, 'DUP': 0, 'ALL': 0}
+        }
+        
+        for key, count in raw_counts.items():
+            # Parse the key to determine type and svtype
+            if 'intersections/' in key or key.startswith('intersections'):
+                category = 'intersections'
+            elif 'unions/' in key or key.startswith('unions'):
+                category = 'unions'
+            else:
+                continue  # Skip keys that don't match expected format
+            
+            # Determine svtype from the key
+            if '.DEL.' in key or key.endswith('.DEL'):
+                svtype = 'DEL'
+            elif '.DUP.' in key or key.endswith('.DUP'):
+                svtype = 'DUP'
+            else:
+                svtype = 'ALL'
+            
+            aggregated[category][svtype] += count
+        
+        post_results[input_set_name] = aggregated
+
+    # Control sets - aggregate by svtype only
+    for control_name in control_names:
+        if control_name not in results or not results[control_name]:
+            continue
+        
+        raw_counts = results[control_name]
+        aggregated = {'DEL': 0, 'DUP': 0, 'ALL': 0}
+        
+        for key, count in raw_counts.items():
+            # Determine svtype from the key
+            if '.DEL' in key or key.endswith('.DEL'):
+                aggregated['DEL'] += count
+            elif '.DUP' in key or key.endswith('.DUP'):
+                aggregated['DUP'] += count
+        
+        # Compute ALL as sum of DEL and DUP
+        aggregated['ALL'] = aggregated['DEL'] + aggregated['DUP']
+        post_results[control_name] = aggregated
+
+    # Benchmark set - aggregate by svtype only
+    if 'Benchmark' in results and results['Benchmark']:
+        raw_counts = results['Benchmark']
+        aggregated = {'DEL': 0, 'DUP': 0, 'ALL': 0}
+        
+        for key, count in raw_counts.items():
+            # Determine svtype from the key (format: sample/sample.merged.DEL)
+            if '.DEL' in key or key.endswith('.DEL'):
+                aggregated['DEL'] += count
+            elif '.DUP' in key or key.endswith('.DUP'):
+                aggregated['DUP'] += count
+        
+        # Compute ALL as sum of DEL and DUP
+        aggregated['ALL'] = aggregated['DEL'] + aggregated['DUP']
+        post_results['Benchmark'] = aggregated
+
+    return results, post_results
+
+
 
 def get_counts_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]]) -> dict:
     """

@@ -1,20 +1,28 @@
 #!/bin/bash
 
 # Script to count CNVs in BED files and output as JSON-like structure
-# Usage: ./get_bed_counts.sh <directory> [lower_bound] [upper_bound]
+# Usage: ./get_bed_counts.sh <directory> [lower_bound] [upper_bound] [samples]
 
 # Check if directory argument is provided
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <directory> [lower_bound] [upper_bound]" >&2
+    echo "Usage: $0 <directory> [lower_bound] [upper_bound] [samples]" >&2
     echo "  directory: Path to search for .bed files" >&2
     echo "  lower_bound: Optional minimum CNV size for filtering" >&2
     echo "  upper_bound: Optional maximum CNV size for filtering" >&2
+    echo "  samples: Optional comma-delimited list of samples to include" >&2
     exit 1
 fi
 
 DIRECTORY="$1"
 LOWER_BOUND="${2:-}"
 UPPER_BOUND="${3:-}"
+SAMPLES="${4:-}"
+
+# Parse samples into array if provided
+declare -a sample_list
+if [ -n "$SAMPLES" ]; then
+    IFS=',' read -ra sample_list <<< "$SAMPLES"
+fi
 
 # Check if directory exists
 if [ ! -d "$DIRECTORY" ]; then
@@ -29,6 +37,25 @@ declare -A counts
 while IFS= read -r -d '' bed_file; do
     # Extract filename without path
     filename=$(basename "$bed_file")
+    
+    # Extract sample name (text before first .)
+    sample_name="${filename%%.*}"
+    
+    # If sample list is provided, check if this sample is in the list
+    if [ ${#sample_list[@]} -gt 0 ]; then
+        found=false
+        for allowed_sample in "${sample_list[@]}"; do
+            if [ "$sample_name" = "$allowed_sample" ]; then
+                found=true
+                break
+            fi
+        done
+        
+        # Skip this file if sample not in list
+        if [ "$found" = false ]; then
+            continue
+        fi
+    fi
     
     # Set sample_id as path without directory and extension
     sample_id="${bed_file#$DIRECTORY/}"
