@@ -22,7 +22,7 @@ from utils import generate_size_intervals, DistributionType, SVType
 import time
 
 # Module-level helper function for multiprocessing
-def _create_record_ids(df, classification):
+def _create_record_ids(df: pd.DataFrame, classification: str) -> set:
     """
     Create unique identifiers for records based on classification type.
     
@@ -37,13 +37,13 @@ def _create_record_ids(df, classification):
         return set()
     
     if classification in ['FP']:
-        # Use predicted coordinates for FP
-        required_cols = ['pred_chrom', 'pred_start', 'pred_end', 'svtype']
+        # Use predicted coordinates for FP + sample
+        required_cols = ['pred_chrom', 'pred_start', 'pred_end', 'svtype', 'sample']
         if all(col in df.columns for col in required_cols):
             return set(df[required_cols].itertuples(index=False, name=None))
     elif classification in ['TP', 'FN']:
-        # Use truth coordinates for TP and FN
-        required_cols = ['truth_chrom', 'truth_start', 'truth_end', 'svtype']
+        # Use truth coordinates for TP and FN + sample
+        required_cols = ['truth_chrom', 'truth_start', 'truth_end', 'svtype', 'sample']
         if all(col in df.columns for col in required_cols):
             return set(df[required_cols].itertuples(index=False, name=None))
     
@@ -94,9 +94,7 @@ def _process_input_sv_combination_worker(args):
         
         # Exclude undiscoverable FNs if provided
         if undiscoverable_fns:
-            interval_key = (lower, upper, svtype)
-            if interval_key in undiscoverable_fns:
-                fn_ids -= undiscoverable_fns[interval_key]
+            fn_ids -= undiscoverable_fns
         
         interval_data.append({
             'lower': lower,
@@ -303,6 +301,39 @@ def _plot_single_metric_distribution_worker(args):
         return (metric_name, dist_type, False, str(e))
 
 
+def identify_undiscoverable_cnvs(
+        data: dict, 
+) -> set:
+
+    input_sets = data.get('input_sets', {})
+
+    # Retrieve all FN dataframes, filter, and add to list for concatenation
+    fn_id_sets = []
+
+    for input_set_name, analysis_data in input_sets.items():
+
+        if 'FN' not in analysis_data:
+            continue
+        
+        fn_df = analysis_data['FN'].copy()
+
+        # Get IDs for all FNs and add to set
+        fn_id_set = _create_record_ids(fn_df, 'FN')
+
+        fn_id_sets.append(fn_id_set)
+    
+    print(f"Collected FN ID sets from {len(fn_id_sets)} input sets for undiscoverable CNV analysis")
+    
+    # Find intersection of all FN ID sets to identify undiscoverable CNVs
+    if fn_id_sets:
+        undiscoverable_cnvs = set.intersection(*fn_id_sets)
+        print(f"Identified {len(undiscoverable_cnvs)} undiscoverable CNVs present as FNs in all input sets")
+    else:
+        undiscoverable_cnvs = set()
+        print("No FN data found across input sets to identify undiscoverable CNVs")
+
+    return undiscoverable_cnvs
+
 class CNVPlotter:
     def __init__(self, data: dict, config: dict, input_name_mapping: dict):
         self.data = data
@@ -343,44 +374,15 @@ class CNVPlotter:
             DistributionType.COMPLEMENTARY_CUMULATIVE: {}
         }
         
-        # Use pre-computed shared FNs if requested and available
-        undiscoverable_fns = {}
-        if exclude_undiscoverable_fn and 'shared_FN' in self.data:
-            print("Using pre-computed shared FNs (undiscoverable by any method)...")
-            shared_fn_data = self.data.get('shared_FN', {}).get('FN', pd.DataFrame())
-            
-            if not shared_fn_data.empty:
-                # Group shared FNs by interval and svtype
-                for lower, upper in intervals:
-                    # Filter by size
-                    filtered_shared = filter_by_size({'FN': shared_fn_data}, 
-                                                     lower_bound=int(lower), 
-                                                     upper_bound=int(upper)).get('FN', pd.DataFrame())
-                    
-                    for svtype in svtypes:
-                        # Filter by svtype
-                        svtype_filtered = filtered_shared.copy()
-                        if svtype != SVType.ALL and not svtype_filtered.empty and 'svtype' in svtype_filtered.columns:
-                            svtype_filtered = svtype_filtered[svtype_filtered['svtype'] == svtype.value].copy()
-                        
-                        # Get FN IDs
-                        if not svtype_filtered.empty:
-                            fn_ids = _create_record_ids(svtype_filtered, 'FN')
-                            if fn_ids:
-                                interval_key = (lower, upper, svtype)
-                                undiscoverable_fns[interval_key] = fn_ids
-                
-                total_undiscoverable = sum(len(s) for s in undiscoverable_fns.values())
-                print(f"  Found {len(undiscoverable_fns)} interval-svtype combinations with undiscoverable FNs")
-                print(f"  Total undiscoverable FN records across intervals: {total_undiscoverable}")
-            else:
-                print("  No shared FNs found in data structure")
+        undiscoverable_cnvs = identify_undiscoverable_cnvs(self.data)
         
+        print(len(undiscoverable_cnvs))
+
         # Prepare tasks for all (input_set, svtype) combinations
         # Only iterate over input_sets (shared_FN is separate)
         input_sets = self.data.get('input_sets', {})
         tasks = [
-            (input_set_name, svtype, analysis_data, intervals, undiscoverable_fns)
+            (input_set_name, svtype, analysis_data, intervals, undiscoverable_cnvs)
             for input_set_name, analysis_data in input_sets.items()
             for svtype in svtypes
         ]

@@ -11,96 +11,108 @@ from load_analysis_data import build_analysis_data_structure, filter_by_size
 from cnv_plotter import _create_record_ids
     
 
-def load_data_for_all_input_sets(input_sets_paths: Dict[str, Path], shared_samples_only: bool = True, bounds: Tuple[int, int] = (500, 1_000_000)) -> Dict[str, Dict[str, pd.DataFrame]]:
+def load_data_for_all_input_sets(
+        input_sets_paths: Dict[str, Path], 
+        shared_samples_only: bool = True, 
+        bounds: Tuple[int, int] = (500, 1_000_000)
+    ) -> Dict[str, dict]:
+
     all_input_sets_data = {}
-    sample_sets = []
-    shared_samples = None
-
-    # First pass to discover shared samples across classifications if needed
-    for input_set_key, input_set_path in input_sets_paths.items():
-        print(f"\n{'='*80}")
-        print(f"Processing input set: {input_set_key}")
-        print(f"{'='*80}")
-
-        # Discover shared samples across TP, FP, FN for this input set
-        if shared_samples_only:
-            sample_sets = []
-            # Use glob to discover all classification .bed files, then extract sample names
-            for classification in ['TP', 'FP', 'FN']:
-                if not input_set_path.exists():
-                    print(f"Warning: Path '{input_set_path}' does not exist. Skipping sample discovery for '{classification}'.")
-                    continue
-                
-                bed_files = list(input_set_path.glob("*.bed"))
-                if not bed_files:
-                    print(f"Warning: No .bed files found in '{input_set_path}'. Skipping.")
-                    continue
-                
-                samples_in_classification = set()
-                for bed_file in bed_files:
-                    # Extract sample name from filename (assuming format: sample.<svtype>.<classification>.bed)
-                    sample_name = bed_file.stem.split('.')[0]
-                    samples_in_classification.add(sample_name)
-                
-                sample_sets.append(samples_in_classification)
     
-    # Print information
-    print("\nData loading complete for all input sets.")
-    if shared_samples_only and shared_samples is not None:
-        print(f"{len(shared_samples)} shared samples across classifications: {shared_samples}")
-        
-    # If we have sample sets, find the intersection (shared samples)
-    if sample_sets:
-        shared_samples = set.intersection(*sample_sets) if len(sample_sets) > 1 else sample_sets[0]
-    else:
-        shared_samples = None
-
-    # Second pass to load data with optional filtering by shared samples
+    # First pass: discover shared samples using filename parsing
+    print(f"\n{'='*80}")
+    print("Discovering samples across input sets...")
+    print(f"{'='*80}")
+    
+    all_samples_per_input_set = {}
     for input_set_key, input_set_path in input_sets_paths.items():
+        if not input_set_path.exists():
+            print(f"Warning: Path '{input_set_path}' does not exist. Skipping {input_set_key}.")
+            continue
+        
+        # Get sample names efficiently from filenames (text before first dot)
+        bed_files = list(input_set_path.glob("*.bed"))
+        samples_in_input_set = {bed_file.stem.split('.')[0] for bed_file in bed_files}
+        
+        all_samples_per_input_set[input_set_key] = samples_in_input_set
+        print(f"  {input_set_key}: {len(samples_in_input_set)} samples")
+    
+    # Determine shared samples
+    shared_samples = None
+    if shared_samples_only and all_samples_per_input_set:
+        shared_samples = set.intersection(*all_samples_per_input_set.values())
+        print(f"\nShared samples across all input sets: {len(shared_samples)}")
+    
+    # Second pass: load data with optional filtering by shared samples
+    print(f"\n{'='*80}")
+    print("Loading and filtering data...")
+    print(f"{'='*80}")
+    
+    for input_set_key, input_set_path in input_sets_paths.items():
+        if not input_set_path.exists():
+            continue
+        
+        print(f"  Processing: {input_set_key}")
         analysis_data = build_analysis_data_structure(input_set_path, samples_to_include=shared_samples)
         filtered_data = filter_by_size(analysis_data, lower_bound=bounds[0], upper_bound=bounds[1], strict=True)
         all_input_sets_data[input_set_key] = filtered_data
     
-    # Third pass: Compute shared FNs (present in ALL input sets = undiscoverable by any method)
+    # Third pass: Compute shared FNs efficiently using vectorized operations
     print(f"\n{'='*80}")
-    print("Computing shared FNs (undiscoverable by any method)...")
+    print("Computing shared FNs (present in ALL samples across ALL input sets)...")
     print(f"{'='*80}")
     
     shared_fn_data = {'FN': pd.DataFrame()}
     
     if len(all_input_sets_data) > 0:
-        # Collect FN sets from each input set
-        fn_sets_by_input = {}
+        # Collect all FN DataFrames with input set labels
+        all_fn_dfs = []
         for input_set_key, analysis_data in all_input_sets_data.items():
             fn_df = analysis_data.get('FN', pd.DataFrame())
             if not fn_df.empty:
-                fn_ids = _create_record_ids(fn_df, 'FN')
-                fn_sets_by_input[input_set_key] = fn_ids
-                print(f"  {input_set_key}: {len(fn_ids)} FNs")
+                fn_df_copy = fn_df.copy()
+                fn_df_copy['_input_set'] = input_set_key
+                all_fn_dfs.append(fn_df_copy)
+                print(f"  {input_set_key}: {len(fn_df)} FNs")
         
-        # Compute intersection (FNs present in ALL input sets)
-        if fn_sets_by_input:
-            shared_fn_ids = set.intersection(*fn_sets_by_input.values())
-            print(f"\n  Shared FNs across all {len(fn_sets_by_input)} input sets: {len(shared_fn_ids)}")
+        if all_fn_dfs:
+            # Combine all FN data
+            combined_fn_df = pd.concat(all_fn_dfs, ignore_index=True)
             
-            # Create a DataFrame from the first input set's FNs that are in shared_fn_ids
+            # Create unique identifier for each FN record using vectorized operations
+            combined_fn_df['_fn_id'] = (
+                combined_fn_df['truth_chrom'].astype(str) + '_' +
+                combined_fn_df['truth_start'].astype(str) + '_' +
+                combined_fn_df['truth_end'].astype(str) + '_' +
+                combined_fn_df['svtype'].astype(str)
+            )
+            
+            # Count occurrences across input sets and samples
+            fn_counts = combined_fn_df.groupby('_fn_id').agg({
+                '_input_set': 'nunique',
+                'sample': 'nunique'
+            }).reset_index()
+            
+            num_input_sets = len(all_input_sets_data)
+            num_samples = len(shared_samples) if shared_samples else combined_fn_df['sample'].nunique()
+            
+            # Find FNs present in all input sets AND all samples
+            shared_fn_ids = fn_counts[
+                (fn_counts['_input_set'] == num_input_sets) & 
+                (fn_counts['sample'] == num_samples)
+            ]['_fn_id'].tolist()
+            
+            print(f"\n  Total unique FNs: {fn_counts.shape[0]}")
+            print(f"  FNs in all {num_input_sets} input sets and all {num_samples} samples: {len(shared_fn_ids)}")
+            
             if shared_fn_ids:
-                # Use the first input set to get the actual DataFrame rows
-                first_input_key = list(all_input_sets_data.keys())[0]
-                first_fn_df = all_input_sets_data[first_input_key].get('FN', pd.DataFrame())
+                # Get representative records for shared FNs (one per FN)
+                shared_fn_mask = combined_fn_df['_fn_id'].isin(shared_fn_ids)
+                shared_fn_df = combined_fn_df[shared_fn_mask].drop_duplicates(subset='_fn_id', keep='first').copy()
+                shared_fn_df = shared_fn_df.drop(columns=['_fn_id', '_input_set'])
                 
-                if not first_fn_df.empty:
-                    # Filter to only include rows that match shared_fn_ids
-                    first_fn_indices = []
-                    for idx, row in first_fn_df.iterrows():
-                        row_id = tuple([row.get('truth_chrom'), row.get('truth_start'), 
-                                       row.get('truth_end'), row.get('svtype')])
-                        if row_id in shared_fn_ids:
-                            first_fn_indices.append(idx)
-                    
-                    shared_fn_df = first_fn_df.loc[first_fn_indices].copy()
-                    shared_fn_data = {'FN': shared_fn_df}
-                    print(f"  Stored {len(shared_fn_df)} shared FN records")
+                shared_fn_data = {'FN': shared_fn_df}
+                print(f"  Stored {len(shared_fn_df)} shared FN records")
         else:
             print("  No FN data found in any input set")
     
