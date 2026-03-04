@@ -199,15 +199,18 @@ def get_counts_from_config(config: Dict,
         return {}, {}
     output_dir = Path(output_dir)
 
+    consensus_types = ['consensus_1of3', 'consensus_2of3', 'consensus_3of3']
+
     sets_to_process = {}
     input_names = []
     control_names = []
 
     input_sets = config.get('input', {})
     for key, path in input_sets.items():
-        output_subdir = output_dir / key.replace(" ", "_") / "consensus_2of3"
-        sets_to_process[key] = output_subdir
-        input_names.append(key)
+        for consensus_type in consensus_types:
+            output_subdir = output_dir / key.replace(" ", "_") / consensus_type
+            sets_to_process[f"{key}.{consensus_type}"] = output_subdir
+            input_names.append(f"{key}.{consensus_type}")
     
     controls = config.get('control', {})
     for key, path in controls.items():
@@ -313,98 +316,6 @@ def get_counts_from_config(config: Dict,
         post_results['Benchmark'] = aggregated
 
     return results, post_results
-
-
-
-def get_counts_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]]) -> dict:
-    """
-    Extract call counts for all input sets and benchmark data.
-    
-    For each input set, retrieves TP + FP (total calls made by method).
-    Benchmark data (TP + FN) is extracted from all input sets, verified to be identical,
-    and stored only once.
-    
-    Args:
-        all_data: Dictionary with structure {input_set: {classification: DataFrame}}
-    
-    Returns:
-        Dictionary with call counts for each input set plus benchmark:
-        {
-            'input_set_name': {
-                'call_count': {
-                    'total': <int>,
-                    'avg_per_sample': <float>,
-                    'by_sample': {sample: count, ...}
-                }
-            },
-            ...,
-            'Benchmark': {
-                'call_count': {
-                    'total': <int>,
-                    'avg_per_sample': <float>,
-                    'by_sample': {sample: count, ...}
-                }
-            }
-        }
-    """
-    results = {}
-    benchmark_data_list = []
-    
-    # Iterate only over input_sets (shared_FN is separate)
-    for input_set_name, classification_dict in all_data['input_sets'].items():
-        # Extract binary classification counts for this input set
-        tp_count = len(classification_dict.get('TP', pd.DataFrame()))
-        fp_count = len(classification_dict.get('FP', pd.DataFrame()))
-        fn_count = len(classification_dict.get('FN', pd.DataFrame()))
-        
-        tp_fp_by_sample = {}
-        for classification in ['TP', 'FP']:
-            df = classification_dict.get(classification, pd.DataFrame())
-            if not df.empty and 'sample' in df.columns:
-                for sample, count in df['sample'].value_counts().to_dict().items():
-                    tp_fp_by_sample[sample] = tp_fp_by_sample.get(sample, 0) + count
-        
-        call_count = tp_count + fp_count
-        avg_per_sample = call_count / len(tp_fp_by_sample) if tp_fp_by_sample else 0.0
-        
-        results[input_set_name] = {
-            'call_count': {
-                'total': call_count,
-                'avg_per_sample': avg_per_sample,
-                'by_sample': tp_fp_by_sample
-            }
-        }
-        
-        tp_fn_by_sample = {}
-        for classification in ['TP', 'FN']:
-            df = classification_dict.get(classification, pd.DataFrame())
-            if not df.empty and 'sample' in df.columns:
-                for sample, count in df['sample'].value_counts().to_dict().items():
-                    tp_fn_by_sample[sample] = tp_fn_by_sample.get(sample, 0) + count
-        
-        benchmark_total = tp_count + fn_count
-        benchmark_avg = benchmark_total / len(tp_fn_by_sample) if tp_fn_by_sample else 0.0
-        
-        benchmark_data = {
-            'total': benchmark_total,
-            'avg_per_sample': benchmark_avg,
-            'by_sample': tp_fn_by_sample
-        }
-        benchmark_data_list.append(benchmark_data)
-    
-    # Verify all benchmark data is identical and store only once
-    if benchmark_data_list:
-        first_benchmark = benchmark_data_list[0]
-        all_identical = all(b == first_benchmark for b in benchmark_data_list)
-        
-        if not all_identical:
-            print("Warning: Benchmark data differs across input sets")
-        
-        results['Benchmark'] = {
-            'call_count': first_benchmark
-        }
-    
-    return results
 
 
 def get_samples_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]], classification_key: str) -> set:
