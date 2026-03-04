@@ -1,6 +1,6 @@
 import argparse
 from pathlib import Path
-from typing import Any, List, Tuple, Callable
+from typing import Any, List, Tuple
 import numpy as np
 from enum import Enum
 import yaml
@@ -19,7 +19,7 @@ class SVType(Enum):
     DUP = "DUP"
     ALL = "ALL"
 
-def parse_args():
+def parse_args() -> dict[str, Any]:
     parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
     parser.add_argument('config', type=Path, help='Path to configuration YAML file')
     args = parser.parse_args()

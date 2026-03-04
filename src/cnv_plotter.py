@@ -491,7 +491,7 @@ class CNVPlotter:
         
         # Execute plotting tasks in parallel
         num_tasks = len(plotting_tasks)
-        print(f"\nGenerating {num_tasks} plots in parallel ({len(metrics)} metrics × {len(distribution_data)} distribution types)...")
+        print(f"\nGenerating {num_tasks} plots in parallel ({len(metrics)} metrics x {len(distribution_data)} distribution types)...")
         
         successful_plots = []
         failed_plots = []

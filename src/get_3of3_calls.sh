@@ -85,86 +85,53 @@ process_file() {
     echo "    \"gatk\": $gatk_count_after" >> "$log_file"
     echo "  }" >> "$log_file"
 
-    delly_cnvpytor_intersect=$(mktemp)
-    delly_gatk_intersect=$(mktemp)
-    cnvpytor_gatk_intersect=$(mktemp)
+    three_way_intersect=$(mktemp)
+    three_way_union=$(mktemp)
 
-    delly_cnvpytor=$(mktemp)
-    delly_gatk=$(mktemp)
-    cnvpytor_gatk=$(mktemp)
+    # Find 3-way intersection (regions where all 3 tools agree)
+    # Chain intersections: delly ∩ cnvpytor ∩ gatk
+    bedtools intersect -a "$delly_tmp" -b "$cnvpytor_tmp" -f 0.5 -r | \
+    bedtools intersect -a stdin -b "$gatk_tmp" -f 0.5 -r > "$three_way_intersect"
 
-    # Find overlaps for intersection (without -wa -wb to get only overlapping regions)
-    bedtools intersect -a "$delly_tmp" -b "$cnvpytor_tmp" -f 0.5 -r > "$delly_cnvpytor_intersect"
-    bedtools intersect -a "$delly_tmp" -b "$gatk_tmp" -f 0.5 -r > "$delly_gatk_intersect"
-    bedtools intersect -a "$cnvpytor_tmp" -b "$gatk_tmp" -f 0.5 -r > "$cnvpytor_gatk_intersect"
-
-    # Find overlaps and get original regions for union
-    bedtools intersect -a "$delly_tmp" -b "$cnvpytor_tmp" -f 0.5 -r -wa -wb > "$delly_cnvpytor"
-    bedtools intersect -a "$delly_tmp" -b "$gatk_tmp" -f 0.5 -r -wa -wb > "$delly_gatk"
-    bedtools intersect -a "$cnvpytor_tmp" -b "$gatk_tmp" -f 0.5 -r -wa -wb > "$cnvpytor_gatk"
+    # Find original regions from all 3 tools that participate in the 3-way overlap
+    # Strategy: find which regions from each tool overlap with the 3-way intersection
+    if [[ -s "$three_way_intersect" ]]; then
+        {
+            bedtools intersect -a "$delly_tmp" -b "$three_way_intersect" -u
+            bedtools intersect -a "$cnvpytor_tmp" -b "$three_way_intersect" -u
+            bedtools intersect -a "$gatk_tmp" -b "$three_way_intersect" -u
+        } > "$three_way_union"
+    else
+        # If no 3-way intersection, union file is empty
+        touch "$three_way_union"
+    fi
 
     rm "$delly_tmp" "$cnvpytor_tmp" "$gatk_tmp"
 
-    # Log the number of intersecting calls for each pair of tools
-    delly_cnvpytor_count=$(wc -l < "$delly_cnvpytor_intersect")
-    delly_gatk_count=$(wc -l < "$delly_gatk_intersect")
-    cnvpytor_gatk_count=$(wc -l < "$cnvpytor_gatk_intersect")
-    echo "  ,\"intersections\": {" >> "$log_file"
-    echo "    \"delly_cnvpytor\": $delly_cnvpytor_count," >> "$log_file"
-    echo "    \"delly_gatk\": $delly_gatk_count," >> "$log_file"
-    echo "    \"cnvpytor_gatk\": $cnvpytor_gatk_count" >> "$log_file"
+    # Log the number of 3-way intersecting calls
+    three_way_count=$(wc -l < "$three_way_intersect")
+    three_way_union_count=$(wc -l < "$three_way_union")
+    echo "  ,\"three_way_intersection\": {" >> "$log_file"
+    echo "    \"intersection_count\": $three_way_count," >> "$log_file"
+    echo "    \"union_count\": $three_way_union_count" >> "$log_file"
     echo "  }" >> "$log_file"
 
     intersection_file="$outdir/intersections/${base_name%.bed}.intersection.bed"
     union_file="$outdir/unions/${base_name%.bed}.union.bed"
 
-    # Intersection - only the overlapping regions
-    {
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "cnvpytor,delly"}' "$delly_cnvpytor_intersect"
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "delly,gatk"}' "$delly_gatk_intersect"
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "cnvpytor,gatk"}' "$cnvpytor_gatk_intersect"
-    } | \
+    # Create intersection file - the overlapping regions where all 3 tools agree
+    awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "cnvpytor|delly|gatk"}' \
+        "$three_way_intersect" | \
+    bedtools sort -i - -g "$genome_file" > "$intersection_file"
+
+    # Create union file - all original regions from all 3 tools that participate
+    awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "cnvpytor|delly|gatk"}' \
+        "$three_way_union" | \
     sort -k1,1 -k2,2n | \
-    bedtools merge -c 4,5 -o distinct,distinct -i - > "$intersection_file"
+    bedtools merge -c 4,5 -o distinct,distinct -i - | \
+    bedtools sort -i - -g "$genome_file" > "$union_file"
 
-    # Union - entire span of all calls that intersect
-    {
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "cnvpytor,delly"}' "$delly_cnvpytor"
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $4, $5, $6, type, "cnvpytor,delly"}' "$delly_cnvpytor"
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "delly,gatk"}' "$delly_gatk"
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $4, $5, $6, type, "delly,gatk"}' "$delly_gatk"
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "cnvpytor,gatk"}' "$cnvpytor_gatk"
-        awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $4, $5, $6, type, "cnvpytor,gatk"}' "$cnvpytor_gatk"
-    } | \
-    sort -k1,1 -k2,2n | \
-    bedtools merge -c 4,5 -o distinct,distinct -i - > "$union_file"
-
-    rm "$delly_cnvpytor_intersect" "$delly_gatk_intersect" "$cnvpytor_gatk_intersect"
-    rm "$delly_cnvpytor" "$delly_gatk" "$cnvpytor_gatk"
-
-    # Function to deduplicate tool names in column 5
-    deduplicate_tools() {
-        local input_file="$1"
-        local tmp_file=$(mktemp)
-
-        awk 'BEGIN{OFS="\t"} {
-            split($5, tools, ",");
-            delete seen;
-            result = "";
-            for (i in tools) {
-                if (!(tools[i] in seen)) {
-                    seen[tools[i]] = 1;
-                    result = result (result == "" ? "" : "|") tools[i];
-                }
-            }
-            print $1, $2, $3, $4, result
-        }' "$input_file" > "$tmp_file"
-
-        mv "$tmp_file" "$input_file"
-    }
-
-    deduplicate_tools "$intersection_file"
-    deduplicate_tools "$union_file"
+    rm "$three_way_intersect" "$three_way_union"
 
     # Close log file with closing brace
     echo "}" >> "$log_file"
@@ -219,7 +186,7 @@ for sample in $samples; do
 done
 
 # Concatenate all log files into a single json array
-master_log_file="$outdir/get_consensus_2of3_calls_summary.json"
+master_log_file="$outdir/get_consensus_3of3_calls_summary.json"
 echo "[" > "$master_log_file"
 log_files=$(ls "$log_dir"/*.json)
 log_count=$(echo "$log_files" | wc -l)

@@ -400,7 +400,7 @@ def convert_control_to_bed(config: dict):
         
         # Check both intersections and unions directories
         for consensus_type in ['intersections', 'unions']:
-            consensus_dir = output_dir / output_subdir_name / consensus_type
+            consensus_dir = output_dir / output_subdir_name / "consensus_2of3" / consensus_type
             if consensus_dir.exists():
                 for file_path in consensus_dir.glob('*.bed'):
                     # Extract sample ID (string before first dot)
@@ -502,7 +502,12 @@ def convert_vcfs_to_bed(config: dict):
 
 def run_consensus_calls_script(config: dict):
     output_dir = Path(config['output_dir'])
-    results = {}
+    results = {
+        "consensus_1of3": {},
+        "consensus_2of3": {},
+        "consensus_3of3": {}
+    }
+    consensus_types = ["consensus_1of3", "consensus_2of3", "consensus_3of3"]
 
     for key, input_map in config['input'].items():
         print(f"Running consensus calls script for input set: {key}")
@@ -510,32 +515,59 @@ def run_consensus_calls_script(config: dict):
         output_subdir_name = key.replace(" ", "_")
         output_subdir = output_dir / output_subdir_name
 
+        # Consnsus calls 2/3 script
         command = [
             "./src/get_consensus_calls.sh",
             output_subdir / "bed/cnvpytor",
             output_subdir / "bed/delly",
             output_subdir / "bed/gatk",
-            output_subdir,
+            output_subdir / "consensus_2of3",
             config['genome_file'],
             config['excluded_regions_file']
         ]
 
         subprocess.run(command, check=True)
 
-        # Read log file into results dictionary, and remove after reading
-        log_file = output_subdir / "get_consensus_calls_summary.json"
-        if log_file.exists():
-            with open(log_file, 'r') as f:
-                results[key] = json.load(f)
-        else:
-            print(f"Warning: Log file not found for consensus calls script: {log_file}")
-        os.remove(log_file)
-    
-    # Save results to file
-    log_output_file = Path(config['output_dir']) / "logs" / "consensus_calls_results.json"
-    os.makedirs(log_output_file.parent, exist_ok=True)
-    with open(log_output_file, 'w') as f:
-        json.dump(results, f, indent=4)
+        command = [
+            "./src/get_1of3_calls.sh",
+            output_subdir / "bed/cnvpytor",
+            output_subdir / "bed/delly",
+            output_subdir / "bed/gatk",
+            output_subdir / "consensus_1of3",
+            config['genome_file'],
+            config['excluded_regions_file']
+        ]
+
+        subprocess.run(command, check=True)
+
+        command = [
+            "./src/get_3of3_calls.sh",
+            output_subdir / "bed/cnvpytor",
+            output_subdir / "bed/delly",
+            output_subdir / "bed/gatk",
+            output_subdir / "consensus_3of3",
+            config['genome_file'],
+            config['excluded_regions_file']
+        ]
+
+        subprocess.run(command, check=True)
+
+        # Read log files into results dictionary, and remove after reading
+        for consensus_type in consensus_types:
+            log_file = output_subdir / consensus_type / f"get_{consensus_type}_calls_summary.json"
+            if log_file.exists():
+                with open(log_file, 'r') as f:
+                    results[consensus_type][key] = json.load(f)
+            else:
+                print(f"Warning: Log file not found for consensus calls script: {log_file}")
+            os.remove(log_file)
+        
+    # Save results to files
+    for consensus_type in consensus_types:
+        log_output_file = Path(config['output_dir']) / "logs" / f"{consensus_type}_results.json"
+        os.makedirs(log_output_file.parent, exist_ok=True)
+        with open(log_output_file, 'w') as f:
+            json.dump(results[consensus_type], f, indent=4)
 
 def run_binary_classification_script(config: dict):
     output_dir = Path(config['output_dir'])
@@ -552,7 +584,7 @@ def run_binary_classification_script(config: dict):
 
         command = [
             "./src/get_binary_classification.sh",
-            output_subdir / "intersections",
+            output_subdir / "consensus_2of3" / "intersections",
             output_subdir / "binary_classification" / "intersections",
             output_dir / "benchmark_parsing" / "merged",
             config['genome_file']
@@ -562,7 +594,7 @@ def run_binary_classification_script(config: dict):
 
         command = [
             "./src/get_binary_classification.sh",
-            output_subdir / "unions",
+            output_subdir / "consensus_2of3" / "unions",
             output_subdir / "binary_classification" / "unions",
             output_dir / "benchmark_parsing" / "merged",
             config['genome_file']

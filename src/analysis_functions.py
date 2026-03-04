@@ -452,8 +452,8 @@ def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] =
     print("\nBenchmark Merging Results:")
     print(benchmark_merging_df.head())
 
-    # consensus_calls_results.json
-    consensus_calls_file = log_dir / "consensus_calls_results.json"
+    # consensus_2of3_results.json
+    consensus_calls_file = log_dir / "consensus_2of3_results.json"
     consensus_calls_dict = json.loads(consensus_calls_file.read_text())
 
     changes_df = _compute_change_rows(consensus_calls_dict)

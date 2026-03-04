@@ -7,7 +7,7 @@ from functools import partial
 
 from utils import parse_args, f0_5_score, f2_score, precision, recall, f1_score
 from cnv_plotter import CNVPlotter
-from analysis_functions import load_data_for_all_input_sets, get_samples_from_data, get_counts_from_data, analyze_logs
+from analysis_functions import load_data_for_all_input_sets, get_counts_from_data, analyze_logs
 
 def main(config: dict, debug: bool = False):
     """
@@ -72,8 +72,7 @@ def main(config: dict, debug: bool = False):
     time_3 = time.time()
 
     # === Print summary of loaded data ===
-    
-    counts_dict = get_counts_from_data(all_data)
+    counts_dict = get_counts_from_data(all_data_no_filter)
     counts_dict_no_filter = get_counts_from_data(all_data_no_filter)
     
     # Dump counts to JSON for record-keeping
