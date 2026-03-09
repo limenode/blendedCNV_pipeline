@@ -10,7 +10,7 @@ tool_3_name=$5
 tool_3_dir=$6
 outdir=$7
 genome_file=$8
-excluded_regions_file=$9
+excluded_regions_file="${9:-}"  # Optional: can be empty string, "-", or file path
 reciprocal_threshold="${10:-0.5}"
 
 mkdir -p "$outdir/intersections" "$outdir/unions"
@@ -59,22 +59,26 @@ process_file() {
     echo "    \"$tool_3_name\": $tool_3_count" >> "$log_file"
     echo "  }" >> "$log_file"
 
-    # Sort temporary files and remove CNVs that are 50% or more in excluded regions
+    # Sort temporary files and optionally remove CNVs that are 50% or more in excluded regions
     for tmp in "$tool_1_tmp" "$tool_2_tmp" "$tool_3_tmp"; do
-        # First filter by chromosome names listed in the genome file
-        # then sort the calls
-        # then filter out calls that overlap excluded regions by 50% or more
+        # First filter by chromosome names listed in the genome file and sort the calls
         awk 'NR==FNR {chrom[$1]=1; next} ($1 in chrom)' "$genome_file" "$tmp" | \
         bedtools sort \
             -i - \
-            -g "$genome_file" | \
-        bedtools intersect \
-            -a - \
-            -b "$excluded_regions_file" \
-            -v \
-            -f 0.5 \
-            -sorted \
             -g "$genome_file" > "$tmp.sorted.bed"
+        
+        # Only filter by excluded regions if the file exists and is not empty
+        # Also skip if placeholder values like "-" or "none" are passed
+        if [[ -n "$excluded_regions_file" && "$excluded_regions_file" != "-" && "$excluded_regions_file" != "none" && -f "$excluded_regions_file" && -s "$excluded_regions_file" ]]; then
+            bedtools intersect \
+                -a "$tmp.sorted.bed" \
+                -b "$excluded_regions_file" \
+                -v \
+                -f 0.5 \
+                -sorted \
+                -g "$genome_file" > "$tmp.filtered.bed"
+            mv "$tmp.filtered.bed" "$tmp.sorted.bed"
+        fi
         
         mv "$tmp.sorted.bed" "$tmp"
     done

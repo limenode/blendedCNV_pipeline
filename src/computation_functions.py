@@ -528,7 +528,7 @@ def run_consensus_calls_script(config: dict):
             str(output_subdir / "bed" / tool_list[2]),
             str(output_subdir / "consensus_2of3"),
             config['genome_file'],
-            config['excluded_regions_file'],
+            str(config.get('excluded_regions_file', "-")),
             str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
 
@@ -546,7 +546,7 @@ def run_consensus_calls_script(config: dict):
             str(output_subdir / "bed" / tool_list[2]),
             str(output_subdir / "consensus_1of3"),
             config['genome_file'],
-            config['excluded_regions_file']
+            str(config.get('excluded_regions_file', "-"))
         ]
 
         subprocess.run(command, check=True)
@@ -561,7 +561,7 @@ def run_consensus_calls_script(config: dict):
             str(output_subdir / "bed" / tool_list[2]),
             str(output_subdir / "consensus_3of3"),
             config['genome_file'],
-            config['excluded_regions_file'],
+            str(config.get('excluded_regions_file', "-")),
             str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
 
