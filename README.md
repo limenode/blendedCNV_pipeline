@@ -152,6 +152,12 @@ benchmark_map:
   "1000G": "/path/to/hgsvc2/benchmark.vcf"
   "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
   "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
+
+# Reciprocal overlap threshold for generating consensus calls [optional] (default: 0.5)
+consensus_reciprocal_threshold: 0.5
+
+# Reciprocal overlap threshold for matching calls to benchmarks [optional] (default: 0.5)
+matching_reciprocal_threshold: 0.5
 ```
 
 ### Running the Pipeline
@@ -190,19 +196,23 @@ python src/analysis_driver.py config.yaml
 output_dir/
 ├── {input 1}/
 │   ├── bed/                      # Per-tool BED files
-│   ├── intersections/            # Intersection call sets
-│   ├── unions/                   # Union call sets
-│   └── binary_classification/    # TP/FP/FN classifications
+│   ├── conensus_1of3/            # Consensus calls, requires 1/3 caller agreement
+│   ├── conensus_2of3/            # Consensus calls, requires 2/3 caller agreement (used for binary classification)
+│   ├── conensus_3of3/            # Consensus calls, requires 1/3 caller agreement
+│   └── binary_classification/    # TP/FP/FN classifications of 2/3 consensus calls against benchmarks
 ├── {input 2...}/
 │   └── [same structure as above]
 ├── {control 1}/
 │   ├── bed/                      # Array-based CNV calls
-│   └── binary_classification/
+│   └── binary_classification/    # TP/FP/FN classifications
 ├── {control 2...}/
 │   └── [same structure as above]
-├── benchmark_parsing/            # Processed benchmark data
+├── benchmark_parsing/
+│   ├── {benchmark_1}             # Parsed benchmark BED files
+│   ├── {benchmark_2...}
+│   └── merged/                   # BED files for all benchmarks merged together
 ├── figures/                      # Contains plots for various analyses
-└── venn_diagrams/                # Detection overlap diagrams
+└── logs/                         # Logs of various steps across the pipeline
 ```
 
 ## Key Metrics
