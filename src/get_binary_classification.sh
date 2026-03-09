@@ -5,6 +5,7 @@ predicted_dir=$1
 output_dir=$2
 truth_dir=$3
 genome_file=$4
+reciprocal_threshold=${5:-0.5}
 
 
 mkdir -p "$output_dir"
@@ -40,7 +41,7 @@ process_sample() {
         -b "$sorted_truth" \
         -sorted \
         -g "$genome_file" \
-        -f 0.5 -r \
+        -f "$reciprocal_threshold" -r \
         -wa -wb \
         > "$tp_file"
     
@@ -50,7 +51,7 @@ process_sample() {
         -b "$sorted_truth" \
         -sorted \
         -g "$genome_file" \
-        -f 0.5 -r \
+        -f "$reciprocal_threshold" -r \
         -v \
         -wa -wb \
         > "$fp_file"
@@ -61,7 +62,7 @@ process_sample() {
         -b "$sorted_predicted" \
         -sorted \
         -g "$genome_file" \
-        -f 0.5 -r \
+        -f "$reciprocal_threshold" -r \
         -v \
         -wa -wb \
         > "$fn_file"    

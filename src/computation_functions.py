@@ -477,12 +477,6 @@ def convert_vcfs_to_bed(config: dict):
         cnv_parser = CNVParser(input_map)
         all_vcf_files = cnv_parser.get_all_vcf_files()
 
-        # Check that tool_patterns contains expected tools
-        expected_tools = {"cnvpytor", "delly", "gatk"}
-        if not expected_tools.issubset(set(cnv_parser.tool_patterns.keys())):
-            print(f"Warning: Expected tools {expected_tools} not all found in tool patterns. Found: {set(cnv_parser.tool_patterns.keys())}")
-            sys.exit(1)
-
         # Convert all VCF files and export to files
         for tool, id_path_pair in all_vcf_files.items():
             for sample_id, vcf_path in id_path_pair:
@@ -515,25 +509,42 @@ def run_consensus_calls_script(config: dict):
         output_subdir_name = key.replace(" ", "_")
         output_subdir = output_dir / output_subdir_name
 
+        tool_list = list(input_map.keys())
+
+        if len(tool_list) != 3:
+            print(f"  Warning: Expected exactly 3 tools for consensus calls, but found {len(tool_list)} for input set '{key}'. Skipping this input set.")
+            continue
+
+        print(f"  Tools for this input set: {tool_list}")
+
         # Consnsus calls 2/3 script
         command = [
             "./src/get_consensus_calls.sh",
-            output_subdir / "bed/cnvpytor",
-            output_subdir / "bed/delly",
-            output_subdir / "bed/gatk",
-            output_subdir / "consensus_2of3",
+            tool_list[0],
+            str(output_subdir / "bed" / tool_list[0]),
+            tool_list[1],
+            str(output_subdir / "bed" / tool_list[1]),
+            tool_list[2],
+            str(output_subdir / "bed" / tool_list[2]),
+            str(output_subdir / "consensus_2of3"),
             config['genome_file'],
-            config['excluded_regions_file']
+            config['excluded_regions_file'],
+            str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
+
+        print(f"  Running consensus calls script for 2/3 consensus with command: {' '.join(map(str, command))}")
 
         subprocess.run(command, check=True)
 
         command = [
             "./src/get_1of3_calls.sh",
-            output_subdir / "bed/cnvpytor",
-            output_subdir / "bed/delly",
-            output_subdir / "bed/gatk",
-            output_subdir / "consensus_1of3",
+            tool_list[0],
+            str(output_subdir / "bed" / tool_list[0]),
+            tool_list[1],
+            str(output_subdir / "bed" / tool_list[1]),
+            tool_list[2],
+            str(output_subdir / "bed" / tool_list[2]),
+            str(output_subdir / "consensus_1of3"),
             config['genome_file'],
             config['excluded_regions_file']
         ]
@@ -542,12 +553,16 @@ def run_consensus_calls_script(config: dict):
 
         command = [
             "./src/get_3of3_calls.sh",
-            output_subdir / "bed/cnvpytor",
-            output_subdir / "bed/delly",
-            output_subdir / "bed/gatk",
-            output_subdir / "consensus_3of3",
+            tool_list[0],
+            str(output_subdir / "bed" / tool_list[0]),
+            tool_list[1],
+            str(output_subdir / "bed" / tool_list[1]),
+            tool_list[2],
+            str(output_subdir / "bed" / tool_list[2]),
+            str(output_subdir / "consensus_3of3"),
             config['genome_file'],
-            config['excluded_regions_file']
+            config['excluded_regions_file'],
+            str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
 
         subprocess.run(command, check=True)
@@ -584,20 +599,22 @@ def run_binary_classification_script(config: dict):
 
         command = [
             "./src/get_binary_classification.sh",
-            output_subdir / "consensus_2of3" / "intersections",
-            output_subdir / "binary_classification" / "intersections",
-            output_dir / "benchmark_parsing" / "merged",
-            config['genome_file']
+            str(output_subdir / "consensus_2of3" / "intersections"),
+            str(output_subdir / "binary_classification" / "intersections"),
+            str(output_dir / "benchmark_parsing" / "merged"),
+            config['genome_file'],
+            str(config.get('matching_reciprocal_threshold', 0.5))
         ]
 
         subprocess.run(command, check=True)
 
         command = [
             "./src/get_binary_classification.sh",
-            output_subdir / "consensus_2of3" / "unions",
-            output_subdir / "binary_classification" / "unions",
-            output_dir / "benchmark_parsing" / "merged",
-            config['genome_file']
+            str(output_subdir / "consensus_2of3" / "unions"),
+            str(output_subdir / "binary_classification" / "unions"),
+            str(output_dir / "benchmark_parsing" / "merged"),
+            config['genome_file'],
+            str(config.get('matching_reciprocal_threshold', 0.5))
         ]
 
         subprocess.run(command, check=True)
@@ -610,10 +627,11 @@ def run_binary_classification_script(config: dict):
 
         command = [
             "./src/get_binary_classification.sh",
-            output_subdir / "bed",
-            output_subdir / "binary_classification",
-            output_dir / "benchmark_parsing" / "merged",
-            config['genome_file']
+            str(output_subdir / "bed"),
+            str(output_subdir / "binary_classification"),
+            str(output_dir / "benchmark_parsing" / "merged"),
+            config['genome_file'],
+            str(config.get('matching_reciprocal_threshold', 0.5))
         ]
 
         subprocess.run(command, check=True)

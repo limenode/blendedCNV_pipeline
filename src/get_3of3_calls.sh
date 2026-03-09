@@ -1,17 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-cnvpytor_dir=$1
-delly_dir=$2
-gatk_dir=$3
-outdir=$4
-genome_file=$5
-excluded_regions_file=$6
-
+# Parse arguments
+tool_1_name=$1
+tool_1_dir=$2
+tool_2_name=$3
+tool_2_dir=$4
+tool_3_name=$5
+tool_3_dir=$6
+outdir=$7
+genome_file=$8
+excluded_regions_file=$9
+reciprocal_threshold="${10:-0.5}"
 
 mkdir -p "$outdir/intersections" "$outdir/unions"
 
-export outdir delly_dir cnvpytor_dir gatk_dir genome_file excluded_regions_file
+export outdir tool_1_name tool_1_dir tool_2_name tool_2_dir tool_3_name tool_3_dir genome_file excluded_regions_file reciprocal_threshold
 
 process_file() {
     local file="$1"
@@ -33,30 +37,30 @@ process_file() {
     # Create log file for this sample and SV type
     log_file="$log_dir/${sample_name}.${svtype}.json"
 
-    delly_tmp=$(mktemp)
-    cnvpytor_tmp=$(mktemp)
-    gatk_tmp=$(mktemp)
+    tool_1_tmp=$(mktemp)
+    tool_2_tmp=$(mktemp)
+    tool_3_tmp=$(mktemp)
 
     # Copy first three columns to temporary files
-    cut -f1-3 "$delly_dir/$base_name" > "$delly_tmp"
-    cut -f1-3 "$cnvpytor_dir/$base_name" > "$cnvpytor_tmp"
-    cut -f1-3 "$gatk_dir/$base_name" > "$gatk_tmp"
+    cut -f1-3 "$tool_1_dir/$base_name" > "$tool_1_tmp"
+    cut -f1-3 "$tool_2_dir/$base_name" > "$tool_2_tmp"
+    cut -f1-3 "$tool_3_dir/$base_name" > "$tool_3_tmp"
 
     # Log the number of calls before filtering (dictionary/json format)
-    delly_count=$(wc -l < "$delly_tmp")
-    cnvpytor_count=$(wc -l < "$cnvpytor_tmp")
-    gatk_count=$(wc -l < "$gatk_tmp")
+    tool_1_count=$(wc -l < "$tool_1_tmp")
+    tool_2_count=$(wc -l < "$tool_2_tmp")
+    tool_3_count=$(wc -l < "$tool_3_tmp")
     echo "{" > "$log_file"
     echo "  \"sample\": \"$sample_name\"," >> "$log_file"
     echo "  \"svtype\": \"$svtype\"," >> "$log_file"
     echo "  \"before_excluded_regions\": {" >> "$log_file"
-    echo "    \"delly\": $delly_count," >> "$log_file"
-    echo "    \"cnvpytor\": $cnvpytor_count," >> "$log_file"
-    echo "    \"gatk\": $gatk_count" >> "$log_file"
+    echo "    \"$tool_1_name\": $tool_1_count," >> "$log_file"
+    echo "    \"$tool_2_name\": $tool_2_count," >> "$log_file"
+    echo "    \"$tool_3_name\": $tool_3_count" >> "$log_file"
     echo "  }" >> "$log_file"
 
     # Sort temporary files and remove CNVs that are 50% or more in excluded regions
-    for tmp in "$delly_tmp" "$cnvpytor_tmp" "$gatk_tmp"; do
+    for tmp in "$tool_1_tmp" "$tool_2_tmp" "$tool_3_tmp"; do
         # First filter by chromosome names listed in the genome file
         # then sort the calls
         # then filter out calls that overlap excluded regions by 50% or more
@@ -76,37 +80,37 @@ process_file() {
     done
 
     # Log the number of calls after filtering
-    delly_count_after=$(wc -l < "$delly_tmp")
-    cnvpytor_count_after=$(wc -l < "$cnvpytor_tmp")
-    gatk_count_after=$(wc -l < "$gatk_tmp")
+    tool_1_count_after=$(wc -l < "$tool_1_tmp")
+    tool_2_count_after=$(wc -l < "$tool_2_tmp")
+    tool_3_count_after=$(wc -l < "$tool_3_tmp")
     echo "  ,\"after_excluded_regions\": {" >> "$log_file"
-    echo "    \"delly\": $delly_count_after," >> "$log_file"
-    echo "    \"cnvpytor\": $cnvpytor_count_after," >> "$log_file"
-    echo "    \"gatk\": $gatk_count_after" >> "$log_file"
+    echo "    \"$tool_1_name\": $tool_1_count_after," >> "$log_file"
+    echo "    \"$tool_2_name\": $tool_2_count_after," >> "$log_file"
+    echo "    \"$tool_3_name\": $tool_3_count_after" >> "$log_file"
     echo "  }" >> "$log_file"
 
     three_way_intersect=$(mktemp)
     three_way_union=$(mktemp)
 
     # Find 3-way intersection (regions where all 3 tools agree)
-    # Chain intersections: delly ∩ cnvpytor ∩ gatk
-    bedtools intersect -a "$delly_tmp" -b "$cnvpytor_tmp" -f 0.5 -r | \
-    bedtools intersect -a stdin -b "$gatk_tmp" -f 0.5 -r > "$three_way_intersect"
+    # Chain intersections: tool_1 ∩ tool_2 ∩ tool_3
+    bedtools intersect -a "$tool_1_tmp" -b "$tool_2_tmp" -f "$reciprocal_threshold" -r | \
+    bedtools intersect -a stdin -b "$tool_3_tmp" -f "$reciprocal_threshold" -r > "$three_way_intersect"
 
     # Find original regions from all 3 tools that participate in the 3-way overlap
     # Strategy: find which regions from each tool overlap with the 3-way intersection
     if [[ -s "$three_way_intersect" ]]; then
         {
-            bedtools intersect -a "$delly_tmp" -b "$three_way_intersect" -u
-            bedtools intersect -a "$cnvpytor_tmp" -b "$three_way_intersect" -u
-            bedtools intersect -a "$gatk_tmp" -b "$three_way_intersect" -u
+            bedtools intersect -a "$tool_1_tmp" -b "$three_way_intersect" -u
+            bedtools intersect -a "$tool_2_tmp" -b "$three_way_intersect" -u
+            bedtools intersect -a "$tool_3_tmp" -b "$three_way_intersect" -u
         } > "$three_way_union"
     else
         # If no 3-way intersection, union file is empty
         touch "$three_way_union"
     fi
 
-    rm "$delly_tmp" "$cnvpytor_tmp" "$gatk_tmp"
+    rm "$tool_1_tmp" "$tool_2_tmp" "$tool_3_tmp"
 
     # Log the number of 3-way intersecting calls
     three_way_count=$(wc -l < "$three_way_intersect")
@@ -119,13 +123,16 @@ process_file() {
     intersection_file="$outdir/intersections/${base_name%.bed}.intersection.bed"
     union_file="$outdir/unions/${base_name%.bed}.union.bed"
 
+    # Create tool string with all three tools
+    all_tools="$tool_1_name|$tool_2_name|$tool_3_name"
+
     # Create intersection file - the overlapping regions where all 3 tools agree
-    awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "cnvpytor|delly|gatk"}' \
+    awk -v type="$svtype" -v tools="$all_tools" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, tools}' \
         "$three_way_intersect" | \
     bedtools sort -i - -g "$genome_file" > "$intersection_file"
 
     # Create union file - all original regions from all 3 tools that participate
-    awk -v type="$svtype" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, "cnvpytor|delly|gatk"}' \
+    awk -v type="$svtype" -v tools="$all_tools" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, tools}' \
         "$three_way_union" | \
     sort -k1,1 -k2,2n | \
     bedtools merge -c 4,5 -o distinct,distinct -i - | \
@@ -148,8 +155,8 @@ echo "Processing DEL and DUP files in parallel using $NCORES cores..."
 log_dir="$outdir/logs"
 mkdir -p "$log_dir"
 
-# Process DEL and DUP files in parallel
-ls "$delly_dir"/*.DEL.bed "$delly_dir"/*.DUP.bed | \
+# Process DEL and DUP files in parallel (using tool_1_dir as reference)
+ls "$tool_1_dir"/*.DEL.bed "$tool_1_dir"/*.DUP.bed | \
 parallel -j "$NCORES" process_file {} "$log_dir"
 
 # Post-processing: combine DEL and DUP files for each sample
