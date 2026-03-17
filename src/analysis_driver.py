@@ -100,13 +100,13 @@ def main(config: dict, debug: bool = False):
         # Task 2: Venn diagram for intersections
         partial(
             plotter.plot_venn_diagram,
-            set_keys=['Low_Coverage_intersections', 'High_Coverage_intersections', 'SNP_Array'],
+            set_keys=['6x_Coverage_intersections', '30x_Coverage_intersections', 'SNP_Array'],
             output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_intersections.png",
         ),
         # Task 3: Venn diagram for unions
         partial(
             plotter.plot_venn_diagram,
-            set_keys=['Low_Coverage_unions', 'High_Coverage_unions', 'SNP_Array'],
+            set_keys=['6x_Coverage_unions', '30x_Coverage_unions', 'SNP_Array'],
             output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_unions.png",
         ),
         # Task 4: Size distribution plots
