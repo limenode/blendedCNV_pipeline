@@ -56,6 +56,11 @@ class CNVParser:
         search_pattern = pattern.replace('{id}', '*')
         
         vcf_files = glob.glob(search_pattern, recursive=True)
+
+        if not vcf_files:
+            print(f"Warning: No VCF files found for tool \"{tool_name}\" using pattern {search_pattern}")
+            return []
+
         results = []
         
         for vcf_path in vcf_files:
