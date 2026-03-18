@@ -8,6 +8,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
 from matplotlib_venn import venn3, venn3_circles
+from upsetplot import UpSet, from_indicators
 from scipy.ndimage import gaussian_filter1d
 from multiprocessing import Pool, cpu_count
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -343,6 +344,53 @@ class CNVPlotter:
         self.data = data
         self.config = config
         self.input_name_mapping = input_name_mapping
+
+    def _build_tp_and_truth_sets(
+        self,
+        set_keys: List[str],
+        data: Dict[str, dict],
+        svtype: SVType,
+    ) -> Tuple[Dict[str, set], set, int, Dict[str, set], set, int, Dict[str, int]]:
+        """
+        Build shared TP and truth (TP U FN) sets used by overlap visualizations.
+
+        Returns:
+            Tuple of:
+                tp_sets,
+                detected_ids,
+                total_detected,
+                truth_ids_by_method,
+                all_truth_ids,
+                total_truth_cnvs,
+                truth_set_sizes
+        """
+        tp_sets: Dict[str, set] = {}
+        for key in set_keys:
+            tp_df = data[key].get('TP', pd.DataFrame())
+            tp_sets[key] = _create_record_ids(tp_df, 'TP', svtype=svtype)
+
+        detected_ids = set().union(*tp_sets.values()) if tp_sets else set()
+        total_detected = len(detected_ids)
+
+        truth_ids_by_method: Dict[str, set] = {}
+        for key in set_keys:
+            fn_df = data[key].get('FN', pd.DataFrame())
+            fn_ids = _create_record_ids(fn_df, 'FN', svtype=svtype)
+            truth_ids_by_method[key] = tp_sets[key].union(fn_ids)
+
+        all_truth_ids = set().union(*truth_ids_by_method.values()) if truth_ids_by_method else set()
+        total_truth_cnvs = len(all_truth_ids)
+        truth_set_sizes = {k: len(v) for k, v in truth_ids_by_method.items()}
+
+        return (
+            tp_sets,
+            detected_ids,
+            total_detected,
+            truth_ids_by_method,
+            all_truth_ids,
+            total_truth_cnvs,
+            truth_set_sizes,
+        )
     
     def get_distribution_data(
         self,
@@ -531,7 +579,6 @@ class CNVPlotter:
         print(f"Time to compute distribution data: {time_1 - time_0:.2f} seconds")
         print(f"Time to generate and save plots (parallel): {time_2 - time_1:.2f} seconds")
         print(f"{'='*60}")
-
     
     def plot_venn_diagram(
         self,
@@ -540,6 +587,7 @@ class CNVPlotter:
         svtype: SVType = SVType.ALL,
         figsize: Tuple[int, int] = (10, 8),
         output_path: Optional[str | Path] = None,
+        show_region_table: bool = False,
     ):
         """
         Generate Venn diagram comparing TP/FP/FN sets for a specific SV type across all input sets.
@@ -548,6 +596,7 @@ class CNVPlotter:
             svtype: SV type to filter by (e.g., 'DEL', 'DUP', or None for all)
             figsize: Figure size tuple
             output_path: Path to save the plot (if None, plot will be shown instead)
+            show_region_table: If True, add a side panel listing all 7 region counts
         """
         
         # Return if not exactly 3 set_keys (venn3 requires exactly 3 sets)
@@ -567,13 +616,9 @@ class CNVPlotter:
         if output_path:
             output_dir = Path(output_path).parent
             output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Required columns for building benchmark IDs
-        required_cols = ['truth_chrom', 'truth_start', 'truth_end', 'svtype', 'sample']
 
         # Work with copy of input_sets only
-        input_sets = self.data.get('input_sets', {})
-        data = input_sets.copy()
+        data = self.data.get('input_sets', {}).copy()
 
         # Filter by size if bounds provided
         for key in set_keys:
@@ -581,26 +626,59 @@ class CNVPlotter:
                 start, end = bounds
                 data[key] = filter_by_size(data[key], lower_bound=int(start), upper_bound=int(end))
         
-        # Use method to compare
-        tp_sets = {}
-        for key in set_keys:
-            df = data[key].get('TP', pd.DataFrame())
-            tp_sets[key] = _create_record_ids(df, 'TP', svtype=svtype)
-        
+        # Build shared TP/truth sets
+        (
+            tp_sets,
+            all_benchmark_ids,
+            total_unique_cnvs,
+            truth_ids_by_method,
+            all_truth_ids,
+            total_truth_cnvs,
+            truth_set_sizes,
+        ) = self._build_tp_and_truth_sets(set_keys=set_keys, data=data, svtype=svtype)
+
         print(sum(len(s) for s in tp_sets.values()), "total TP records across all sets after using _create_record_ids with svtype filtering.")
 
-        # Calculate universal set (all benchmark IDs across all input sets)
-        all_benchmark_ids = set().union(*tp_sets.values())
-        total_unique_cnvs = len(all_benchmark_ids)
+        # Compute exact Venn subset counts directly from set algebra.
+        # This avoids relying on rendered label artists, which can be omitted for tiny regions.
+        set_a, set_b, set_c = (tp_sets[set_keys[0]], tp_sets[set_keys[1]], tp_sets[set_keys[2]])
+        overlap_counts = {
+            '100': len(set_a - set_b - set_c),
+            '010': len(set_b - set_a - set_c),
+            '001': len(set_c - set_a - set_b),
+            '110': len((set_a & set_b) - set_c),
+            '101': len((set_a & set_c) - set_b),
+            '011': len((set_b & set_c) - set_a),
+            '111': len(set_a & set_b & set_c),
+        }
+
+        category_overlaps = {
+            'A': overlap_counts['100'] + overlap_counts['110'] + overlap_counts['101'] + overlap_counts['111'],
+            'B': overlap_counts['010'] + overlap_counts['110'] + overlap_counts['011'] + overlap_counts['111'],
+            'C': overlap_counts['001'] + overlap_counts['101'] + overlap_counts['011'] + overlap_counts['111'],
+        }
+        print("Category overlaps (should match set sizes):", category_overlaps)
+        if category_overlaps['A'] != len(set_a):
+            print(f"Warning: Category A overlap ({category_overlaps['A']}) does not match set A size ({len(set_a)}).")
+        else:
+            print(f"✓ Category A overlap matches set A size: {category_overlaps['A']} records")
+        if category_overlaps['B'] != len(set_b):
+            print(f"Warning: Category B overlap ({category_overlaps['B']}) does not match set B size ({len(set_b)}).")
+        else: 
+            print(f"✓ Category B overlap matches set B size: {category_overlaps['B']} records")
+        if category_overlaps['C'] != len(set_c):
+            print(f"Warning: Category C overlap ({category_overlaps['C']}) does not match set C size ({len(set_c)}).")
+        else:
+            print(f"✓ Category C overlap matches set C size: {category_overlaps['C']} records")
+
+        overlap_total = sum(overlap_counts.values())
+        if overlap_total != total_unique_cnvs:
+            print(
+                f"Warning: overlap sum ({overlap_total}) does not match union total ({total_unique_cnvs})."
+            )
         
-        # Extract FN (false negatives) from first set to get total truth records
-        fn_df = data[set_keys[0]].get('FN', pd.DataFrame())
-        fn_set = _create_record_ids(fn_df, 'FN', svtype=svtype)
-        print(f"FN records after _create_record_ids with svtype filtering: {len(fn_set)}")
-        
-        # Total truth records = all detected (TP from any method) + not detected (FN)
-        all_truth_ids = all_benchmark_ids.union(fn_set)
-        total_truth_cnvs = len(all_truth_ids)
+        if len(set(truth_set_sizes.values())) > 1:
+            print(f"Warning: TP+FN truth totals differ by method: {truth_set_sizes}")
         
         # Apply name mapping and add counts to labels
         display_names_with_counts = []
@@ -612,20 +690,43 @@ class CNVPlotter:
             label = f"{display_name}\n(n={count}, {pct_total:.1f}%)"
             display_names_with_counts.append(label)
         
-        # Create Venn diagram
-        fig, ax = plt.subplots(figsize=figsize)
+        # Create Venn diagram and optional side table for tiny/non-rendered regions
+        if show_region_table:
+            fig = plt.figure(figsize=figsize)
+            gs = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3.2, 1.5])
+            ax = fig.add_subplot(gs[0, 0])
+            ax_table = fig.add_subplot(gs[0, 1])
+        else:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax_table = None
         
         display_names_tuple: Tuple[str, str, str] = (
             display_names_with_counts[0], 
             display_names_with_counts[1], 
             display_names_with_counts[2]
         )
+        venn_subsets = (
+            overlap_counts['100'],
+            overlap_counts['010'],
+            overlap_counts['110'],
+            overlap_counts['001'],
+            overlap_counts['101'],
+            overlap_counts['011'],
+            overlap_counts['111'],
+        )
+
         venn_obj = venn3(
-            subsets=tuple(tp_sets.values()),
+            subsets=venn_subsets,
             set_labels=display_names_tuple,
             ax=ax
         )
-        venn_circles_obj = venn3_circles(subsets=tuple(tp_sets.values()), ax=ax)
+        venn_circles_obj = venn3_circles(subsets=venn_subsets, ax=ax)
+
+        # Keep rendered labels synchronized with exact set-algebra counts.
+        for region_id, count in overlap_counts.items():
+            region_label = venn_obj.get_label_by_id(region_id)
+            if region_label is not None:
+                region_label.set_text(str(count))
         
         # Customize appearance
         for circle in venn_circles_obj:
@@ -639,13 +740,12 @@ class CNVPlotter:
         ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
         
         # Calculate statistics for text box
-        total_detected_by_at_least_one = total_unique_cnvs  # All IDs in all_benchmark_ids are detected by at least one method
         recall_rate = (total_unique_cnvs / total_truth_cnvs * 100) if total_truth_cnvs > 0 else 0
         
         # Add summary statistics text box
         stats_text = (
             f"Total truth CNVs: {total_truth_cnvs} | "
-            f"Detected by ≥1 method: {total_detected_by_at_least_one} ({recall_rate:.1f}%) | "
+            f"Detected by ≥1 method: {total_unique_cnvs} ({recall_rate:.1f}%) | "
             f"Not detected: {total_truth_cnvs - total_unique_cnvs}"
         )
         ax.text(
@@ -655,6 +755,65 @@ class CNVPlotter:
             fontsize=10, 
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3)
         )
+
+        # Matplotlib-Venn may suppress text for tiny non-zero regions.
+        # This can make visual sums from displayed labels look too small.
+        hidden_nonzero_regions = [
+            region_id for region_id, count in overlap_counts.items()
+            if count > 0 and venn_obj.get_label_by_id(region_id) is None
+        ]
+        if hidden_nonzero_regions:
+            hidden_desc = ", ".join(
+                f"{region_id}={overlap_counts[region_id]}" for region_id in hidden_nonzero_regions
+            )
+            print(
+                "Warning: Non-zero Venn regions not displayed due to layout constraints: "
+                f"{hidden_desc}"
+            )
+
+        if show_region_table and ax_table is not None:
+            display_names = [
+                self.input_name_mapping.get(set_keys[0], set_keys[0]),
+                self.input_name_mapping.get(set_keys[1], set_keys[1]),
+                self.input_name_mapping.get(set_keys[2], set_keys[2]),
+            ]
+
+            region_labels = {
+                '100': f"{display_names[0]} only",
+                '010': f"{display_names[1]} only",
+                '001': f"{display_names[2]} only",
+                '110': f"{display_names[0]} & {display_names[1]}",
+                '101': f"{display_names[0]} & {display_names[2]}",
+                '011': f"{display_names[1]} & {display_names[2]}",
+                '111': f"{display_names[0]} & {display_names[1]} & {display_names[2]}",
+            }
+
+            # Keep lines compact and ordered by classic 3-set Venn order.
+            region_order = ['100', '010', '001', '110', '101', '011', '111']
+            table_lines = ["Region counts", ""]
+            for region_id in region_order:
+                count = overlap_counts[region_id]
+                pct = (count / total_unique_cnvs) * 100 if total_unique_cnvs > 0 else 0.0
+                table_lines.append(f"{region_labels[region_id]}")
+                table_lines.append(f"  {region_id}: {count} ({pct:.1f}%)")
+
+            if hidden_nonzero_regions:
+                table_lines.append("")
+                table_lines.append("Hidden in-plot labels:")
+                table_lines.append(", ".join(hidden_nonzero_regions))
+
+            ax_table.axis('off')
+            ax_table.text(
+                0.0,
+                1.0,
+                "\n".join(table_lines),
+                transform=ax_table.transAxes,
+                ha='left',
+                va='top',
+                fontsize=9,
+                family='monospace',
+                bbox=dict(boxstyle='round', facecolor='whitesmoke', alpha=0.9)
+            )
         
         plt.tight_layout()
         
@@ -670,7 +829,7 @@ class CNVPlotter:
         print(f"Venn Diagram Detection Statistics")
         print(f"{'='*60}")
         print(f"Total truth benchmark CNVs (TP + FN): {total_truth_cnvs}")
-        print(f"Detected by at least one method: {total_detected_by_at_least_one} ({recall_rate:.1f}% of truth)")
+        print(f"Detected by at least one method: {total_unique_cnvs} ({recall_rate:.1f}% of truth)")
         print(f"Not detected by any method (FN): {total_truth_cnvs - total_unique_cnvs}")
         
         print(f"\nDetection by individual methods:")
@@ -682,15 +841,10 @@ class CNVPlotter:
             print(f"  {display_name}: {count} ({pct_truth:.1f}% of truth, {pct_detected:.1f}% of detected)")
         
         print(f"\nDetailed Overlap Counts:")
-        subsets = venn_obj.get_label_by_id
         combinations = ['100', '010', '001', '110', '101', '011', '111']
         
         for comb in combinations:
-            label = subsets(comb)
-            if label is None:
-                count = 0
-            else:
-                count = int(label.get_text())
+            count = overlap_counts[comb]
             detected = (count / total_unique_cnvs) * 100 if total_unique_cnvs > 0 else 0
             pct_truth = (count / total_truth_cnvs) * 100 if total_truth_cnvs > 0 else 0
             
@@ -706,7 +860,6 @@ class CNVPlotter:
             
             print(f"  Combination {comb}: {count} ({detected:.1f}% of detected, {pct_truth:.1f}% of truth)")
             print(f"    - {pct_each_method_str}")
-
 
     def plot_size_distribution(
         self,
@@ -879,6 +1032,110 @@ class CNVPlotter:
         plt.close()
         
         print(f"✓ Size distribution plots completed!")
+
+    def plot_upset_recall(
+        self,
+        set_keys: List[str],
+        bounds: Optional[Tuple[float, float]] = None,
+        svtype: SVType = SVType.ALL,
+        output_path: Optional[str | Path] = None,
+        figsize: Tuple[int, int] = (16, 9),
+        subset_size: str = 'count',
+        sort_by: str = 'cardinality',
+    ):
+        """
+        Generate an UpSet plot for TP recall overlap across any number of input sets.
+
+        Args:
+            set_keys: Input set keys to include (supports 2+ sets)
+            bounds: Optional size filter bounds as (start_bp, end_bp)
+            svtype: SV type to filter by (e.g., DEL, DUP, or ALL)
+            output_path: Output image path (if None, plot is shown)
+            figsize: Figure size tuple
+            subset_size: UpSet parameter for subset size display ('count', 'percent', etc.)
+            sort_by: UpSet parameter for sorting subsets ('cardinality', 'degree', etc.)
+        """
+
+        if len(set_keys) < 2:
+            print("Error: UpSet plot requires at least 2 input sets.")
+            return
+
+        # Verify keys exist
+        available_sets = self.data.get('input_sets', {})
+        for key in set_keys:
+            if key not in available_sets:
+                print(f"Error: Input set '{key}' not found in data.")
+                return
+
+        if output_path:
+            output_dir = Path(output_path).parent
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy and optionally filter selected input sets
+        data = available_sets.copy()
+        for key in set_keys:
+            if bounds is not None:
+                start, end = bounds
+                data[key] = filter_by_size(data[key], lower_bound=int(start), upper_bound=int(end))
+
+        # Build shared TP/truth sets
+        (
+            tp_sets,
+            detected_ids,
+            total_detected,
+            truth_ids_by_method,
+            all_truth_ids,
+            total_truth_cnvs,
+            _,
+        ) = self._build_tp_and_truth_sets(set_keys=set_keys, data=data, svtype=svtype)
+
+        if total_detected == 0:
+            print("Warning: No detected TP records found for selected inputs and filters.")
+            return
+
+        # Build boolean membership DataFrame (one row per detected record).
+        membership_df = pd.DataFrame({'record_id': list(detected_ids)})
+        for key in set_keys:
+            membership_df[key] = membership_df['record_id'].isin(tp_sets[key])
+
+        if membership_df.empty:
+            print("Warning: No records found for UpSet plotting after processing.")
+            return
+
+        print(f"Membership DataFrame for UpSet (first 5 rows):\n{membership_df.head()}")
+
+        # Convert boolean indicator table to upsetplot-compatible structure.
+        upset_data = from_indicators(
+            indicators=set_keys,
+            data=membership_df.copy()
+        )
+
+        print(f"{upset_data}")
+
+        # Generate UpSet plot and output to file
+        fig = plt.figure(figsize=figsize)
+        upset = UpSet(
+            upset_data,
+            subset_size=subset_size,
+            sort_by=sort_by,
+        )
+        upset.plot(fig=fig)
+
+
+        # Generate title with recall statistics
+        svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
+        recall_rate = (total_detected / total_truth_cnvs * 100) if total_truth_cnvs > 0 else 0.0
+
+        plt.suptitle(
+            f"CNV Recall Overlap UpSet Plot{svtype_str}\n({total_detected} detected of {total_truth_cnvs} total truth records, {recall_rate:.1f}% recall)",
+            fontsize=14, fontweight='bold'
+        )
+
+        plt.savefig(output_path, dpi=300, bbox_inches='tight') if output_path else plt.show()
+        plt.close()
+
+        # Return the boolean table for debugging/reuse.
+        return membership_df
 
     def get_caller_source_distribution(
             self,

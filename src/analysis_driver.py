@@ -87,6 +87,42 @@ def main(config: dict, debug: bool = False):
     plotter = CNVPlotter(all_data, config, input_name_mapping)
     metrics = [(precision, "Precision"), (recall, "Recall"), (f1_score, "F1 Score"), (f0_5_score, "F 1/2 Score"), (f2_score, "F2 Score")]
 
+    # Venn Diagram specifications:
+    venn_diagram_specs = {
+        "6x_intersections": {
+            "set_keys": ['6x_Coverage_intersections', '30x_Coverage_intersections', 'SNP_Array'],
+            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_6x_intersections.png",
+            "title": "Venn Diagram of Intersections with 6x Coverage"
+        },
+
+        "4x_intersections": {
+            "set_keys": ['4x_Coverage_intersections', '30x_Coverage_intersections', 'SNP_Array'],
+            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_4x_intersections.png",
+            "title": "Venn Diagram of Intersections with 4x Coverage"
+        },
+
+        "2x_intersections": {
+            "set_keys": ['2x_Coverage_intersections', '30x_Coverage_intersections', 'SNP_Array'],
+            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_2x_intersections.png",
+            "title": "Venn Diagram of Intersections with 2x Coverage"
+        },
+        "6x_unions": {
+            "set_keys": ['6x_Coverage_unions', '30x_Coverage_unions', 'SNP_Array'],
+            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_6x_unions.png",
+            "title": "Venn Diagram of Unions with 6x Coverage"
+        },
+        "4x_unions": {
+            "set_keys": ['4x_Coverage_unions', '30x_Coverage_unions', 'SNP_Array'],
+            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_4x_unions.png",
+            "title": "Venn Diagram of Unions with 4x Coverage"
+        },
+        "2x_unions": {
+            "set_keys": ['2x_Coverage_unions', '30x_Coverage_unions', 'SNP_Array'],
+            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_2x_unions.png",
+            "title": "Venn Diagram of Unions with 2x Coverage"
+        }
+    }
+
     # === Step 3-5: Generate All Plots in Parallel ===
     # Define all plotting tasks as partial functions for parallel execution
     plotting_tasks = [
@@ -97,31 +133,30 @@ def main(config: dict, debug: bool = False):
             bounds=(500, 1_000_000),
             output_path=output_dir / "figures" / "statistical_distributions" / "distribution.png",
         ),
-        # Task 2: Venn diagram for intersections
-        partial(
-            plotter.plot_venn_diagram,
-            set_keys=['6x_Coverage_intersections', '30x_Coverage_intersections', 'SNP_Array'],
-            output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_intersections.png",
-        ),
-        # Task 3: Venn diagram for unions
-        partial(
-            plotter.plot_venn_diagram,
-            set_keys=['6x_Coverage_unions', '30x_Coverage_unions', 'SNP_Array'],
-            output_path=output_dir / "figures" / "venn_diagrams" / "venn_diagram_unions.png",
-        ),
-        # Task 4: Size distribution plots
+        # Task 2: Size distribution plots
         partial(
             plotter.plot_size_distribution,
             set_keys=list(all_data['input_sets'].keys()),
             output_dir=output_dir / "figures" / "size_distributions",
         ),
-        # Task 5: Caller source distribution
+        # Task 3: Caller source distribution
         partial(
             plotter.get_caller_source_distribution,
             input_sets_to_include=[key for key in all_data['input_sets'].keys() if "intersections" in key],
             output_file=output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png",
         ),
     ]
+
+    # Append Venn diagram plotting tasks
+    for spec in venn_diagram_specs.values():
+        plotting_tasks.append(
+            partial(
+                plotter.plot_venn_diagram,
+                set_keys=spec['set_keys'],
+                output_path=spec['output_path'],
+            )
+        )
+
 
     # Execute plotting tasks in parallel
     print(f"\nExecuting {len(plotting_tasks)} plotting tasks in parallel...")
