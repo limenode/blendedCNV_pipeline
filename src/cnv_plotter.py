@@ -1150,6 +1150,7 @@ class CNVPlotter:
             output_dir: Directory to save plots
         """
         rows = []
+        total_call_rows = []
 
         # Iterate only over input_sets (shared_FN is separate)
         input_sets = self.data.get('input_sets', {})
@@ -1170,6 +1171,14 @@ class CNVPlotter:
                         
                         if total_calls == 0:
                             continue
+
+                        # Store one sample-level total call record per input_set/sample/svtype.
+                        total_call_rows.append({
+                            "input_set": input_set_key,
+                            "sample": sample,
+                            "svtype": svtype,
+                            "total_calls": total_calls,
+                        })
                         
                         for source_list in group["sources"].dropna():
                             sources = source_list.split("|")
@@ -1192,6 +1201,7 @@ class CNVPlotter:
                                 "metric": "raw_count",
                                 "caller_or_combination": caller,
                                 "percentage": percentage,
+                                "total_calls": total_calls,
                             })
                         
                         # Add combination percentages as separate rows
@@ -1204,9 +1214,11 @@ class CNVPlotter:
                                 "metric": "combination_count",
                                 "caller_or_combination": combination,
                                 "percentage": percentage,
+                                "total_calls": total_calls,
                             })
 
         df = pd.DataFrame(rows)
+        total_calls_df = pd.DataFrame(total_call_rows)
         
         if df.empty:
             print("No source distribution data found")
@@ -1220,8 +1232,10 @@ class CNVPlotter:
             parts = entity.split("|")
             return (-len(parts), entity)
         
-        # Get unique input sets
-        input_sets = sorted(df["input_set"].unique())
+        # Preserve caller/input ordering from the function argument.
+        # Only keep sets that are present in this dataframe.
+        present_input_sets = set(df["input_set"].unique())
+        input_sets = [s for s in input_sets_to_include if s in present_input_sets]
         num_input_sets = len(input_sets)
         
         # Create a single figure with 4 subplots (2x2 grid)
@@ -1330,16 +1344,50 @@ class CNVPlotter:
             ax.set_ylabel("Percentage per Sample (%)")
             ax.set_xlabel("Caller" if metric == "raw_count" else "Caller Combination")
             ax.grid(axis='y', alpha=0.3, linestyle='--')
+
         
-        # Create legend for input sets (only once, placed at the top)
-        legend_elements = [Rectangle((0, 0), 1, 1, fc=input_set_color_map[input_set], 
-                                        alpha=0.7, label=self.input_name_mapping.get(input_set, input_set)) 
-                        for input_set in input_sets]
-        fig.legend(handles=legend_elements, loc='upper center', ncol=num_input_sets, 
-                bbox_to_anchor=(0.5, 0.98), fontsize=10, frameon=True)
+        # Add a single, color-matched legend for average calls/sample per input set.
+        if not total_calls_df.empty:
+            avg_calls_by_set_sv = (
+                total_calls_df
+                .groupby(["input_set", "svtype"]) ["total_calls"]
+                .mean()
+                .to_dict()
+            )
+
+            avg_legend_elements = []
+            for input_set in input_sets:
+                del_avg = avg_calls_by_set_sv.get((input_set, "DEL"))
+                dup_avg = avg_calls_by_set_sv.get((input_set, "DUP"))
+
+                del_txt = f"DEL={del_avg:.1f}" if del_avg is not None else "DEL=NA"
+                dup_txt = f"DUP={dup_avg:.1f}" if dup_avg is not None else "DUP=NA"
+                label = f"{self.input_name_mapping.get(input_set, input_set)}\n{del_txt}\n{dup_txt}"
+
+                avg_legend_elements.append(
+                    Rectangle(
+                        (0, 0),
+                        1,
+                        1,
+                        fc=input_set_color_map[input_set],
+                        alpha=0.7,
+                        label=label,
+                    )
+                )
+
+            fig.legend(
+                handles=avg_legend_elements,
+                loc='upper center',
+                ncol=num_input_sets,
+                bbox_to_anchor=(0.5, 0.96),
+                fontsize=9,
+                frameon=True,
+                title="Avg calls/sample by input set",
+                title_fontsize=9,
+            )
         
         plt.suptitle("Caller Source Distribution by Input Set", fontsize=16, fontweight='bold', y=0.995)
-        plt.tight_layout(rect=(0, 0, 1, 0.96))
+        plt.tight_layout(rect=(0, 0.02, 1, 0.86))
         
         os.makedirs(output_file.parent, exist_ok=True)
         plt.savefig(output_file, dpi=150, bbox_inches='tight')

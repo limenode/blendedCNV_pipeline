@@ -5,7 +5,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
-from utils import parse_args, f0_5_score, f2_score, precision, recall, f1_score
+from utils import parse_args, f0_5_score, f2_score, precision, recall, f1_score, SVType
 from cnv_plotter import CNVPlotter
 from analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
 
@@ -123,6 +123,11 @@ def main(config: dict, debug: bool = False):
         }
     }
 
+    # Size Distribution Set Keys
+    size_distribution_set_keys = [key for key in all_data['input_sets'].keys() if "intersections" in key]
+    size_distribution_set_keys.append("SNP_Array")
+
+
     # === Step 3-5: Generate All Plots in Parallel ===
     # Define all plotting tasks as partial functions for parallel execution
     plotting_tasks = [
@@ -133,11 +138,20 @@ def main(config: dict, debug: bool = False):
             bounds=(500, 1_000_000),
             output_path=output_dir / "figures" / "statistical_distributions" / "distribution.png",
         ),
+        # # Task 1.5: Statistical distributions for all SV types only
+        partial(
+            plotter.plot_statistical_distributions,
+            metrics=metrics,
+            svtypes=[SVType.ALL],
+            bounds=(500, 1_000_000),
+            output_path=output_dir / "figures" / "statistical_distributions_all_only" / "distribution.png",
+        ),
         # Task 2: Size distribution plots
         partial(
             plotter.plot_size_distribution,
-            set_keys=list(all_data['input_sets'].keys()),
+            set_keys=size_distribution_set_keys,
             output_dir=output_dir / "figures" / "size_distributions",
+            include_benchmark=True,
         ),
         # Task 3: Caller source distribution
         partial(
