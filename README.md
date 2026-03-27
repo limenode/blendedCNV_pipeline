@@ -45,7 +45,7 @@ The pipeline consists of three distinct processing stages:
 
 **Purpose**: Prepare and standardize CNV call sets for evaluation
 
-1. **BED Conversion**: Converts VCF files from CNV calling tools (CNVpytor, Delly, GATK-gCNV) to standardized BED format
+1. **BED Conversion**: Converts VCF files from CNV calling tools (i.e. CNVpytor, Delly, GATK-gCNV) to standardized BED format
 2. **Consensus Calling**: Generates intersection and union call sets across tools using a 2/3 consensus approach
 3. **Control Processing** *(Optional)*: Parses SNP array data (e.g., PennCNV output) for comparison
 4. **Liftover** *(Optional)*: Converts genomic coordinates between reference builds (e.g., hg18 → hg38)
