@@ -615,10 +615,10 @@ def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] =
     )
 
     # liftover_results.json
-    liftover_results_file = log_dir / "liftover_results.json"
-    if liftover_results_file.exists():
-        liftover_results_dict = json.loads(liftover_results_file.read_text())
-        plot_liftover_results(liftover_results_dict, figures_dir / "liftover_results")
-    else:
-        print(f"Warning: Liftover results file not found: {liftover_results_file}")
+    # liftover_results_file = log_dir / "liftover_results.json"
+    # if liftover_results_file.exists():
+    #     liftover_results_dict = json.loads(liftover_results_file.read_text())
+    #     plot_liftover_results(liftover_results_dict, figures_dir / "liftover_results")
+    # else:
+    #     print(f"Warning: Liftover results file not found: {liftover_results_file}")
 

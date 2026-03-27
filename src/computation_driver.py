@@ -1,13 +1,9 @@
-import yaml
 from pathlib import Path
 import time
 import json
 
 from utils import parse_args
-from computation_functions import (
-    run_binary_classification_script,
-    prepare_benchmark_bed_files_for_liftover
-)
+from computation_functions import run_binary_classification_script
 from benchmark_handler import BenchmarkParser
 
 def main(config: dict, debug: bool = False):
@@ -39,18 +35,18 @@ def main(config: dict, debug: bool = False):
 
     time_1 = time.time()
 
-    print("\nStep 5b: Performing liftover on benchmarks (if configured)...")
-    liftover_results = prepare_benchmark_bed_files_for_liftover(config)
+    # print("\nStep 5b: Performing liftover on benchmarks (if configured)...")
+    # liftover_results = prepare_benchmark_bed_files_for_liftover(config)
     
-    if liftover_results:
-        # Save liftover results to log file
-        benchmark_liftover_log = output_dir / "logs" / "benchmark_liftover_results.json"
-        benchmark_liftover_log.parent.mkdir(exist_ok=True, parents=True)
-        with open(benchmark_liftover_log, 'w') as f:
-            json.dump(liftover_results, f, indent=4)
-        print("  Liftover completed and results saved.")
-    else:
-        print("  No benchmarks require liftover.")
+    # if liftover_results:
+    #     # Save liftover results to log file
+    #     benchmark_liftover_log = output_dir / "logs" / "benchmark_liftover_results.json"
+    #     benchmark_liftover_log.parent.mkdir(exist_ok=True, parents=True)
+    #     with open(benchmark_liftover_log, 'w') as f:
+    #         json.dump(liftover_results, f, indent=4)
+    #     print("  Liftover completed and results saved.")
+    # else:
+    #     print("  No benchmarks require liftover.")
 
     time_2 = time.time()
 

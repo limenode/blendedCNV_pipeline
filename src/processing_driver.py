@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 from utils import parse_args
-from computation_functions import convert_vcfs_to_bed, run_consensus_calls_script, convert_control_to_bed, prepare_bed_files_for_liftover
+from new_functions import convert_vcfs_to_bed, convert_control_to_bed
+from processing_functions import run_consensus_calls_script
 
 def main(config: dict, debug: bool = False):
     """
@@ -17,7 +18,7 @@ def main(config: dict, debug: bool = False):
     time_0 = time.time()
 
     print("\nStep 1: Converting VCF files to BED format...")
-    convert_vcfs_to_bed(config)
+    input_liftover_results = convert_vcfs_to_bed(config)
 
     time_1 = time.time()
 
@@ -27,12 +28,14 @@ def main(config: dict, debug: bool = False):
     time_2 = time.time()
 
     print("\nStep 3: Processing control datasets (SNP Array)...")
-    convert_control_to_bed(config)
+    control_liftover_results = convert_control_to_bed(config)
 
     time_2 = time.time()
 
-    print("\nStep 3.5: Performing liftover on datasets (if configured)...")
-    liftover_results = prepare_bed_files_for_liftover(config)
+    liftover_results = {
+        'input': input_liftover_results,
+        'control': control_liftover_results
+    }
 
     if liftover_results:
         # Save results to log file
