@@ -1,12 +1,8 @@
 import os
-from collections import defaultdict
 from pathlib import Path
 import json
 from cnv_parser import CNVParser
-from liftover import get_lifter
-import pandas as pd
 import subprocess
-from new_functions import perform_liftover
 
 def convert_vcfs_to_bed(config: dict):
     output_dir = Path(config['output_dir'])
@@ -96,13 +92,14 @@ def run_consensus_calls_script(config: dict):
 
         # Consensus calls 3/3 script
         command = [
-            "./src/get_3of3_calls.sh",
+            "./src/consensus_scripts/get_3of3_calls.sh",
             *tools_and_names,
             str(output_subdir / "consensus_3of3"),
             config['genome_file'],
             str(config.get('excluded_regions_file', "-")),
             str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
+        print(f"Running command: {' '.join(command)}")
         subprocess.run(command, check=True)
 
         # Read log files into results dictionary, and remove after reading

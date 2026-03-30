@@ -15,12 +15,18 @@ class BenchmarkParser:
     
     def __init__(self, benchmark_map: Dict[str, str]):
         """
-        Initialize BenchmarkMerger with benchmark file paths.
+        Initialize BenchmarkParser with benchmark file paths.
         
         Args:
             benchmark_map: Dictionary mapping benchmark names to VCF file paths
                           Example: {'1000G': '/path/to/1000G.vcf.gz', ...}
         """
+        # Check to see that each benchmark file exists
+        for benchmark_name, vcf_path in benchmark_map.items():
+            if not os.path.isfile(vcf_path):
+                print(f"Error: Benchmark file for {benchmark_name} not found at {vcf_path}")
+                exit(1)
+
         self.benchmark_map = benchmark_map
     
     def sanitize_svtype(self, svtype: Optional[str], record_id: str = "") -> str:
@@ -91,6 +97,7 @@ class BenchmarkParser:
             Dictionary mapping sample_id -> DataFrame with columns:
             [chrom, start, end, id, svtype, genotype]
         """
+        
         print(f"Processing {vcf_path}")
         
         # Get valid chromosomes from genome file if provided
@@ -267,24 +274,8 @@ class BenchmarkParser:
         sample_ids: Optional[List[str]],
         genome_file_path: Optional[str]
     ) -> Tuple[str, Dict[str, Dict[str, int]]]:
-        """
-        Worker function to process a single benchmark.
         
-        Args:
-            benchmark_name: Name of the benchmark
-            vcf_path: Path to VCF file
-            output_base_dir: Base output directory
-            sample_ids: List of sample IDs to extract
-            genome_file_path: Path to genome file for filtering
-            
-        Returns:
-            Tuple of (benchmark_name, benchmark_results dictionary)
-        """
         print(f"Processing benchmark: {benchmark_name}")
-        
-        if not os.path.exists(vcf_path):
-            print(f"Warning: File not found: {vcf_path}")
-            return (benchmark_name, {})
         
         # Parse VCF
         sample_data = self.parse_benchmark_vcf(vcf_path, sample_ids, genome_file_path=genome_file_path)
@@ -318,20 +309,7 @@ class BenchmarkParser:
         genome_file_path: Optional[str] = None,
         max_workers: Optional[int] = None
     ) -> Dict[str, Dict[str, Dict[str, int]]]:
-        """
-        Process all benchmarks and write per-sample BED files in parallel.
-        
-        Args:
-            output_base_dir: Base directory for all outputs
-            sample_ids: List of sample IDs to extract (None = all samples)
-            common_samples_only: If True, only process samples common to all benchmarks
-            genome_file_path: Path to genome file for chromosome filtering
-            max_workers: Maximum number of parallel workers (None = number of CPUs)
-            
-        Returns:
-            Nested dictionary: benchmark -> sample -> counts
-        """
-        
+
         # If common_samples_only is True, we will first determine the set of samples present in all benchmarks
         if common_samples_only:
             sample_sets = []

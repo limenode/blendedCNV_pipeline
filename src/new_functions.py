@@ -7,6 +7,9 @@ from pathlib import Path
 import os
 from cnv_parser import CNVParser
 import re
+from cyvcf2 import VCF
+from typing import Optional, List, Dict
+from utils import ensure_chr_prefix, sanitize_svtype
 
 def perform_liftover(
     input: pd.DataFrame, 
@@ -104,7 +107,7 @@ def perform_liftover(
 
     return output, stats
 
-def convert_vcfs_to_bed(config: dict) -> dict | None:
+def parse_vcfs_to_bed(config: dict) -> dict | None:
     output_dir = Path(config['output_dir'])
     liftover_stats = defaultdict(dict)
 
@@ -157,7 +160,7 @@ def convert_vcfs_to_bed(config: dict) -> dict | None:
     # return liftover stats
     return liftover_stats if liftover_stats else None
 
-def convert_control_to_bed(config: dict) -> dict | None:
+def parse_control_to_bed(config: dict) -> dict | None:
     """
     Convert control datasets (e.g., SNP Array from PennCNV) to BED format.
     Only performs BED conversion without consensus calls or further processing.
@@ -292,7 +295,7 @@ def parse_penncnv_to_bed(penncnv_file: str) -> pd.DataFrame:
                 continue
             
             chrom = pos_match.group(1)
-            start = int(pos_match.group(2))
+            start = int(pos_match.group(2)) - 1  # Convert to 0-based
             end = int(pos_match.group(3))
             
             # Parse copy number: state1,cn=0
@@ -351,3 +354,139 @@ def parse_penncnv_to_bed(penncnv_file: str) -> pd.DataFrame:
     
     return pd.DataFrame(records)
 
+def _merge_one_sample(item):
+        sample_id, records = item
+        df = pd.DataFrame(records)
+
+        merged_records: List[pd.Series] = []
+        for (chrom, svtype), svtype_df in df.groupby(['chrom', 'svtype']):
+            sorted_df = svtype_df.sort_values('start')
+            current_record = None
+            source_set = set()
+
+            for _, row in sorted_df.iterrows():
+                if current_record is None:
+                    current_record = row
+                    source_set = {row['source']}
+                else:
+                    # Check if current record overlaps or is adjacent to the next record
+                    if row['start'] <= current_record['end'] + 1:
+                        # Merge records by extending the end position and combining sources
+                        current_record['end'] = max(current_record['end'], row['end'])
+                        source_set.add(row['source'])
+                    else:
+                        # No overlap, save the current record and start a new one
+                        current_record['source'] = '|'.join(sorted(source_set))
+                        merged_records.append(current_record)
+                        current_record = None
+            
+            # Append the last record after finishing the loop
+            if current_record is not None:
+                current_record['source'] = '|'.join(sorted(source_set))
+                merged_records.append(current_record)
+            
+        out_df = pd.DataFrame(merged_records).reset_index(drop=True)
+        return sample_id, out_df
+
+def parse_benchmarks_to_bed(config: dict) -> Dict[str, pd.DataFrame]:
+    
+    if 'benchmark_map' not in config:
+        print("No benchmark map found in config. Skipping benchmark parsing.")
+        return {}
+    
+    # Get common samples only
+    sample_sets = []
+    for _, vcf_path in config['benchmark_map'].items():
+        try:
+            vcf = VCF(vcf_path)
+            sample_sets.append(set(vcf.samples))
+        except Exception as e:
+            print(f"Error reading samples from {vcf_path}: {e}")
+            sample_sets.append(set())
+    common_samples = set.intersection(*sample_sets) if sample_sets else set()
+    print(f"Common samples across all benchmarks: {len(common_samples)}")
+    sample_ids = list(common_samples)
+    
+    # Get valid chromosomes from genome file
+    genome_file_path = config['genome_file']
+    valid_chroms = set()
+    try:
+        with open(genome_file_path) as f:
+            for line in f:
+                chrom = line.split()[0]
+                valid_chroms.add(ensure_chr_prefix(chrom))
+    except Exception as e:
+        print(f"Error reading genome file {genome_file_path}: {e}")
+        print("Proceeding without chromosome filtering.")
+
+    sample_data: Dict[str, List[Dict]] = defaultdict(list)
+
+    for benchmark_name, vcf_path in config['benchmark_map'].items():
+        print(f"Parsing benchmark: {benchmark_name} from {vcf_path}")
+
+        vcf = VCF(vcf_path, samples=sample_ids)
+        
+        for record in vcf:
+            # Skip if chromosome is not in valid set
+            chrom = ensure_chr_prefix(record.CHROM)
+            if chrom not in valid_chroms:
+                continue
+                
+            # Skip records without ALT alleles
+            if not record.ALT or len(record.ALT) == 0:
+                continue
+                
+            # Extract basic info
+            start = record.POS - 1  # Convert to 0-based
+            record_id = record.ID if record.ID else "."
+
+            # Extract END - try INFO field first, then calculate from SVLEN
+            end = record.INFO.get('END')
+            if end is not None:
+                end = int(end)
+            else:
+                svlen = record.INFO.get('SVLEN')
+                if svlen is not None:
+                    end = record.POS + abs(int(svlen))
+            
+            # Skip if we couldn't determine END
+            if end is None:
+                continue
+
+            # Extract and sanitize SVTYPE
+            raw_svtype = record.INFO.get('SVTYPE')
+            svtype = sanitize_svtype(raw_svtype, record_id)
+            
+            # Skip if SVTYPE is not DEL or DUP
+            if svtype == 'NA':
+                continue
+            
+            # Extract genotypes for requested samples
+            genotypes = record.genotypes
+
+            for idx, gt in enumerate(genotypes):
+                if gt[0] == 0 and gt[1] == 0:
+                    continue  # Skip homozygous reference samples
+                
+                sample_id = vcf.samples[idx]
+                sample_data[sample_id].append({
+                    'chrom': chrom,
+                    'start': start,
+                    'end': end,
+                    'svtype': svtype,
+                    'source': benchmark_name
+                })
+
+    from concurrent.futures import ProcessPoolExecutor
+
+    items = list(sample_data.items())
+    cpu_count = os.cpu_count()
+    target_workers = max(1, (2 * cpu_count) // 3) if cpu_count else 1
+    max_workers = min(len(items), target_workers) if items else 1
+    
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        results = executor.map(_merge_one_sample, items)
+    
+    merged_sample_data = dict(results)
+
+    return merged_sample_data
