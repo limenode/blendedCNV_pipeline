@@ -64,54 +64,45 @@ def run_consensus_calls_script(config: dict):
 
         print(f"  Tools for this input set: {tool_list}")
 
-        # Consnsus calls 2/3 script
-        command = [
-            "./src/get_consensus_calls.sh",
+        tools_and_names = [
             tool_list[0],
             str(output_subdir / "bed" / tool_list[0]),
             tool_list[1],
             str(output_subdir / "bed" / tool_list[1]),
             tool_list[2],
             str(output_subdir / "bed" / tool_list[2]),
+        ]
+
+        # Consensus calls 1/3 script
+        command = [
+            "./src/consensus_scripts/get_1of3_calls.sh",
+            *tools_and_names,
+            str(output_subdir / "consensus_1of3"),
+            config['genome_file'],
+            str(config.get('excluded_regions_file', "-"))
+        ]
+        subprocess.run(command, check=True)
+
+        # Consnsus calls 2/3 script
+        command = [
+            "./src/consensus_scripts/get_2of3_calls.sh",
+            *tools_and_names,
             str(output_subdir / "consensus_2of3"),
             config['genome_file'],
             str(config.get('excluded_regions_file', "-")),
             str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
-
-        print(f"  Running consensus calls script for 2/3 consensus with command: {' '.join(map(str, command))}")
-
         subprocess.run(command, check=True)
 
-        command = [
-            "./src/get_1of3_calls.sh",
-            tool_list[0],
-            str(output_subdir / "bed" / tool_list[0]),
-            tool_list[1],
-            str(output_subdir / "bed" / tool_list[1]),
-            tool_list[2],
-            str(output_subdir / "bed" / tool_list[2]),
-            str(output_subdir / "consensus_1of3"),
-            config['genome_file'],
-            str(config.get('excluded_regions_file', "-"))
-        ]
-
-        subprocess.run(command, check=True)
-
+        # Consensus calls 3/3 script
         command = [
             "./src/get_3of3_calls.sh",
-            tool_list[0],
-            str(output_subdir / "bed" / tool_list[0]),
-            tool_list[1],
-            str(output_subdir / "bed" / tool_list[1]),
-            tool_list[2],
-            str(output_subdir / "bed" / tool_list[2]),
+            *tools_and_names,
             str(output_subdir / "consensus_3of3"),
             config['genome_file'],
             str(config.get('excluded_regions_file', "-")),
             str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
-
         subprocess.run(command, check=True)
 
         # Read log files into results dictionary, and remove after reading
