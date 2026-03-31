@@ -396,7 +396,6 @@ class CNVPlotter:
         n_points: int = 50,
         svtypes: List[SVType] = [SVType.ALL, SVType.DEL, SVType.DUP],
         n_workers: Optional[int] = None,
-        exclude_undiscoverable_fn: bool = True
     ):
         """
         Compute distribution data with raw TP/FP/FN counts across size ranges.
@@ -481,10 +480,10 @@ class CNVPlotter:
         n_points: int = 100,
         svtypes: List[SVType] = [SVType.ALL, SVType.DEL, SVType.DUP],
         output_path: Optional[str | Path] = None,
+        cumulative_stats_output_path: Optional[str | Path] = None,
         figsize: Tuple[int, int] = (12, 6),
         smoothing_sigma: float = 5.0,
         show_raw_points: bool = True,
-        exclude_undiscoverable_fn: bool = True
     ):
         """
         Generate and plot statistical distributions of CNV performance metrics across size ranges.
@@ -500,6 +499,7 @@ class CNVPlotter:
             n_points: Number of intervals to generate
             svtypes: List of SVType values to plot
             output_path: Base path for output files (suffixed with metric and distribution type)
+            cumulative_stats_output_path: Path to save final cumulative metric summary table (csv/tsv)
             figsize: Figure size tuple
             smoothing_sigma: Sigma for Gaussian smoothing (0 = no smoothing)
             show_raw_points: Whether to show raw data points beneath smoothed curves
@@ -512,8 +512,51 @@ class CNVPlotter:
             bounds=bounds,
             n_points=n_points,
             svtypes=svtypes,
-            exclude_undiscoverable_fn=exclude_undiscoverable_fn
         )
+
+        # Build and optionally save summary metrics from the final cumulative interval.
+        cumulative_summary_rows = []
+        cumulative_data = distribution_data.get(DistributionType.CUMULATIVE, {})
+        for (input_set_name, svtype), data in cumulative_data.items():
+            if len(data.get('x', [])) == 0:
+                continue
+
+            tp_final = int(data['tp_count'][-1])
+            fp_final = int(data['fp_count'][-1])
+            fn_final = int(data['fn_count'][-1])
+
+            row = {
+                'input_set': input_set_name,
+                'input_set_display': self.input_name_mapping.get(input_set_name, input_set_name),
+                'svtype': svtype.value if hasattr(svtype, 'value') else str(svtype),
+                'analysis_window_end': float(data['x'][-1]),
+                'tp_count': tp_final,
+                'fp_count': fp_final,
+                'fn_count': fn_final,
+            }
+
+            for metric_function, metric_name in metrics:
+                row[metric_name] = metric_function(tp_final, fp_final, fn_final)
+
+            cumulative_summary_rows.append(row)
+
+        cumulative_summary_df = pd.DataFrame(cumulative_summary_rows)    
+
+        if cumulative_stats_output_path is not None:
+            resolved_cumulative_stats_output = Path(cumulative_stats_output_path)
+            resolved_cumulative_stats_output.parent.mkdir(parents=True, exist_ok=True)
+            file_ext = resolved_cumulative_stats_output.suffix.lower()
+            if file_ext in ['.tsv', '.txt']:
+                cumulative_summary_df.to_csv(resolved_cumulative_stats_output, sep='\t', index=False)
+            else:
+                cumulative_summary_df.to_csv(resolved_cumulative_stats_output, index=False)
+            print(f"✓ Final cumulative summary table saved to: {resolved_cumulative_stats_output}")
+        else:
+            print("Final cumulative summary table (not saved; provide cumulative_stats_output_path or output_path):")
+            if cumulative_summary_df.empty:
+                print("No cumulative data available.")
+            else:
+                print(cumulative_summary_df.to_string(index=False))
 
         time_1 = time.time()
         
@@ -866,6 +909,7 @@ class CNVPlotter:
         figsize: Tuple[int, int] = (12, 6),
         output_dir: Optional[str | Path] = None,
         include_benchmark: bool = True,
+        stats_output_path: Optional[str | Path] = None,
     ):
         """
         Generate size distribution plots (bin density and KDE) for CNVs.
@@ -876,6 +920,7 @@ class CNVPlotter:
             figsize: Figure size tuple
             output_dir: Directory to save plots (if None, plots will be shown)
             include_benchmark: Whether to include benchmark truth set in plots
+            stats_output_path: Path to save size summary stats table (csv/tsv)
         """
 
         # Prepare output directory
@@ -942,6 +987,58 @@ class CNVPlotter:
             return
         
         plot_df = pd.concat(all_data, ignore_index=True)
+
+        # Compute summary size statistics by source and optionally save as a table.
+        def _compute_size_stats(series: pd.Series) -> pd.Series:
+            q1 = series.quantile(0.25)
+            q3 = series.quantile(0.75)
+            return pd.Series({
+                'count': int(series.count()),
+                'min': float(series.min()),
+                'q1': float(q1),
+                'median': float(series.median()),
+                'q3': float(q3),
+                'iqr': float(q3 - q1),
+                'mean': float(series.mean()),
+                'stdev': float(series.std(ddof=1)) if series.count() > 1 else np.nan,
+                'max': float(series.max()),
+            })
+
+        size_stats_df = (
+            plot_df
+            .groupby('source', sort=True)['size']
+            .apply(_compute_size_stats)
+            .unstack()
+            .reset_index()
+            .rename(columns={'source': 'input_set'})
+        )
+
+        # Keep benchmark at the bottom for readability.
+        if not size_stats_df.empty:
+            is_benchmark = size_stats_df['input_set'].eq('Benchmark (Truth)')
+            size_stats_df = pd.concat(
+                [size_stats_df[~is_benchmark], size_stats_df[is_benchmark]],
+                ignore_index=True,
+            )
+
+        resolved_stats_output: Optional[Path] = None
+        if stats_output_path:
+            resolved_stats_output = Path(stats_output_path)
+        elif output_dir:
+            stats_suffix = svtype_str.replace(' ', '_')
+            resolved_stats_output = output_dir / f"size_distribution_stats{stats_suffix}.csv"
+
+        if resolved_stats_output:
+            resolved_stats_output.parent.mkdir(parents=True, exist_ok=True)
+            file_ext = resolved_stats_output.suffix.lower()
+            if file_ext in ['.tsv', '.txt']:
+                size_stats_df.to_csv(resolved_stats_output, sep='\t', index=False)
+            else:
+                size_stats_df.to_csv(resolved_stats_output, index=False)
+            print(f"✓ Size stats table saved to: {resolved_stats_output}")
+        else:
+            print("Size stats table (not saved; provide output_dir or stats_output_path):")
+            print(size_stats_df.to_string(index=False))
 
         # Get min and max sizes for setting x-axis limits
         min_size = plot_df['size'].min()

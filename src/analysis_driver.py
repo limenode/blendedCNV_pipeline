@@ -127,6 +127,7 @@ def main(config: dict):
             metrics=metrics,
             bounds=(500, 1_000_000),
             output_path=output_dir / "figures" / "statistical_distributions" / "distribution.png",
+            cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_cumulative_stats.tsv",
         ),
         # # Task 1.5: Statistical distributions for all SV types only
         partial(
@@ -142,6 +143,7 @@ def main(config: dict):
             set_keys=size_distribution_set_keys,
             output_dir=output_dir / "figures" / "size_distributions",
             include_benchmark=True,
+            stats_output_path=output_dir / "logs" / "size_distribution_stats.tsv",
         ),
         # Task 3: Caller source distribution
         partial(
