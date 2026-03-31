@@ -34,7 +34,7 @@ def main():
     print("\n" + "="*80)
     print("PHASE 1: PROCESSING PIPELINE")
     print("="*80)
-    processing_main(config, debug=debug)
+    processing_main(config)
 
     # Step 2: Run computation pipeline
     print("\n" + "="*80)

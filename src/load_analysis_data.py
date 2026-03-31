@@ -9,7 +9,7 @@ from collections import defaultdict
 
 
 pred_columns = ['pred_chrom', 'pred_start', 'pred_end', 'svtype', 'sources']
-truth_columns = ['truth_chrom', 'truth_start', 'truth_end']
+truth_columns = ['truth_chrom', 'truth_start', 'truth_end', 'benchmark_svtype', 'benchmark_sources']
 
 
 def load_tp_file(filepath: Path) -> pd.DataFrame:
@@ -18,18 +18,23 @@ def load_tp_file(filepath: Path) -> pd.DataFrame:
     
     TP files contain 8 columns:
     - predicted_record: chrom, start, end, svtype, sources (5 columns)
-    - truth_record: chrom, start, end (3 columns)
+    - truth_record: chrom, start, end, benchmark_svtype, benchmark_sources (5 columns)
     """
     columns = pred_columns + truth_columns
     
     df = pd.read_csv(filepath, sep='\t', header=None, names=columns)
+
+    # Ensure start and end columns are integers
+    df['pred_start'] = df['pred_start'].astype(int)
+    df['pred_end'] = df['pred_end'].astype(int)
+    df['truth_start'] = df['truth_start'].astype(int)
+    df['truth_end'] = df['truth_end'].astype(int)
 
     # Add size columns for predicted and truth records
     df['pred_size'] = df['pred_end'] - df['pred_start']
     df['truth_size'] = df['truth_end'] - df['truth_start']
 
     return df
-
 
 def load_fp_file(filepath: Path) -> pd.DataFrame:
     """
@@ -40,27 +45,33 @@ def load_fp_file(filepath: Path) -> pd.DataFrame:
     """    
     df = pd.read_csv(filepath, sep='\t', header=None, names=pred_columns)
 
+    # Ensure 'pred_start' and 'pred_end' are integers
+    df['pred_start'] = df['pred_start'].astype(int)
+    df['pred_end'] = df['pred_end'].astype(int)
+
     # Add size column for predicted records
     df['pred_size'] = df['pred_end'] - df['pred_start']
 
     return df
 
-
 def load_fn_file(filepath: Path) -> pd.DataFrame:
     """
     Load a False Negative (FN) BED file into a DataFrame.
     
-    FN files contain 3 columns (truth record only):
-    - chrom, start, end
+    FN files contain 5 columns (truth record only):
+    - chrom, start, end, benchmark_svtype, benchmark_sources
     """
     
     df = pd.read_csv(filepath, sep='\t', header=None, names=truth_columns)
+
+    # Ensure 'truth_star't and 'truth_end' are integers
+    df['truth_start'] = df['truth_start'].astype(int)
+    df['truth_end'] = df['truth_end'].astype(int)
 
     # Add size column for truth records
     df['truth_size'] = df['truth_end'] - df['truth_start']
 
     return df
-
 
 def discover_classification_files(binary_classification_dir: Path) -> Dict[str, Dict[str, Dict[str, List[Path]]]]:
     """
@@ -86,7 +97,6 @@ def discover_classification_files(binary_classification_dir: Path) -> Dict[str, 
             files_by_sample[sample_id][svtype][classification].append(bed_file)
     
     return dict(files_by_sample) # type: ignore
-
 
 def load_sample_data(sample_id: str, sample_files: Dict[str, Dict[str, List[Path]]]) -> Dict[str, pd.DataFrame]:
     """
@@ -136,7 +146,6 @@ def load_sample_data(sample_id: str, sample_files: Dict[str, Dict[str, List[Path
             result[classification] = pd.concat(dfs_list, ignore_index=True)
     
     return result
-
 
 def build_analysis_data_structure(binary_classification_dir: Path, samples_to_include: Optional[set] = None) -> Dict[str, pd.DataFrame]:
     """
@@ -199,7 +208,6 @@ def build_analysis_data_structure(binary_classification_dir: Path, samples_to_in
             print(f"  No {classification} records found")
     
     return analysis_data
-
 
 def filter_by_size(
         analysis_data: Dict[str, pd.DataFrame], 
@@ -267,7 +275,6 @@ def filter_by_size(
     
     return filtered_data
 
-
 def print_summary_statistics(analysis_data: Dict[str, pd.DataFrame], title: Optional[str] = None):
     """
     Print summary statistics for loaded data.
@@ -322,7 +329,6 @@ def print_summary_statistics(analysis_data: Dict[str, pd.DataFrame], title: Opti
             print(f"  {svtype}:")
             print(f"    TP: {tp_count:4d}  |  FP: {fp_count:4d}  |  FN: {fn_count:4d}")
             print(f"    Precision: {precision:.3f}  |  Recall: {recall:.3f}  |  F1: {f1:.3f}")
-
 
 def main():
     # Parse command-line arguments
