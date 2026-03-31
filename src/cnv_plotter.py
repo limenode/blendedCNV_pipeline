@@ -1,6 +1,5 @@
 from collections import defaultdict
 from typing import Callable, Tuple, Optional, List, Dict
-from enum import Enum
 from pathlib import Path
 import pandas as pd
 import numpy as np

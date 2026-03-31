@@ -1,15 +1,17 @@
 from collections import defaultdict
-
-import pandas as pd
-from liftover import get_lifter
-
 from pathlib import Path
 import os
-from cnv_parser import CNVParser
 import re
 from cyvcf2 import VCF
 from typing import Optional, List, Dict
+from concurrent.futures import ProcessPoolExecutor
+import subprocess
+from io import StringIO
+import pandas as pd
+
+from liftover import get_lifter
 from utils import ensure_chr_prefix, sanitize_svtype
+from cnv_parser import CNVParser
 
 def perform_liftover(
     input: pd.DataFrame, 
@@ -104,6 +106,9 @@ def perform_liftover(
     # Convert start and end back to integers (after filtering out failed liftover records)
     output['start'] = output['start'].astype(int)
     output['end'] = output['end'].astype(int)
+
+    # Drop intermediate columns used for liftover checks
+    output.drop(columns=['start_old', 'end_old', 'map_succeeded', 'size_old', 'size_new', 'size_change', 'size_change_pct', 'below_size_change_threshold'], inplace=True)
 
     return output, stats
 
@@ -354,45 +359,160 @@ def parse_penncnv_to_bed(penncnv_file: str) -> pd.DataFrame:
     
     return pd.DataFrame(records)
 
-def _merge_one_sample(item):
-        sample_id, records = item
-        df = pd.DataFrame(records)
+def _merge_one_sample(
+        sample_id: str, 
+        svtype: str, 
+        sample_df: pd.DataFrame, 
+        genome_file_path: str,
+) -> pd.DataFrame:
+    if sample_df.empty:
+        return pd.DataFrame()
 
-        merged_records: List[pd.Series] = []
-        for (chrom, svtype), svtype_df in df.groupby(['chrom', 'svtype']):
-            sorted_df = svtype_df.sort_values('start')
-            current_record = None
-            source_set = set()
+    # Keep columns needed for merging and add source column
+    in_df = sample_df[['chrom', 'start', 'end', 'source']].copy()
 
-            for _, row in sorted_df.iterrows():
-                if current_record is None:
-                    current_record = row
-                    source_set = {row['source']}
-                else:
-                    # Check if current record overlaps or is adjacent to the next record
-                    if row['start'] <= current_record['end'] + 1:
-                        # Merge records by extending the end position and combining sources
-                        current_record['end'] = max(current_record['end'], row['end'])
-                        source_set.add(row['source'])
-                    else:
-                        # No overlap, save the current record and start a new one
-                        current_record['source'] = '|'.join(sorted(source_set))
-                        merged_records.append(current_record)
-                        current_record = None
-            
-            # Append the last record after finishing the loop
-            if current_record is not None:
-                current_record['source'] = '|'.join(sorted(source_set))
-                merged_records.append(current_record)
-            
-        out_df = pd.DataFrame(merged_records).reset_index(drop=True)
-        return sample_id, out_df
+    # bedtools sort
+    sort_cmd = ['bedtools', 'sort', '-g', genome_file_path, '-i', '-']
 
-def parse_benchmarks_to_bed(config: dict) -> Dict[str, pd.DataFrame]:
+    # bedtools merge
+    merge_cmd = ['bedtools', 'merge', '-i', '-', '-c', '4', '-o', 'distinct']
+
+    with subprocess.Popen(
+        sort_cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as sort_p:
+        with subprocess.Popen(
+            merge_cmd,
+            stdin=sort_p.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as merge_p:
+            sort_p.stdout.close() if sort_p.stdout else None  # allow sort_p to get SIGPIPE if merge exits
+
+            # Stream TSV directly into bedtools sort stdin
+            in_df.to_csv(sort_p.stdin, sep='\t', index=False, header=False)
+            sort_p.stdin.close() if sort_p.stdin else None  # signal end of input to sort
+
+            merged_stdout, merged_stderr = merge_p.communicate()
+            sort_stderr = sort_p.stderr.read() if sort_p.stderr else ""
+            sort_rc = sort_p.wait()
+    
+    if sort_rc != 0:
+        raise RuntimeError(f"bedtools sort failed for sample {sample_id} with error: {sort_stderr}")
+    
+    if merge_p.returncode != 0:
+        raise RuntimeError(f"bedtools merge failed for sample {sample_id} with error: {merged_stderr}")
+    
+    if not merged_stdout.strip():
+        return pd.DataFrame()  # No merged records
+
+    # Parse merged output
+    out_df = pd.read_csv(
+        StringIO(merged_stdout), 
+        sep='\t', 
+        header=None,
+        names=['chrom', 'start', 'end', 'source']
+    )
+    out_df['svtype'] = svtype
+    out_df['sample_id'] = sample_id
+    return out_df[['chrom', 'start', 'end', 'svtype', 'source', 'sample_id']]
+
+def get_per_source_stats(sample_df: pd.DataFrame) -> pd.DataFrame:
+    if sample_df.empty:
+        print("No benchmark records parsed before liftover.")
+        return pd.DataFrame()
+    
+    print("\nPre-liftover benchmark summary by source:")
+
+    source_record_counts = sample_df.groupby('source').size().rename('record_count')
+    sample_counts_by_source = sample_df.groupby('source')['sample_id'].nunique().rename('sample_count')
+    per_sample_counts = (
+        sample_df.groupby(['source', 'sample_id'])
+        .size()
+        .rename('records_per_sample')
+        .reset_index()
+    )
+
+    # Create temporary CNV size column for descriptive stats.
+    sample_df_with_size = sample_df.copy()
+    sample_df_with_size['size'] = sample_df_with_size['end'] - sample_df_with_size['start']
+
+    size_stats = (
+        sample_df_with_size.groupby('source')['size']
+        .agg(['mean', 'median', 'min', 'max'])
+        .rename(columns={'mean': 'size_mean', 'median': 'size_median', 'min': 'size_min', 'max': 'size_max'})
+    )
+
+    size_q1 = sample_df_with_size.groupby('source')['size'].quantile(0.25).rename('size_q1')
+    size_q3 = sample_df_with_size.groupby('source')['size'].quantile(0.75).rename('size_q3')
+    size_iqr = (size_q3 - size_q1).rename('size_iqr')
+
+    del_counts = (
+        sample_df_with_size[sample_df_with_size['svtype'] == 'DEL']
+        .groupby('source')
+        .size()
+        .rename('del_count')
+    )
+    dup_counts = (
+        sample_df_with_size[sample_df_with_size['svtype'] == 'DUP']
+        .groupby('source')
+        .size()
+        .rename('dup_count')
+    )
+
+    pre_liftover_summary = (
+        pd.concat(
+            [
+                source_record_counts,
+                sample_counts_by_source,
+                per_sample_counts.groupby('source')['records_per_sample'].mean().rename('records_per_sample_mean'),
+                per_sample_counts.groupby('source')['records_per_sample'].median().rename('records_per_sample_median'),
+                per_sample_counts.groupby('source')['records_per_sample'].min().rename('records_per_sample_min'),
+                per_sample_counts.groupby('source')['records_per_sample'].max().rename('records_per_sample_max'),
+                size_stats,
+                size_q1,
+                size_q3,
+                size_iqr,
+                del_counts,
+                dup_counts,
+            ],
+            axis=1,
+        )
+        .fillna(0)
+        .reset_index()
+    )
+
+    # Additional derived QC metrics.
+    pre_liftover_summary['avg_records_per_sample'] = (
+        pre_liftover_summary['record_count'] / pre_liftover_summary['sample_count'].replace(0, pd.NA)
+    )
+    pre_liftover_summary['del_fraction'] = (
+        pre_liftover_summary['del_count'] / pre_liftover_summary['record_count'].replace(0, pd.NA)
+    )
+    pre_liftover_summary['dup_fraction'] = (
+        pre_liftover_summary['dup_count'] / pre_liftover_summary['record_count'].replace(0, pd.NA)
+    )
+
+    # Make numeric output easier to read in logs.
+    numeric_cols = [
+        'record_count', 'sample_count', 'records_per_sample_mean', 'records_per_sample_median',
+        'records_per_sample_min', 'records_per_sample_max', 'avg_records_per_sample',
+        'size_mean', 'size_median', 'size_min', 'size_max', 'size_q1', 'size_q3', 'size_iqr',
+        'del_count', 'dup_count', 'del_fraction', 'dup_fraction'
+    ]
+    pre_liftover_summary[numeric_cols] = pre_liftover_summary[numeric_cols].apply(pd.to_numeric, errors='coerce')
+    
+    return pre_liftover_summary
+
+def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     
     if 'benchmark_map' not in config:
         print("No benchmark map found in config. Skipping benchmark parsing.")
-        return {}
+        return pd.DataFrame(), None
     
     # Get common samples only
     sample_sets = []
@@ -419,7 +539,7 @@ def parse_benchmarks_to_bed(config: dict) -> Dict[str, pd.DataFrame]:
         print(f"Error reading genome file {genome_file_path}: {e}")
         print("Proceeding without chromosome filtering.")
 
-    sample_data: Dict[str, List[Dict]] = defaultdict(list)
+    sample_data: List[Dict] = []
 
     for benchmark_name, vcf_path in config['benchmark_map'].items():
         print(f"Parsing benchmark: {benchmark_name} from {vcf_path}")
@@ -469,24 +589,98 @@ def parse_benchmarks_to_bed(config: dict) -> Dict[str, pd.DataFrame]:
                     continue  # Skip homozygous reference samples
                 
                 sample_id = vcf.samples[idx]
-                sample_data[sample_id].append({
+                sample_data.append({
                     'chrom': chrom,
                     'start': start,
                     'end': end,
                     'svtype': svtype,
-                    'source': benchmark_name
+                    'source': benchmark_name,
+                    'sample_id': sample_id
                 })
 
-    from concurrent.futures import ProcessPoolExecutor
+    # Covert to DataFrame
+    sample_df = pd.DataFrame(sample_data)
 
-    items = list(sample_data.items())
+    pre_liftover_stats = get_per_source_stats(sample_df)
+    print("\nPre-liftover benchmark summary by source:")
+    print(pre_liftover_stats)
+
+    # Perform liftover per source
+    liftover_results = {}
+    for source in sample_df['source'].unique():
+        if source not in config['liftover']:
+            continue
+
+        source_df = sample_df[sample_df['source'] == source]
+        from_build = config['liftover'][source]['from'] if config['liftover'].get(source) else None
+        to_build = config['liftover'][source]['to'] if config['liftover'].get(source) else None
+
+        if from_build and to_build:
+            print(f"Performing liftover for benchmark '{source}' from {from_build} to {to_build}...")
+            lifted_df, stats = perform_liftover(source_df, from_build, to_build)
+            sample_df.loc[sample_df['source'] == source, ['chrom', 'start', 'end']] = lifted_df[['chrom', 'start', 'end']]
+            liftover_results[source] = stats
+            print(f"  Liftover completed for benchmark '{source}'.")
+
+    post_liftover_stats = get_per_source_stats(sample_df)
+    print("\nPost-liftover benchmark summary by source:")
+    print(post_liftover_stats)
+    
+    # Split across samples and merge nearby/overlapping records within each sample
+    items = []
+    output_dir = Path(config['output_dir']) / "benchmark_parsing" / "merged"
+    os.makedirs(output_dir, exist_ok=True)
+    for (sample_id, svtype), sample_df in sample_df.groupby(['sample_id', 'svtype']):
+        items.append((
+            sample_id, 
+            svtype, 
+            sample_df, 
+            config['genome_file']
+        ))
+
+    # Setup and run parallel processing with ProcessPoolExecutor
     cpu_count = os.cpu_count()
     target_workers = max(1, (2 * cpu_count) // 3) if cpu_count else 1
     max_workers = min(len(items), target_workers) if items else 1
     
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        results = executor.map(_merge_one_sample, items)
+        results = executor.map(_merge_one_sample, *zip(*items))
     
-    merged_sample_data = dict(results)
+    # Collect results into a single DataFrame
+    merged_sample_df = pd.concat(results, ignore_index=True) if results else pd.DataFrame()
 
-    return merged_sample_data
+    # tidy up source column by lowercasing, converting to set, and sorting values
+    merged_sample_df['source'] = merged_sample_df['source'].apply(
+        lambda x: ','.join(sorted(set(s.strip().lower() for s in x.split(','))))
+    )
+
+    # Perform liftover on merged records if configured for merged benchmarks
+    if 'merged' in config['liftover']:
+        from_build = config['liftover']['merged']['from']
+        to_build = config['liftover']['merged']['to']
+
+        print(f"Performing liftover for merged benchmarks from {from_build} to {to_build}...")
+        
+        lifted_df, stats = perform_liftover(merged_sample_df, from_build, to_build)
+        liftover_results['merged'] = stats
+        merged_sample_df = lifted_df
+    
+    # Write DEL and DUP files for each sample
+    print("Exporting merged benchmarks to BED files...")
+
+    output_dir = Path(config['output_dir']) / "benchmark_parsing" / "merged"
+    os.makedirs(output_dir, exist_ok=True)
+    for (sample_id, svtype), group_df in merged_sample_df.groupby(['sample_id', 'svtype']):
+        sample_id_str = str(sample_id)
+
+        if svtype == 'DEL':
+            del_df = group_df[['chrom', 'start', 'end', 'svtype', 'source']]
+            del_output = output_dir / f"{sample_id_str}.DEL.bed"
+            del_df.to_csv(del_output, sep='\t', index=False, header=False)
+        
+        elif svtype == 'DUP':
+            dup_df = group_df[['chrom', 'start', 'end', 'svtype', 'source']]
+            dup_output = output_dir / f"{sample_id_str}.DUP.bed"
+            dup_df.to_csv(dup_output, sep='\t', index=False, header=False)
+
+    return merged_sample_df, liftover_results

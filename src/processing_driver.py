@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from utils import parse_args
-from new_functions import parse_vcfs_to_bed
+from parsing_functions import parse_vcfs_to_bed
 from processing_functions import run_consensus_calls_script
 
 def main(config: dict):
