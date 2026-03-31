@@ -7,7 +7,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
 from matplotlib_venn import venn3, venn3_circles
-from upsetplot import UpSet, from_indicators
 from scipy.ndimage import gaussian_filter1d
 from multiprocessing import Pool, cpu_count
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -1031,110 +1030,6 @@ class CNVPlotter:
         plt.close()
         
         print(f"✓ Size distribution plots completed!")
-
-    def plot_upset_recall(
-        self,
-        set_keys: List[str],
-        bounds: Optional[Tuple[float, float]] = None,
-        svtype: SVType = SVType.ALL,
-        output_path: Optional[str | Path] = None,
-        figsize: Tuple[int, int] = (16, 9),
-        subset_size: str = 'count',
-        sort_by: str = 'cardinality',
-    ):
-        """
-        Generate an UpSet plot for TP recall overlap across any number of input sets.
-
-        Args:
-            set_keys: Input set keys to include (supports 2+ sets)
-            bounds: Optional size filter bounds as (start_bp, end_bp)
-            svtype: SV type to filter by (e.g., DEL, DUP, or ALL)
-            output_path: Output image path (if None, plot is shown)
-            figsize: Figure size tuple
-            subset_size: UpSet parameter for subset size display ('count', 'percent', etc.)
-            sort_by: UpSet parameter for sorting subsets ('cardinality', 'degree', etc.)
-        """
-
-        if len(set_keys) < 2:
-            print("Error: UpSet plot requires at least 2 input sets.")
-            return
-
-        # Verify keys exist
-        available_sets = self.data.get('input_sets', {})
-        for key in set_keys:
-            if key not in available_sets:
-                print(f"Error: Input set '{key}' not found in data.")
-                return
-
-        if output_path:
-            output_dir = Path(output_path).parent
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Copy and optionally filter selected input sets
-        data = available_sets.copy()
-        for key in set_keys:
-            if bounds is not None:
-                start, end = bounds
-                data[key] = filter_by_size(data[key], lower_bound=int(start), upper_bound=int(end))
-
-        # Build shared TP/truth sets
-        (
-            tp_sets,
-            detected_ids,
-            total_detected,
-            truth_ids_by_method,
-            all_truth_ids,
-            total_truth_cnvs,
-            _,
-        ) = self._build_tp_and_truth_sets(set_keys=set_keys, data=data, svtype=svtype)
-
-        if total_detected == 0:
-            print("Warning: No detected TP records found for selected inputs and filters.")
-            return
-
-        # Build boolean membership DataFrame (one row per detected record).
-        membership_df = pd.DataFrame({'record_id': list(detected_ids)})
-        for key in set_keys:
-            membership_df[key] = membership_df['record_id'].isin(tp_sets[key])
-
-        if membership_df.empty:
-            print("Warning: No records found for UpSet plotting after processing.")
-            return
-
-        print(f"Membership DataFrame for UpSet (first 5 rows):\n{membership_df.head()}")
-
-        # Convert boolean indicator table to upsetplot-compatible structure.
-        upset_data = from_indicators(
-            indicators=set_keys,
-            data=membership_df.copy()
-        )
-
-        print(f"{upset_data}")
-
-        # Generate UpSet plot and output to file
-        fig = plt.figure(figsize=figsize)
-        upset = UpSet(
-            upset_data,
-            subset_size=subset_size,
-            sort_by=sort_by,
-        )
-        upset.plot(fig=fig)
-
-
-        # Generate title with recall statistics
-        svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
-        recall_rate = (total_detected / total_truth_cnvs * 100) if total_truth_cnvs > 0 else 0.0
-
-        plt.suptitle(
-            f"CNV Recall Overlap UpSet Plot{svtype_str}\n({total_detected} detected of {total_truth_cnvs} total truth records, {recall_rate:.1f}% recall)",
-            fontsize=14, fontweight='bold'
-        )
-
-        plt.savefig(output_path, dpi=300, bbox_inches='tight') if output_path else plt.show()
-        plt.close()
-
-        # Return the boolean table for debugging/reuse.
-        return membership_df
 
     def get_caller_source_distribution(
             self,
