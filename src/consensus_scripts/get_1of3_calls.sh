@@ -142,7 +142,7 @@ export -f process_file
 # Determine number of cores to use for parallel processing (use 2/3 of available cores)
 NCORES=$(nproc)
 NCORES=$((NCORES * 2 / 3))
-echo "Processing DEL and DUP files in parallel using $NCORES cores..."
+# echo "Processing DEL and DUP files in parallel using $NCORES cores..."
 
 # Create log directory
 log_dir="$outdir/logs"
@@ -152,16 +152,13 @@ mkdir -p "$log_dir"
 ls "$tool_1_dir"/*.DEL.bed "$tool_1_dir"/*.DUP.bed | \
 parallel -j "$NCORES" process_file {} "$log_dir"
 
-# Post-processing: combine DEL and DUP files for each sample
-echo "Combining DEL and DUP files for each sample..."
-
 # Get unique sample names (everything before .DEL or .DUP)
 samples=$(ls "$outdir/intersections"/*.intersection.bed | \
     sed 's/.*\///; s/\..*//' | \
     sort -u)
 
 sample_count=$(echo "$samples" | wc -l)
-echo "Found $sample_count unique samples."
+# echo "Found $sample_count unique samples."
 
 for sample in $samples; do
     # Combine intersection files
@@ -190,7 +187,7 @@ master_log_file="$outdir/get_consensus_1of3_calls_summary.json"
 echo "[" > "$master_log_file"
 log_files=$(ls "$log_dir"/*.json)
 log_count=$(echo "$log_files" | wc -l)
-echo "Found $log_count log files to summarize."
+
 for log_file in $log_files; do
     cat "$log_file" >> "$master_log_file"
     echo "," >> "$master_log_file"
@@ -202,5 +199,3 @@ echo "]" >> "$master_log_file"
 
 # Remove individual log files
 rm -r "$log_dir"
-
-echo "Done!"

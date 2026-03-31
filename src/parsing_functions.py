@@ -257,12 +257,12 @@ def parse_control_to_bed(config: dict) -> dict | None:
             if not del_df.empty:
                 del_output = output_subdir / f"{sample_id}.DEL.bed"
                 del_df.to_csv(del_output, sep='\t', index=False, header=False)
-                print(f"    Exported {len(del_df)} deletions for {sample_id}")
+                # print(f"    Exported {len(del_df)} deletions for {sample_id}")
             
             if not dup_df.empty:
                 dup_output = output_subdir / f"{sample_id}.DUP.bed"
                 dup_df.to_csv(dup_output, sep='\t', index=False, header=False)
-                print(f"    Exported {len(dup_df)} duplications for {sample_id}")
+                # print(f"    Exported {len(dup_df)} duplications for {sample_id}")
         
         print(f"  Control dataset '{control_name}' processing complete.\n")
 

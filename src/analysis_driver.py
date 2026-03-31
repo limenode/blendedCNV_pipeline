@@ -1,7 +1,5 @@
 from pathlib import Path
-import yaml
 import json
-import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
@@ -9,7 +7,7 @@ from utils import parse_args, f0_5_score, f2_score, precision, recall, f1_score,
 from cnv_plotter import CNVPlotter
 from analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
 
-def main(config: dict, debug: bool = False):
+def main(config: dict):
     """
     Main analysis pipeline.
     
@@ -24,8 +22,6 @@ def main(config: dict, debug: bool = False):
     if 'benchmark_map' not in config:
         print("No benchmark map defined in configuration. Skipping benchmark analysis.")
         return
-
-    time_0 = time.time()
 
     # === Step 1: Prepare Input Set Paths ===
 
@@ -55,14 +51,10 @@ def main(config: dict, debug: bool = False):
         input_sets_paths[key_path] = output_dir / key_path / "binary_classification"
         input_name_mapping[key_path] = key    
 
-    time_1 = time.time()
-
     # === Log Analysis Step 1: Load logs ===
     log_dir = Path(config['output_dir']) / "logs"
     samples_of_interest = ['HG01890', 'NA19347', 'HG00513', 'HG01596', 'NA19238', 'NA19331', 'HG00096', 'HG00171', 'NA18989', 'HG00268', 'NA20847', 'HG00731', 'NA19129']
     analyze_logs(log_dir, output_dir=output_dir, samples=samples_of_interest)
-
-    time_2 = time.time()
 
     # === Step 2: Load Data for All Input Sets ===
     all_data = load_data_for_all_input_sets(input_sets_paths)
@@ -81,8 +73,6 @@ def main(config: dict, debug: bool = False):
     with open(counts_output_path_all, 'w') as f:
         json.dump(counts_tuple_all, f, indent=4)
     print(f"\nSaved unfiltered counts summary to {counts_output_path_all}")
-
-    time_3 = time.time()
     
     plotter = CNVPlotter(all_data, config, input_name_mapping)
     metrics = [(precision, "Precision"), (recall, "Recall"), (f1_score, "F1 Score"), (f0_5_score, "F 1/2 Score"), (f2_score, "F2 Score")]
@@ -189,20 +179,10 @@ def main(config: dict, debug: bool = False):
                 import traceback
                 traceback.print_exc()
 
-    time_4 = time.time()
-
-    if debug:
-        print("\n=== DEBUG TIMING INFO ===")
-        print(f"Input set path preparation time: {time_1 - time_0:.2f} seconds")
-        print(f"Log analysis (loading) time: {time_2 - time_1:.2f} seconds")
-        print(f"Data loading time: {time_3 - time_2:.2f} seconds")
-        print(f"Parallel plotting time: {time_4 - time_3:.2f} seconds")
-        print(f"Total analysis pipeline time: {time_4 - time_0:.2f} seconds")
-
 
 if __name__ == "__main__":
     # Allow running standalone for testing
     config = parse_args()
     
-    main(config, debug=True)
+    main(config)
 

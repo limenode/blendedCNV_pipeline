@@ -40,13 +40,13 @@ def main():
     print("\n" + "="*80)
     print("PHASE 2: COMPUTATION PIPELINE")
     print("="*80)
-    computation_main(config, debug=debug)
+    computation_main(config)
     
     # Step 3: Run analysis pipeline
     print("\n" + "="*80)
     print("PHASE 3: ANALYSIS PIPELINE")
     print("="*80)
-    analysis_main(config, debug=debug)
+    analysis_main(config)
     
     print("\n" + "="*80)
     print("BLENDEDCNV PIPELINE - COMPLETE")

@@ -574,10 +574,10 @@ def plot_liftover_results(liftover_results_dict: Dict, output_dir: Path) -> None
 def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] = None):
 
     # benchmark_processing_results.json
-    benchmark_merging_file = log_dir / "benchmark_processing_results.json"
-    benchmark_merging_df = pd.read_json(benchmark_merging_file).T
-    print("\nBenchmark Merging Results:")
-    print(benchmark_merging_df.head())
+    # benchmark_merging_file = log_dir / "benchmark_processing_results.json"
+    # benchmark_merging_df = pd.read_json(benchmark_merging_file).T
+    # print("\nBenchmark Merging Results:")
+    # print(benchmark_merging_df.head())
 
     # consensus_2of3_results.json
     consensus_calls_file = log_dir / "consensus_2of3_results.json"

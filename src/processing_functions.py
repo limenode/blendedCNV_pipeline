@@ -58,7 +58,7 @@ def run_consensus_calls_script(config: dict):
             print(f"  Warning: Expected exactly 3 tools for consensus calls, but found {len(tool_list)} for input set '{key}'. Skipping this input set.")
             continue
 
-        print(f"  Tools for this input set: {tool_list}")
+        # print(f"  Tools for this input set: {tool_list}")
 
         tools_and_names = [
             tool_list[0],
@@ -99,7 +99,6 @@ def run_consensus_calls_script(config: dict):
             str(config.get('excluded_regions_file', "-")),
             str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
-        print(f"Running command: {' '.join(command)}")
         subprocess.run(command, check=True)
 
         # Read log files into results dictionary, and remove after reading
