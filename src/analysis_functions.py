@@ -580,39 +580,39 @@ def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] =
     # print(benchmark_merging_df.head())
 
     # consensus_2of3_results.json
-    consensus_calls_file = log_dir / "consensus_2of3_results.json"
-    consensus_calls_dict = json.loads(consensus_calls_file.read_text())
+    # consensus_calls_file = log_dir / "consensus_2of3_results.json"
+    # consensus_calls_dict = json.loads(consensus_calls_file.read_text())
 
-    changes_df = _compute_change_rows(consensus_calls_dict)
+    # changes_df = _compute_change_rows(consensus_calls_dict)
     
     # Filter by samples if provided
-    if samples is not None:
-        sample_set = set(samples)
-        original_count = len(changes_df)
-        changes_df = changes_df[changes_df["sample"].isin(sample_set)].copy()
-        filtered_count = len(changes_df)
-        print(f"\nFiltered to {len(sample_set)} specified samples ({original_count - filtered_count} rows removed)")
+    # if samples is not None:
+    #     sample_set = set(samples)
+    #     original_count = len(changes_df)
+    #     changes_df = changes_df[changes_df["sample"].isin(sample_set)].copy()
+    #     filtered_count = len(changes_df)
+    #     print(f"\nFiltered to {len(sample_set)} specified samples ({original_count - filtered_count} rows removed)")
     
-    print("\nConsensus Calls Change Summary:")
-    print(changes_df.head())
+    # print("\nConsensus Calls Change Summary:")
+    # print(changes_df.head())
 
     # Group statistics by input_set and caller
-    grouped_means = (
-        changes_df.groupby(["input_set", "caller"], dropna=True)[["abs_change", "pct_change"]]
-        .mean()
-        .reset_index()
-        .sort_values(["input_set", "caller"])
-    )
-    print("\nMean Changes by Input Set and Caller:")
-    print(grouped_means)
+    # grouped_means = (
+    #     changes_df.groupby(["input_set", "caller"], dropna=True)[["abs_change", "pct_change"]]
+    #     .mean()
+    #     .reset_index()
+    #     .sort_values(["input_set", "caller"])
+    # )
+    # print("\nMean Changes by Input Set and Caller:")
+    # print(grouped_means)
 
-    figures_dir = output_dir / "figures"
-    figures_subdir = figures_dir / "excluded_regions_analysis"
-    figures_subdir.mkdir(parents=True, exist_ok=True)
-    plot_excluded_regions_violin_plots(
-        changes_df,
-        output_path=figures_subdir / "excluded_regions.png",
-    )
+    # figures_dir = output_dir / "figures"
+    # figures_subdir = figures_dir / "excluded_regions_analysis"
+    # figures_subdir.mkdir(parents=True, exist_ok=True)
+    # plot_excluded_regions_violin_plots(
+    #     changes_df,
+    #     output_path=figures_subdir / "excluded_regions.png",
+    # )
 
     # liftover_results.json
     # liftover_results_file = log_dir / "liftover_results.json"
@@ -621,4 +621,4 @@ def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] =
     #     plot_liftover_results(liftover_results_dict, figures_dir / "liftover_results")
     # else:
     #     print(f"Warning: Liftover results file not found: {liftover_results_file}")
-
+    pass
