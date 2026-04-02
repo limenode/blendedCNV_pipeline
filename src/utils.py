@@ -19,9 +19,13 @@ class SVType(Enum):
     DUP = "DUP"
     ALL = "ALL"
 
-def parse_args() -> dict[str, Any]:
+def parse_args() -> tuple[dict[str, Any], argparse.Namespace]:
     parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
     parser.add_argument('config', type=Path, help='Path to configuration YAML file')
+    parser.add_argument('--run-benchmark', action='store_true', help='Whether to run benchmarking after processing')
+    parser.add_argument('--only-process', action='store_true', help='Only run the processing pipeline without computation or analysis')
+    parser.add_argument('--only-compute', action='store_true', help='Only run the computation pipeline without processing or analysis')
+    parser.add_argument('--only-analyze', action='store_true', help='Only run the analysis pipeline without processing or computation')
     args = parser.parse_args()
 
     # Load configuration from YAML file
@@ -43,7 +47,7 @@ def parse_args() -> dict[str, Any]:
                 config['benchmark_map'][benchmark_name] = str(local_path)
                 print(f"Saved to: {local_path}")
     
-    return config
+    return config, args
 
 def _is_url(path: str) -> bool:
     """Check if a path is a URL."""

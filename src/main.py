@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 BlendedCNV Pipeline - Main Entry Point
 
@@ -7,7 +6,6 @@ This script orchestrates the complete CNV analysis pipeline:
 2. Analysis: Statistical metrics, plots, and visualizations
 """
 
-import yaml
 from utils import parse_args
 from processing_driver import main as processing_main
 from computation_driver import main as computation_main
@@ -20,33 +18,36 @@ def main():
     Runs computation pipeline followed by analysis pipeline.
     """
     # Parse command-line arguments
-    config = parse_args()
-    
-    debug = True
+    config, args = parse_args()
+
+    do_processing = not (args.only_compute or args.only_analyze)
+    do_computation = args.run_benchmark and not (args.only_process or args.only_analyze)
+    do_analysis = args.run_benchmark and not (args.only_process or args.only_compute)
     
     print("\n" + "="*80)
     print("BLENDEDCNV PIPELINE - STARTING")
     print("="*80)
     
-
-
     # Step 1: Run processing pipeline
-    print("\n" + "="*80)
-    print("PHASE 1: PROCESSING PIPELINE")
-    print("="*80)
-    processing_main(config)
+    if do_processing:
+        print("\n" + "="*80)
+        print("PHASE 1: PROCESSING PIPELINE")
+        print("="*80)
+        processing_main(config)
 
     # Step 2: Run computation pipeline
-    print("\n" + "="*80)
-    print("PHASE 2: COMPUTATION PIPELINE")
-    print("="*80)
-    computation_main(config)
+    if do_computation:
+        print("\n" + "="*80)
+        print("PHASE 2: COMPUTATION PIPELINE")
+        print("="*80)
+        computation_main(config)
     
     # Step 3: Run analysis pipeline
-    print("\n" + "="*80)
-    print("PHASE 3: ANALYSIS PIPELINE")
-    print("="*80)
-    analysis_main(config)
+    if do_analysis:
+        print("\n" + "="*80)
+        print("PHASE 3: ANALYSIS PIPELINE")
+        print("="*80)
+        analysis_main(config)
     
     print("\n" + "="*80)
     print("BLENDEDCNV PIPELINE - COMPLETE")

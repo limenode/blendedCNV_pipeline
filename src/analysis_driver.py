@@ -184,7 +184,7 @@ def main(config: dict):
 
 if __name__ == "__main__":
     # Allow running standalone for testing
-    config = parse_args()
+    config, args = parse_args()
     
     main(config)
 
