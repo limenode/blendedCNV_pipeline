@@ -46,6 +46,18 @@ def parse_args() -> tuple[dict[str, Any], argparse.Namespace]:
                 local_path = _download_benchmark(benchmark_path, tmp_dir, benchmark_name)
                 config['benchmark_map'][benchmark_name] = str(local_path)
                 print(f"Saved to: {local_path}")
+
+    # Read genome.txt and store set of valid chromosomes
+    # Get first column of genome file as set of valid chromosomes
+    if 'genome_file' in config and config['genome_file']:
+        genome_file = Path(config['genome_file'])
+        if genome_file.exists():
+            with open(genome_file, 'r') as f:
+                valid_chromosomes = set(line.split()[0] for line in f)
+            config['valid_chromosomes'] = valid_chromosomes
+            print(f"Loaded {len(valid_chromosomes)} valid chromosomes from {genome_file}")
+        else:
+            print(f"Warning: Genome file {genome_file} not found. Chromosome validation will be skipped.")
     
     return config, args
 

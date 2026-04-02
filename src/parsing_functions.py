@@ -8,6 +8,7 @@ from concurrent.futures import ProcessPoolExecutor
 import subprocess
 from io import StringIO
 import pandas as pd
+from pybedtools import BedTool
 
 from liftover import get_lifter
 from utils import ensure_chr_prefix, sanitize_svtype
@@ -112,6 +113,16 @@ def perform_liftover(
 
     return output, stats
 
+def excluded_regions_filter(input_bed_path: str, excluded_bed_path: str):
+    input_bed = BedTool(input_bed_path)
+    excluded_bed = BedTool(excluded_bed_path)
+
+    # Perform bedtools intersect -v with 50% reciprocal overlap
+    filtered_bed = input_bed.intersect(excluded_bed, v=True, f=0.5, r=True)
+
+    # Save the filtered BED over the original file
+    filtered_bed.saveas(input_bed_path)
+
 def parse_vcfs_to_bed(config: dict) -> dict | None:
     output_dir = Path(config['output_dir'])
     liftover_stats = defaultdict(dict)
@@ -142,6 +153,10 @@ def parse_vcfs_to_bed(config: dict) -> dict | None:
             for sample_id, vcf_path in id_path_pair:
                 data = cnv_parser.convert_vcf_to_bed(vcf_path)
 
+                # Limit to chromosomes in config['valid_chromosomes'] if available
+                if 'valid_chromosomes' in config:
+                    data = data[data['chrom'].isin(config['valid_chromosomes'])]
+
                 # Check if liftover is needed and perform it if necessary
                 if do_liftover:
                     from_build = config['liftover'][key]['from']
@@ -160,8 +175,13 @@ def parse_vcfs_to_bed(config: dict) -> dict | None:
                 )
                 data[data["svtype"] == "DUP"].to_csv(
                     output_prefix + ".DUP.bed", sep="\t", index=False, header=False
-            )
-        
+                )
+
+                # Perform filtering of excluded regions
+                if not ('excluded_regions_file' in config and config['excluded_regions_file']):
+                    excluded_regions_filter(output_prefix + ".DEL.bed", config['excluded_regions_file'])
+                    excluded_regions_filter(output_prefix + ".DUP.bed", config['excluded_regions_file'])
+
     # return liftover stats
     return liftover_stats if liftover_stats else None
 
@@ -233,6 +253,10 @@ def parse_control_to_bed(config: dict) -> dict | None:
         if df.empty:
             print(f"  Warning: No records found for samples of interest in {control_path}")
             continue
+
+        # Limit to chromosomes in config['valid_chromosomes'] if available
+        if 'valid_chromosomes' in config:
+            df = df[df['chrom'].isin(config['valid_chromosomes'])]
 
         # Perform liftover if configured for this control dataset
         if do_liftover:
@@ -425,8 +449,6 @@ def get_per_source_stats(sample_df: pd.DataFrame) -> pd.DataFrame:
     if sample_df.empty:
         print("No benchmark records parsed before liftover.")
         return pd.DataFrame()
-    
-    print("\nPre-liftover benchmark summary by source:")
 
     source_record_counts = sample_df.groupby('source').size().rename('record_count')
     sample_counts_by_source = sample_df.groupby('source')['sample_id'].nunique().rename('sample_count')
@@ -601,9 +623,13 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     # Covert to DataFrame
     sample_df = pd.DataFrame(sample_data)
 
-    pre_liftover_stats = get_per_source_stats(sample_df)
-    print("\nPre-liftover benchmark summary by source:")
-    print(pre_liftover_stats)
+    # Limit to chromosomes in config['valid_chromosomes'] if available
+    if 'valid_chromosomes' in config:
+        sample_df = sample_df[sample_df['chrom'].isin(config['valid_chromosomes'])]
+
+    # pre_liftover_stats = get_per_source_stats(sample_df)
+    # print("\nPre-liftover benchmark summary by source:")
+    # print(pre_liftover_stats)
 
     # Perform liftover per source
     liftover_results = {}
@@ -622,9 +648,9 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
             liftover_results[source] = stats
             print(f"  Liftover completed for benchmark '{source}'.")
 
-    post_liftover_stats = get_per_source_stats(sample_df)
-    print("\nPost-liftover benchmark summary by source:")
-    print(post_liftover_stats)
+    # post_liftover_stats = get_per_source_stats(sample_df)
+    # print("\nPost-liftover benchmark summary by source:")
+    # print(post_liftover_stats)
     
     # Split across samples and merge nearby/overlapping records within each sample
     items = []
