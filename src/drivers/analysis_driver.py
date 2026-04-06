@@ -8,13 +8,6 @@ from cnv_plotter import CNVPlotter
 from analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
 
 def main(config: dict):
-    """
-    Main analysis pipeline.
-    
-    Args:
-        config: Configuration dictionary loaded from YAML
-    """
-
     if 'input' not in config:
         print("No input sets defined in configuration. Exiting analysis pipeline.")
         return
@@ -25,20 +18,32 @@ def main(config: dict):
 
     # === Step 1: Prepare Input Set Paths ===
 
-    # Get all input set keys
-    input_sets_raw = list(config['input'].keys())
-    print(f"Available input sets: {input_sets_raw}")
+    # Create a mapping of input set keys to their corresponding paths
+    input_sets_paths = {}
 
     # Setup input name mapping for user-friendly display
     input_name_mapping = {}
 
-    # Append "Intersection" and "Union" to input set keys for binary classification results
+    # Get all input set keys
+    input_sets_raw = list(config['input'].keys())
+    print(f"Available input sets: {input_sets_raw}")
+
+    # Append each caller, "Intersection", and "Union" to input set keys for binary classification results
     output_dir = Path(config['output_dir'])
-    input_sets_paths = {}
     for key in input_sets_raw:
         key_path = key.replace(" ", "_")
-        input_sets_paths[key_path + "_intersections"] = output_dir / key_path / "binary_classification" / "intersections"
-        input_sets_paths[key_path + "_unions"] = output_dir / key_path / "binary_classification" / "unions"
+        input_set_subdir = output_dir / key_path / "binary_classification"
+
+        for caller in config['input'][key].keys():
+            caller_key = f"{key_path}_{caller}"
+            input_sets_paths[caller_key] = input_set_subdir / caller
+            input_name_mapping[caller_key] = f"{key} {caller}"
+
+        for consensus_type in ['consensus_1of3', 'consensus_2of3', 'consensus_3of3']:
+            for merge_type in ['intersections', 'unions']:
+                consensus_key = f"{key_path}_{consensus_type}_{merge_type}"
+                input_sets_paths[consensus_key] = input_set_subdir / f"{consensus_type}_{merge_type}"
+                input_name_mapping[consensus_key] = f"{key} {consensus_type.replace('_', ' ').title()} {merge_type.title()}"
 
         # Add to input name mapping
         input_name_mapping[key_path + "_intersections"] = f"{key} Intersections"
@@ -49,12 +54,16 @@ def main(config: dict):
     for key in control_sets_raw:
         key_path = key.replace(" ", "_")
         input_sets_paths[key_path] = output_dir / key_path / "binary_classification"
-        input_name_mapping[key_path] = key    
+        input_name_mapping[key_path] = key
+
+
 
     # === Log Analysis Step 1: Load logs ===
     log_dir = Path(config['output_dir']) / "logs"
     samples_of_interest = ['HG01890', 'NA19347', 'HG00513', 'HG01596', 'NA19238', 'NA19331', 'HG00096', 'HG00171', 'NA18989', 'HG00268', 'NA20847', 'HG00731', 'NA19129']
     analyze_logs(log_dir, output_dir=output_dir, samples=samples_of_interest)
+
+
 
     # === Step 2: Load Data for All Input Sets ===
     all_data = load_data_for_all_input_sets(input_sets_paths)
@@ -80,34 +89,34 @@ def main(config: dict):
     # Venn Diagram specifications:
     venn_diagram_specs = {
         "6x_intersections": {
-            "set_keys": ['6x_Coverage_intersections', '30x_Coverage_intersections', 'SNP_Array'],
+            "set_keys": ['6x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
             "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_6x_intersections.png",
             "title": "Venn Diagram of Intersections with 6x Coverage"
         },
 
         "4x_intersections": {
-            "set_keys": ['4x_Coverage_intersections', '30x_Coverage_intersections', 'SNP_Array'],
+            "set_keys": ['4x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
             "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_4x_intersections.png",
             "title": "Venn Diagram of Intersections with 4x Coverage"
         },
 
         "2x_intersections": {
-            "set_keys": ['2x_Coverage_intersections', '30x_Coverage_intersections', 'SNP_Array'],
+            "set_keys": ['2x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
             "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_2x_intersections.png",
             "title": "Venn Diagram of Intersections with 2x Coverage"
         },
         "6x_unions": {
-            "set_keys": ['6x_Coverage_unions', '30x_Coverage_unions', 'SNP_Array'],
+            "set_keys": ['6x_Coverage_consensus_2of3_unions', '30x_Coverage_consensus_2of3_unions', 'SNP_Array'],
             "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_6x_unions.png",
             "title": "Venn Diagram of Unions with 6x Coverage"
         },
         "4x_unions": {
-            "set_keys": ['4x_Coverage_unions', '30x_Coverage_unions', 'SNP_Array'],
+            "set_keys": ['4x_Coverage_consensus_2of3_unions', '30x_Coverage_consensus_2of3_unions', 'SNP_Array'],
             "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_4x_unions.png",
             "title": "Venn Diagram of Unions with 4x Coverage"
         },
         "2x_unions": {
-            "set_keys": ['2x_Coverage_unions', '30x_Coverage_unions', 'SNP_Array'],
+            "set_keys": ['2x_Coverage_consensus_2of3_unions', '30x_Coverage_consensus_2of3_unions', 'SNP_Array'],
             "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_2x_unions.png",
             "title": "Venn Diagram of Unions with 2x Coverage"
         }
@@ -117,25 +126,58 @@ def main(config: dict):
     size_distribution_set_keys = [key for key in all_data['input_sets'].keys() if "intersections" in key]
     size_distribution_set_keys.append("SNP_Array")
 
+    # Input sets to plot
+    input_sets_to_plot = {
+        "30x": ['30x_Coverage_consensus_1of3_intersections', '30x_Coverage_consensus_1of3_unions', 
+                '30x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_unions', 
+                '30x_Coverage_consensus_3of3_intersections', '30x_Coverage_consensus_3of3_unions',
+                '30x_Coverage_cnvpytor', '30x_Coverage_gatk', '30x_Coverage_delly', 'SNP_Array'],
+        "6x": ['6x_Coverage_consensus_1of3_intersections', '6x_Coverage_consensus_1of3_unions',
+               '6x_Coverage_consensus_2of3_intersections', '6x_Coverage_consensus_2of3_unions',
+               '6x_Coverage_consensus_3of3_intersections', '6x_Coverage_consensus_3of3_unions',
+               '6x_Coverage_cnvpytor', '6x_Coverage_gatk', '6x_Coverage_delly', 'SNP_Array'],
+        "4x": ['4x_Coverage_consensus_1of3_intersections', '4x_Coverage_consensus_1of3_unions',
+                    '4x_Coverage_consensus_2of3_intersections', '4x_Coverage_consensus_2of3_unions',
+                    '4x_Coverage_consensus_3of3_intersections', '4x_Coverage_consensus_3of3_unions',
+                    '4x_Coverage_cnvpytor', '4x_Coverage_gatk', '4x_Coverage_delly', 'SNP_Array'],
+        "2x": ['2x_Coverage_consensus_1of3_intersections', '2x_Coverage_consensus_1of3_unions',
+               '2x_Coverage_consensus_2of3_intersections', '2x_Coverage_consensus_2of3_unions',
+               '2x_Coverage_consensus_3of3_intersections', '2x_Coverage_consensus_3of3_unions',
+               '2x_Coverage_cnvpytor', '2x_Coverage_gatk', '2x_Coverage_delly', 'SNP_Array'],
+        "Intersections": ['30x_Coverage_consensus_2of3_intersections', '6x_Coverage_consensus_2of3_intersections',
+                          '4x_Coverage_consensus_2of3_intersections', '2x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
+        "Unions": ['30x_Coverage_consensus_2of3_unions', '6x_Coverage_consensus_2of3_unions',
+                   '4x_Coverage_consensus_2of3_unions', '2x_Coverage_consensus_2of3_unions', 'SNP_Array'],
+        "CNVpytor": ['30x_Coverage_cnvpytor', '6x_Coverage_cnvpytor', 
+                     '4x_Coverage_cnvpytor', '2x_Coverage_cnvpytor', 'SNP_Array'],
+        "GATK": ['30x_Coverage_gatk', '6x_Coverage_gatk', 
+                 '4x_Coverage_gatk', '2x_Coverage_gatk', 'SNP_Array'],
+        "DELLY": ['30x_Coverage_delly', '6x_Coverage_delly', 
+                  '4x_Coverage_delly', '2x_Coverage_delly', 'SNP_Array'],
+    }
+
 
     # === Step 3-5: Generate All Plots in Parallel ===
     # Define all plotting tasks as partial functions for parallel execution
     plotting_tasks = [
         # Task 1: Statistical distributions
-        partial(
-            plotter.plot_statistical_distributions,
-            metrics=metrics,
-            bounds=(500, 1_000_000),
-            output_path=output_dir / "figures" / "statistical_distributions" / "distribution.png",
-            cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_cumulative_stats.tsv",
-        ),
+        # partial(
+        #     plotter.plot_statistical_distributions,
+        #     input_sets_to_plot=input_sets_to_plot,
+        #     metrics=metrics,
+        #     bounds=(500, 1_000_000),
+        #     output_dir=output_dir / "figures" / "statistical_distributions",
+        #     cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_cumulative_stats.tsv",
+        # ),
         # # Task 1.5: Statistical distributions for all SV types only
         partial(
             plotter.plot_statistical_distributions,
+            input_sets_to_plot=input_sets_to_plot,
             metrics=metrics,
             svtypes=[SVType.ALL],
             bounds=(500, 1_000_000),
-            output_path=output_dir / "figures" / "statistical_distributions_all_only" / "distribution.png",
+            output_dir=output_dir / "figures" / "statistical_distributions_all_only",
+            cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_cumulative_stats.tsv",
         ),
         # Task 2: Size distribution plots
         partial(
@@ -162,6 +204,7 @@ def main(config: dict):
                 output_path=spec['output_path'],
             )
         )
+
 
 
     # Execute plotting tasks in parallel

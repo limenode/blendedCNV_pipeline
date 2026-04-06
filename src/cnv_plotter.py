@@ -17,9 +17,6 @@ import os
 from load_analysis_data import filter_by_size
 from utils import generate_size_intervals, DistributionType, SVType
 
-
-import time
-
 # Module-level helper function for multiprocessing
 def _create_record_ids(df: pd.DataFrame, classification: str, svtype: SVType = SVType.ALL) -> set:
     """
@@ -184,86 +181,94 @@ def _process_input_sv_combination_worker(args):
     return key, result
 
 
-def _plot_single_metric_distribution_worker(args):
+def _plot_single_metric_distribution_worker(
+    metric_function: Callable[[int, int, int], float], 
+    metric_name: str, dist_type: DistributionType, 
+    data_by_combination: dict, 
+    color_map: dict, 
+    linestyle_map: dict, 
+    input_name_mapping: dict, 
+    input_set_order: List[str],
+    svtypes: list, 
+    figsize: tuple, 
+    smoothing_sigma: float, 
+    show_raw_points: bool, 
+    output_dir: str | Path
+):
     """
     Worker function to create a single plot for a metric/distribution combination.
-    
-    Args:
-        args: Tuple containing all parameters needed for plotting
     
     Returns:
         Tuple of (metric_name, dist_type, success_flag, output_path)
     """
-    (metric_function, metric_name, dist_type, data_by_combination, 
-     color_map, linestyle_map, input_name_mapping, svtypes, 
-     figsize, smoothing_sigma, show_raw_points, output_path) = args
-    
     try:
         fig, ax = plt.subplots(figsize=figsize)
         
-        # Plot each combination of input_set and svtype
-        for (input_set_name, svtype), data in data_by_combination.items():
-            if len(data['x']) == 0:
-                continue
+        # Plot each combination in explicit order so legend order is deterministic.
+        for input_set_name in input_set_order:
+            for svtype in svtypes:
+                data = data_by_combination.get((input_set_name, svtype))
+                if data is None or len(data['x']) == 0:
+                    continue
             
-            # Compute metric values from raw counts
-            y_values = np.array([
-                metric_function(tp, fp, fn)
-                for tp, fp, fn in zip(data['tp_count'], data['fp_count'], data['fn_count'])
-            ])
+                # Compute metric values from raw counts
+                y_values = np.array([
+                    metric_function(tp, fp, fn)
+                    for tp, fp, fn in zip(data['tp_count'], data['fp_count'], data['fn_count'])
+                ])
             
-            # Sort by x-axis values
-            sort_idx = np.argsort(data['x'])
-            x_sorted = data['x'][sort_idx]
-            y_sorted = y_values[sort_idx]
+                # Sort by x-axis values
+                sort_idx = np.argsort(data['x'])
+                x_sorted = data['x'][sort_idx]
+                y_sorted = y_values[sort_idx]
             
-            # Apply Gaussian smoothing if sigma > 0
-            if smoothing_sigma > 0 and len(y_sorted) > 1:
-                y_smoothed = gaussian_filter1d(y_sorted, sigma=smoothing_sigma)
-            else:
-                y_smoothed = y_sorted
-            
-            # Get color and line style
-            color = color_map.get(input_set_name, 'black')
-            linestyle = linestyle_map.get(svtype, '-')
-            
-            # Create label with display name
-            display_name = input_name_mapping.get(input_set_name, input_set_name)
-            label = f"{display_name} - {svtype.value if hasattr(svtype, 'value') else svtype}"
-            
-            # Adjust alpha and linewidth based on svtype prominence
-            if SVType.ALL in svtypes and len(svtypes) > 1:
-                if svtype == SVType.ALL:
-                    alpha = 0.9
-                    linewidth = 3.0
+                # Apply Gaussian smoothing if sigma > 0
+                if smoothing_sigma > 0 and len(y_sorted) > 1:
+                    y_smoothed = gaussian_filter1d(y_sorted, sigma=smoothing_sigma)
                 else:
-                    alpha = 0.45
-                    linewidth = 2.0
-            else:
-                alpha = 0.9
-                linewidth = 2.5
+                    y_smoothed = y_sorted
             
-            # Plot smoothed line
-            ax.plot(
-                x_sorted,
-                y_smoothed,
-                label=label,
-                color=color,
-                linestyle=linestyle,
-                linewidth=linewidth,
-                alpha=alpha
-            )
+                # Get color and line style
+                color = color_map.get(input_set_name, 'black')
+                linestyle = linestyle_map.get(svtype, '-')
             
-            # Optionally show raw data points
-            if show_raw_points and (len(svtypes) == 1 or svtype == SVType.ALL):
-                ax.scatter(
+                # Create label with display name
+                display_name = input_name_mapping.get(input_set_name, input_set_name)
+                label = f"{display_name} - {svtype.value if hasattr(svtype, 'value') else svtype}"
+            
+                # Adjust alpha and linewidth based on svtype prominence
+                if SVType.ALL in svtypes and len(svtypes) > 1:
+                    if svtype == SVType.ALL:
+                        alpha = 0.9
+                        linewidth = 3.0
+                    else:
+                        alpha = 0.45
+                        linewidth = 2.0
+                else:
+                    alpha = 0.9
+                    linewidth = 2.5
+            
+                # Plot smoothed line
+                ax.plot(
                     x_sorted,
-                    y_sorted,
+                    y_smoothed,
+                    label=label,
                     color=color,
-                    alpha=0.15,
-                    s=15,
-                    zorder=2
+                    linestyle=linestyle,
+                    linewidth=linewidth,
+                    alpha=alpha
                 )
+            
+                # Optionally show raw data points
+                if show_raw_points and (len(svtypes) == 1 or svtype == SVType.ALL):
+                    ax.scatter(
+                        x_sorted,
+                        y_sorted,
+                        color=color,
+                        alpha=0.15,
+                        s=15,
+                        zorder=2
+                    )
         
         # Set log scale for x-axis
         ax.set_xscale('log')
@@ -283,16 +288,13 @@ def _plot_single_metric_distribution_worker(args):
         plt.tight_layout()
         
         # Save the plot
-        output_base = Path(output_path)
-        output_dir = output_base.parent
+        output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        stem = output_base.stem
-        suffix = output_base.suffix
         
         # Create filename with metric name and distribution type
         metric_name_clean = metric_name.lower().replace(' ', '_').replace('/', '_')
         dist_type_str = dist_type.value if hasattr(dist_type, 'value') else str(dist_type).split('.')[-1].lower()
-        plot_path = output_dir / f"{stem}_{metric_name_clean}_{dist_type_str}{suffix}"
+        plot_path = output_dir / f"{metric_name_clean}_{dist_type_str}.png"
         
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         plt.close()
@@ -392,15 +394,17 @@ class CNVPlotter:
     
     def get_distribution_data(
         self,
+        unique_input_sets: set,
         bounds: tuple[float, float],
         n_points: int = 50,
         svtypes: List[SVType] = [SVType.ALL, SVType.DEL, SVType.DUP],
         n_workers: Optional[int] = None,
-    ):
+    ) -> Dict[DistributionType, Dict[Tuple[str, SVType], dict]]:
         """
         Compute distribution data with raw TP/FP/FN counts across size ranges.
         
         Args:
+            unique_input_sets: Set of input set keys to include in the distribution data
             bounds: Tuple of (start, end) size range in bp
             n_points: Number of intervals to generate
             svtypes: List of SVType values to include
@@ -428,11 +432,11 @@ class CNVPlotter:
         print(len(undiscoverable_cnvs))
 
         # Prepare tasks for all (input_set, svtype) combinations
-        # Only iterate over input_sets (shared_FN is separate)
+        # Only iterate over input_sets
         input_sets = self.data.get('input_sets', {})
         tasks = [
             (input_set_name, svtype, analysis_data, intervals, undiscoverable_cnvs)
-            for input_set_name, analysis_data in input_sets.items()
+            for input_set_name, analysis_data in input_sets.items() if input_set_name in unique_input_sets
             for svtype in svtypes
         ]
         
@@ -473,47 +477,7 @@ class CNVPlotter:
 
         return data_by_distribution
 
-    def plot_statistical_distributions(
-        self,
-        metrics: List[Tuple[Callable[[int, int, int], float], str]],
-        bounds: tuple[float, float],
-        n_points: int = 100,
-        svtypes: List[SVType] = [SVType.ALL, SVType.DEL, SVType.DUP],
-        output_path: Optional[str | Path] = None,
-        cumulative_stats_output_path: Optional[str | Path] = None,
-        figsize: Tuple[int, int] = (12, 6),
-        smoothing_sigma: float = 5.0,
-        show_raw_points: bool = True,
-    ):
-        """
-        Generate and plot statistical distributions of CNV performance metrics across size ranges.
-        
-        Creates three separate plots per metric (one for each distribution type: density, 
-        cumulative, complementary_cumulative), each containing curves for all input_set/svtype 
-        combinations.
-        
-        Args:
-            metrics: List of (metric_function, metric_name) tuples where metric_function 
-                     computes metric from (TP, FP, FN) counts
-            bounds: Tuple of (start, end) size range in bp
-            n_points: Number of intervals to generate
-            svtypes: List of SVType values to plot
-            output_path: Base path for output files (suffixed with metric and distribution type)
-            cumulative_stats_output_path: Path to save final cumulative metric summary table (csv/tsv)
-            figsize: Figure size tuple
-            smoothing_sigma: Sigma for Gaussian smoothing (0 = no smoothing)
-            show_raw_points: Whether to show raw data points beneath smoothed curves
-        """
-
-        time_0 = time.time()
-
-        # Get distribution data for all types (raw counts)
-        distribution_data = self.get_distribution_data(
-            bounds=bounds,
-            n_points=n_points,
-            svtypes=svtypes,
-        )
-
+    def _generate_cumulative_stats_summary_table(self, distribution_data, metrics, cumulative_stats_output_path):
         # Build and optionally save summary metrics from the final cumulative interval.
         cumulative_summary_rows = []
         cumulative_data = distribution_data.get(DistributionType.CUMULATIVE, {})
@@ -558,13 +522,66 @@ class CNVPlotter:
             else:
                 print(cumulative_summary_df.to_string(index=False))
 
-        time_1 = time.time()
+    def plot_statistical_distributions(
+        self,
+        input_sets_to_plot: Dict[str, List[str]],
+        metrics: List[Tuple[Callable[[int, int, int], float], str]],
+        bounds: tuple[float, float],
+        n_points: int = 100,
+        svtypes: List[SVType] = [SVType.ALL, SVType.DEL, SVType.DUP],
+        output_dir: Optional[str | Path] = None,
+        cumulative_stats_output_path: Optional[str | Path] = None,
+        figsize: Tuple[int, int] = (12, 6),
+        smoothing_sigma: float = 5.0,
+        show_raw_points: bool = True,
+    ):
+        """
+        Generate and plot statistical distributions of CNV performance metrics across size ranges.
         
-        # Set up color palette
-        input_sets = self.data.get('input_sets', {})
-        unique_input_sets = list(input_sets.keys())
-        cmap = colormaps["tab10"]
-        color_map = {name: cmap(i % 10) for i, name in enumerate(unique_input_sets)}
+        Creates three separate plots per metric (one for each distribution type: density, 
+        cumulative, complementary_cumulative), each containing curves for all input_set/svtype 
+        combinations.
+        
+        Args:
+            input_sets_to_plot: Dict mapping plot group name -> list of input set keys
+                                (e.g., {'Intersections': ['30x', '6x'], 'Unions': ['30x', 'cnvpytor']})
+            metrics: List of (metric_function, metric_name) tuples where metric_function 
+                     computes metric from (TP, FP, FN) counts
+            bounds: Tuple of (start, end) size range in bp
+            n_points: Number of intervals to generate
+            svtypes: List of SVType values to plot
+            output_path: Base path for output files (suffixed with metric and distribution type)
+            cumulative_stats_output_path: Path to save final cumulative metric summary table (csv/tsv)
+            figsize: Figure size tuple
+            smoothing_sigma: Sigma for Gaussian smoothing (0 = no smoothing)
+            show_raw_points: Whether to show raw data points beneath smoothed curves
+        """
+
+        # Get unique items from input_sets_to_plot for validation
+        unique_input_sets = set()
+        for input_set_list in input_sets_to_plot.values():
+            unique_input_sets.update(input_set_list)
+
+        # Get distribution data for all types (raw counts)
+        distribution_data = self.get_distribution_data(
+            unique_input_sets=unique_input_sets,
+            bounds=bounds,
+            n_points=n_points,
+            svtypes=svtypes,
+        )
+
+        # Generate cumulative stats summary table from the final cumulative interval and save to file
+        self._generate_cumulative_stats_summary_table(
+            distribution_data=distribution_data,
+            metrics=metrics,
+            cumulative_stats_output_path=cumulative_stats_output_path
+        )
+        
+        if output_dir is not None:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            exit(1)
         
         # Line styles for different svtypes
         linestyle_map = {
@@ -572,17 +589,45 @@ class CNVPlotter:
             SVType.DEL: '--',     # dashed
             SVType.DUP: ':',      # dotted
         }
+
+        cmap = colormaps['tab10']
         
         # Prepare plotting tasks for parallel execution
         plotting_tasks = []
-        for metric_function, metric_name in metrics:
-            for dist_type, data_by_combination in distribution_data.items():
-                task_args = (
-                    metric_function, metric_name, dist_type, data_by_combination,
-                    color_map, linestyle_map, self.input_name_mapping, svtypes,
-                    figsize, smoothing_sigma, show_raw_points, output_path
-                )
-                plotting_tasks.append(task_args)
+        for plot_group_name, plot_group_input_sets in input_sets_to_plot.items():
+            plot_group_input_set = set(plot_group_input_sets)
+
+            # Keep output files separated by plot group name (create directory if it doesn't exist).
+            plot_group_name_clean = str(plot_group_name).lower().replace(' ', '_').replace('/', '_')
+            output_subdir = output_dir / plot_group_name_clean
+
+            for metric_function, metric_name in metrics:
+                for dist_type, data_by_combination in distribution_data.items():
+                    # Filter data_by_combination to only include input sets relevant to this plot group.
+                    filtered_data_by_combination = {
+                        key: data
+                        for key, data in data_by_combination.items()
+                        if key[0] in plot_group_input_set
+                    }
+
+                    color_map = {input_set: cmap(i) for i, input_set in enumerate(plot_group_input_sets)}
+
+                    task_args = (
+                        metric_function,
+                        metric_name,
+                        dist_type,
+                        filtered_data_by_combination,
+                        color_map,
+                        linestyle_map,
+                        self.input_name_mapping,
+                        plot_group_input_sets,
+                        svtypes,
+                        figsize,
+                        smoothing_sigma,
+                        show_raw_points,
+                        output_subdir,
+                    )
+                    plotting_tasks.append(task_args)
         
         # Execute plotting tasks in parallel
         num_tasks = len(plotting_tasks)
@@ -592,7 +637,7 @@ class CNVPlotter:
         failed_plots = []
         
         with ProcessPoolExecutor(max_workers=min(num_tasks, cpu_count())) as executor:
-            futures = [executor.submit(_plot_single_metric_distribution_worker, task) 
+            futures = [executor.submit(_plot_single_metric_distribution_worker, *task) 
                       for task in plotting_tasks]
             
             completed = 0
@@ -611,15 +656,6 @@ class CNVPlotter:
                     print(f"✗ [{completed}/{num_tasks}] Error: {e}")
                     import traceback
                     traceback.print_exc()
-        
-        time_2 = time.time()
-        print(f"\n{'='*60}")
-        print(f"Plotting Summary:")
-        print(f"  Successful: {len(successful_plots)}/{num_tasks}")
-        print(f"  Failed: {len(failed_plots)}/{num_tasks}")
-        print(f"Time to compute distribution data: {time_1 - time_0:.2f} seconds")
-        print(f"Time to generate and save plots (parallel): {time_2 - time_1:.2f} seconds")
-        print(f"{'='*60}")
     
     def plot_venn_diagram(
         self,

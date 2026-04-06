@@ -32,7 +32,32 @@ def main(config: dict):
             json.dump(benchmark_liftover_results, f, indent=4)
 
     print("\nStep 6: Running binary classification script...")
-    run_binary_classification_script(config)
+    bin_class_sets = []
+    for key, input_map in config['input'].items():
+        set_subdir_name = key.replace(" ", "_")
+        set_subdir = Path(config['output_dir']) / set_subdir_name
+        
+        # Add the intersections path to the sets for classification
+        bin_class_sets.append((str(set_subdir / "consensus_1of3" / "intersections"), str(set_subdir / "binary_classification" / "consensus_1of3_intersections")))
+        bin_class_sets.append((str(set_subdir / "consensus_2of3" / "intersections"), str(set_subdir / "binary_classification" / "consensus_2of3_intersections")))
+        bin_class_sets.append((str(set_subdir / "consensus_3of3" / "intersections"), str(set_subdir / "binary_classification" / "consensus_3of3_intersections")))
+
+        # Add the unions path to the sets for classification
+        bin_class_sets.append((str(set_subdir / "consensus_1of3" / "unions"), str(set_subdir / "binary_classification" / "consensus_1of3_unions")))
+        bin_class_sets.append((str(set_subdir / "consensus_2of3" / "unions"), str(set_subdir / "binary_classification" / "consensus_2of3_unions")))
+        bin_class_sets.append((str(set_subdir / "consensus_3of3" / "unions"), str(set_subdir / "binary_classification" / "consensus_3of3_unions")))
+
+        # Add individual tool results to the sets for classification
+        for tool in input_map.keys():
+            bin_class_sets.append((str(set_subdir / "bed" / tool), str(set_subdir / "binary_classification" / tool)))
+        
+    # Add control datasets to the sets for classification
+    for key, _ in config['control'].items():
+        control_subdir_name = key.replace(" ", "_")
+        control_subdir = Path(config['output_dir']) / control_subdir_name
+        bin_class_sets.append((str(control_subdir / "bed"), str(control_subdir / "binary_classification")))
+
+    run_binary_classification_script(config, bin_class_sets)
 
 
 if __name__ == "__main__":

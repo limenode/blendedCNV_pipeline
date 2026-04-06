@@ -529,6 +529,70 @@ def get_per_source_stats(sample_df: pd.DataFrame) -> pd.DataFrame:
     
     return pre_liftover_summary
 
+def _parse_single_benchmark_from_path(
+    vcf_path: str, 
+    benchmark_name: str, 
+    sample_ids: list, 
+    valid_chroms: set
+) -> List[Dict]:
+    
+    data: List[Dict] = []
+    vcf = VCF(vcf_path, samples=sample_ids)
+        
+    for record in vcf:
+        # Skip if chromosome is not in valid set
+        chrom = ensure_chr_prefix(record.CHROM)
+        if chrom not in valid_chroms:
+            continue
+            
+        # Skip records without ALT alleles
+        if not record.ALT or len(record.ALT) == 0:
+            continue
+            
+        # Extract basic info
+        start = record.POS - 1  # Convert to 0-based
+        record_id = record.ID if record.ID else "."
+
+        # Extract END - try INFO field first, then calculate from SVLEN
+        end = record.INFO.get('END')
+        if end is not None:
+            end = int(end)
+        else:
+            svlen = record.INFO.get('SVLEN')
+            if svlen is not None:
+                end = record.POS + abs(int(svlen))
+        
+        # Skip if we couldn't determine END
+        if end is None:
+            continue
+        
+        # Extract and sanitize SVTYPE
+        raw_svtype = record.INFO.get('SVTYPE')
+        svtype = sanitize_svtype(raw_svtype, record_id)
+        
+        # Skip if SVTYPE is not DEL or DUP
+        if svtype == 'NA':
+            continue
+        
+        # Extract genotypes for requested samples
+        genotypes = record.genotypes
+
+        for idx, gt in enumerate(genotypes):
+            if gt[0] == 0 and gt[1] == 0:
+                continue  # Skip homozygous reference samples
+            
+            sample_id = vcf.samples[idx]
+            data.append({
+                'chrom': chrom,
+                'start': start,
+                'end': end,
+                'svtype': svtype,
+                'source': benchmark_name,
+                'sample_id': sample_id
+            })
+    
+    return data
+
 def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     
     if 'benchmark_map' not in config:
@@ -560,64 +624,19 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
         print(f"Error reading genome file {genome_file_path}: {e}")
         print("Proceeding without chromosome filtering.")
 
-    sample_data: List[Dict] = []
-
+    process_args_list = []
     for benchmark_name, vcf_path in config['benchmark_map'].items():
-        print(f"Parsing benchmark: {benchmark_name} from {vcf_path}")
+        process_args = (vcf_path, benchmark_name, sample_ids, valid_chroms)
+        process_args_list.append(process_args)
 
-        vcf = VCF(vcf_path, samples=sample_ids)
-        
-        for record in vcf:
-            # Skip if chromosome is not in valid set
-            chrom = ensure_chr_prefix(record.CHROM)
-            if chrom not in valid_chroms:
-                continue
-                
-            # Skip records without ALT alleles
-            if not record.ALT or len(record.ALT) == 0:
-                continue
-                
-            # Extract basic info
-            start = record.POS - 1  # Convert to 0-based
-            record_id = record.ID if record.ID else "."
+    with ProcessPoolExecutor() as executor:
+        results = executor.map(_parse_single_benchmark_from_path, *zip(*process_args_list))
 
-            # Extract END - try INFO field first, then calculate from SVLEN
-            end = record.INFO.get('END')
-            if end is not None:
-                end = int(end)
-            else:
-                svlen = record.INFO.get('SVLEN')
-                if svlen is not None:
-                    end = record.POS + abs(int(svlen))
-            
-            # Skip if we couldn't determine END
-            if end is None:
-                continue
-            
-            # Extract and sanitize SVTYPE
-            raw_svtype = record.INFO.get('SVTYPE')
-            svtype = sanitize_svtype(raw_svtype, record_id)
-            
-            # Skip if SVTYPE is not DEL or DUP
-            if svtype == 'NA':
-                continue
-            
-            # Extract genotypes for requested samples
-            genotypes = record.genotypes
-
-            for idx, gt in enumerate(genotypes):
-                if gt[0] == 0 and gt[1] == 0:
-                    continue  # Skip homozygous reference samples
-                
-                sample_id = vcf.samples[idx]
-                sample_data.append({
-                    'chrom': chrom,
-                    'start': start,
-                    'end': end,
-                    'svtype': svtype,
-                    'source': benchmark_name,
-                    'sample_id': sample_id
-                })
+    # Collect results from all benchmarks into a single list of records
+    sample_data: List[Dict] = []
+    for benchmark_name, records in zip(config['benchmark_map'].keys(), results):
+        print(f"Parsed {len(records)} records from benchmark '{benchmark_name}'")
+        sample_data.extend(records)
 
     # Covert to DataFrame
     sample_df = pd.DataFrame(sample_data)
