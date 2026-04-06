@@ -207,12 +207,14 @@ class CNVParser:
             return int(end)
         return record.POS # If END is not available, use POS as a fallback
 
-    def convert_vcf_to_bed(self, vcf_path: str, source: str = "") -> pd.DataFrame:
+    def convert_vcf_to_bed(self, vcf_path: str, source: str = "", valid_chromosomes: list | None = None) -> pd.DataFrame:
         """
         Convert VCF file to BED format DataFrame.
         
         Args:
             vcf_path: Path to VCF/BCF file
+            source: Source identifier for the data
+            valid_chromosomes: List of valid chromosome names to include (optional)
             
         Returns:
             DataFrame with columns: chrom, start, end, svtype
@@ -228,12 +230,15 @@ class CNVParser:
                 if not record.ALT or len(record.ALT) == 0:
                     continue
 
-
                 chrom = record.CHROM
+                # Exclude records from chromosomes not in the valid list if provided
+                if valid_chromosomes is not None and chrom not in valid_chromosomes:
+                    continue
+                
                 start = record.POS - 1  # Convert to 0-based
                 end = self.extract_end_position(record)
                 svtype = svtype_extractor(record)
-                
+
                 records.append((chrom, start, end, svtype))
 
         except Exception as e:

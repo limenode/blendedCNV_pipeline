@@ -117,8 +117,8 @@ def excluded_regions_filter(input_bed_path: str, excluded_bed_path: str):
     input_bed = BedTool(input_bed_path)
     excluded_bed = BedTool(excluded_bed_path)
 
-    # Perform bedtools intersect -v with 50% reciprocal overlap
-    filtered_bed = input_bed.intersect(excluded_bed, v=True, f=0.5, r=True)
+    # Perform bedtools intersect -v with 50% overlap
+    filtered_bed = input_bed.intersect(excluded_bed, v=True, f=0.5)
 
     # Save the filtered BED over the original file
     filtered_bed.saveas(input_bed_path)
@@ -148,14 +148,13 @@ def parse_vcfs_to_bed(config: dict) -> dict | None:
         cnv_parser = CNVParser(input_map)
         all_vcf_files = cnv_parser.get_all_vcf_files()
 
+        # Get valid chromosomes from config if available
+        valid_chromosomes = config.get('valid_chromosomes', None)
+
         # Convert all VCF files and export to files
         for tool, id_path_pair in all_vcf_files.items():
             for sample_id, vcf_path in id_path_pair:
-                data = cnv_parser.convert_vcf_to_bed(vcf_path)
-
-                # Limit to chromosomes in config['valid_chromosomes'] if available
-                if 'valid_chromosomes' in config:
-                    data = data[data['chrom'].isin(config['valid_chromosomes'])]
+                data = cnv_parser.convert_vcf_to_bed(vcf_path, source=tool, valid_chromosomes=valid_chromosomes)
 
                 # Check if liftover is needed and perform it if necessary
                 if do_liftover:
@@ -178,7 +177,7 @@ def parse_vcfs_to_bed(config: dict) -> dict | None:
                 )
 
                 # Perform filtering of excluded regions
-                if not ('excluded_regions_file' in config and config['excluded_regions_file']):
+                if 'excluded_regions_file' in config and config['excluded_regions_file']:
                     excluded_regions_filter(output_prefix + ".DEL.bed", config['excluded_regions_file'])
                     excluded_regions_filter(output_prefix + ".DUP.bed", config['excluded_regions_file'])
 
@@ -594,7 +593,7 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
             # Skip if we couldn't determine END
             if end is None:
                 continue
-
+            
             # Extract and sanitize SVTYPE
             raw_svtype = record.INFO.get('SVTYPE')
             svtype = sanitize_svtype(raw_svtype, record_id)

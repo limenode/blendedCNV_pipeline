@@ -332,7 +332,7 @@ def print_summary_statistics(analysis_data: Dict[str, pd.DataFrame], title: Opti
 
 def main():
     # Parse command-line arguments
-    config = parse_args()
+    config, args = parse_args()
     
     # Get all input set keys
     input_sets_raw = list(config['input'].keys())
