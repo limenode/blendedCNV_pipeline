@@ -355,6 +355,13 @@ def _compute_series_stats(series: pd.Series) -> pd.Series:
         'max': float(series.max()),
     })
 
+def _filter_svtype(df: pd.DataFrame, svtype: SVType) -> pd.DataFrame:
+    if df.empty:
+        return df
+    if svtype != SVType.ALL and 'svtype' in df.columns:
+        return df[df['svtype'] == svtype.value].copy()
+    return df
+
 class CNVPlotter:
     def __init__(self, data: dict, config: dict, input_name_mapping: dict):
         self.data = data
@@ -1489,3 +1496,78 @@ class CNVPlotter:
         print(f"Saved {output_file} with caller source distribution box plots")
         
         return df
+
+    def get_count_statistics(
+        self, 
+        svtype: SVType = SVType.ALL,
+        output_file: Optional[str | Path] = None,
+    ) -> Dict[str, dict]:
+
+        # Summarize per-sample call counts for prediction (TP+FP) and benchmark (TP+FN).
+        input_sets = self.data.get('input_sets', {})
+        table_statistics: Dict[str, dict] = {}
+
+        def _summarize_sample_counts(sample_counts: pd.Series) -> Dict[str, float | int]:
+            stats = _compute_series_stats(sample_counts)
+            return {
+                'n_samples': int(stats['count']),
+                'total_calls': int(sample_counts.sum()),
+                'mean_calls_per_sample': float(stats['mean']),
+                'median_calls': float(stats['median']),
+                'min_calls': float(stats['min']),
+                'max_calls': float(stats['max']),
+                'q1_calls': float(stats['q1']),
+                'q3_calls': float(stats['q3']),
+                'iqr_calls': float(stats['iqr']),
+            }
+
+        for input_set_key, input_set_data in input_sets.items():
+            tp_df = _filter_svtype(input_set_data.get('TP', pd.DataFrame()), svtype)
+            fp_df = _filter_svtype(input_set_data.get('FP', pd.DataFrame()), svtype)
+
+            # Prediction calls per sample: TP + FP
+            pred_frames = [df for df in [tp_df, fp_df] if not df.empty and 'sample' in df.columns]
+            if pred_frames:
+                pred_sample_counts = pd.concat(pred_frames, ignore_index=True).groupby('sample').size()
+            else:
+                pred_sample_counts = pd.Series(dtype='int64')
+
+            table_statistics[input_set_key] = {
+                'display_name': self.input_name_mapping.get(input_set_key, input_set_key),
+                'svtype': svtype.value if svtype != SVType.ALL else SVType.ALL.value,
+                'input_set': input_set_key,
+                'call_definition': 'TP+FP',
+                **_summarize_sample_counts(pred_sample_counts),
+            }
+
+        # Build one benchmark row from the first available input set and append it last.
+        first_input_set = next(iter(input_sets.items()), None)
+        if first_input_set is not None:
+            first_key, first_data = first_input_set
+            first_tp_df = _filter_svtype(first_data.get('TP', pd.DataFrame()), svtype)
+            first_fn_df = _filter_svtype(first_data.get('FN', pd.DataFrame()), svtype)
+
+            benchmark_frames = [
+                df for df in [first_tp_df, first_fn_df]
+                if not df.empty and 'sample' in df.columns
+            ]
+            if benchmark_frames:
+                benchmark_sample_counts = pd.concat(benchmark_frames, ignore_index=True).groupby('sample').size()
+            else:
+                benchmark_sample_counts = pd.Series(dtype='int64')
+
+            table_statistics['benchmark'] = {
+                'display_name': 'Benchmark (Truth)',
+                'svtype': svtype.value if svtype != SVType.ALL else SVType.ALL.value,
+                'input_set': 'benchmark',
+                'call_definition': 'TP+FN',
+                **_summarize_sample_counts(benchmark_sample_counts),
+            }
+
+        if output_file is not None:
+            resolved_output = Path(output_file)
+            resolved_output.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(list(table_statistics.values())).to_csv(resolved_output, sep='\t', index=False)
+            print(f"Count statistics saved to: {resolved_output}")
+
+        return table_statistics

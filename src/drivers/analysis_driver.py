@@ -190,6 +190,12 @@ def main(config: dict):
             input_sets_to_include=[key for key in all_data['input_sets'].keys() if "intersections" in key],
             output_file=output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png",
         ),
+        # Task 4: Get counts
+        partial(
+            plotter.get_count_statistics,
+            svtype=SVType.ALL,
+            output_file=output_dir / "logs" / "count_statistics.tsv",
+        )
     ]
 
     # Append Venn diagram plotting tasks
