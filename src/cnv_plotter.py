@@ -339,6 +339,22 @@ def identify_undiscoverable_cnvs(
 
     return undiscoverable_cnvs
 
+# Compute summary size statistics by source.
+def _compute_series_stats(series: pd.Series) -> pd.Series:
+    q1 = series.quantile(0.25)
+    q3 = series.quantile(0.75)
+    return pd.Series({
+        'count': int(series.count()),
+        'min': float(series.min()),
+        'q1': float(q1),
+        'median': float(series.median()),
+        'q3': float(q3),
+        'iqr': float(q3 - q1),
+        'mean': float(series.mean()),
+        'stdev': float(series.std(ddof=1)) if series.count() > 1 else np.nan,
+        'max': float(series.max()),
+    })
+
 class CNVPlotter:
     def __init__(self, data: dict, config: dict, input_name_mapping: dict):
         self.data = data
@@ -940,7 +956,7 @@ class CNVPlotter:
 
     def plot_size_distribution(
         self,
-        set_keys: List[str],
+        input_sets_to_plot: Dict[str, List[str]],
         svtype: SVType = SVType.ALL,
         figsize: Tuple[int, int] = (12, 6),
         output_dir: Optional[str | Path] = None,
@@ -951,7 +967,7 @@ class CNVPlotter:
         Generate size distribution plots (bin density and KDE) for CNVs.
         
         Args:
-            set_keys: List of input set keys to plot
+            input_sets_to_plot: Dict mapping plot group name -> list of input set keys
             svtype: SV type to filter by (DEL, DUP, or ALL)
             figsize: Figure size tuple
             output_dir: Directory to save plots (if None, plots will be shown)
@@ -959,56 +975,78 @@ class CNVPlotter:
             stats_output_path: Path to save size summary stats table (csv/tsv)
         """
 
+        input_sets = self.data.get('input_sets', {})
+        input_sets_keys = set(input_sets.keys())
+
+        # Create a string representation of the SV type for titles and filenames.
+        svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
+
         # Prepare output directory
         if output_dir:
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
-        
-        svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
-        
-        # Collect all data into a single DataFrame
+
+        plot_groups_count = len(input_sets_to_plot)
+        generated_groups = 0
+        group_membership_sets: Dict[str, set] = {}
+
+        # 1) Collect all unique items across all input_sets_to_plot (preserve first-seen order).
+        ordered_unique_input_sets: List[str] = []
+        seen_input_sets = set()
+        for input_set_list in input_sets_to_plot.values():
+            for set_key in input_set_list:
+                if set_key in input_sets_keys and set_key not in seen_input_sets:
+                    seen_input_sets.add(set_key)
+                    ordered_unique_input_sets.append(set_key)
+
+        for plot_group_name, plot_group_input_sets in input_sets_to_plot.items():
+            group_membership_sets[str(plot_group_name)] = {
+                set_key for set_key in plot_group_input_sets if set_key in input_sets_keys
+            }
+
+        # 2) Calculate prediction data once and store in all_data.
         all_data = []
-        
-        # Collect prediction data (TP + FP)
-        input_sets = self.data.get('input_sets', {})
-        for set_key in set_keys:
+        for set_key in ordered_unique_input_sets:
             for classification in ['TP', 'FP']:
                 df = input_sets.get(set_key, {}).get(classification)
                 if df is None or df.empty or 'pred_size' not in df.columns:
                     continue
-                
+
                 # Apply svtype filter
                 if svtype != SVType.ALL and 'svtype' in df.columns:
                     df = df[df['svtype'] == svtype.value].copy()
-                
+
                 # Extract sizes and add metadata
                 sizes = df['pred_size'].dropna()
                 sizes = sizes[sizes > 0]
-                
+
                 if len(sizes) > 0:
                     display_name = self.input_name_mapping.get(set_key, set_key)
                     temp_df = pd.DataFrame({
                         'size': sizes,
-                        'source': display_name,
+                        'source': set_key,
+                        'display_name': display_name,
                         'type': 'prediction'
                     })
                     all_data.append(temp_df)
-        
-        # Collect benchmark data (TP + FN) if requested
-        if include_benchmark and set_keys:
+
+        # 3) Retrieve benchmark data once from one prediction source and store in all_data.
+        benchmark_set_key: Optional[str] = ordered_unique_input_sets[0] if ordered_unique_input_sets else None
+        benchmark_added = False
+        if include_benchmark and benchmark_set_key is not None:
             for classification in ['TP', 'FN']:
-                df = input_sets.get(set_keys[0], {}).get(classification)
+                df = input_sets.get(benchmark_set_key, {}).get(classification)
                 if df is None or df.empty or 'truth_size' not in df.columns:
                     continue
-                
+
                 # Apply svtype filter
                 if svtype != SVType.ALL and 'svtype' in df.columns:
                     df = df[df['svtype'] == svtype.value].copy()
-                
+
                 # Extract sizes and add metadata
                 sizes = df['truth_size'].dropna()
                 sizes = sizes[sizes > 0]
-                
+
                 if len(sizes) > 0:
                     temp_df = pd.DataFrame({
                         'size': sizes,
@@ -1016,38 +1054,30 @@ class CNVPlotter:
                         'type': 'benchmark'
                     })
                     all_data.append(temp_df)
-        
-        # Combine all data
+                    benchmark_added = True
+
         if not all_data:
             print("Warning: No data available for plotting.")
             return
-        
-        plot_df = pd.concat(all_data, ignore_index=True)
 
-        # Compute summary size statistics by source and optionally save as a table.
-        def _compute_size_stats(series: pd.Series) -> pd.Series:
-            q1 = series.quantile(0.25)
-            q3 = series.quantile(0.75)
-            return pd.Series({
-                'count': int(series.count()),
-                'min': float(series.min()),
-                'q1': float(q1),
-                'median': float(series.median()),
-                'q3': float(q3),
-                'iqr': float(q3 - q1),
-                'mean': float(series.mean()),
-                'stdev': float(series.std(ddof=1)) if series.count() > 1 else np.nan,
-                'max': float(series.max()),
-            })
+        all_data_df = pd.concat(all_data, ignore_index=True)
 
+        # Build a single summary stats table across all unique input sets.
         size_stats_df = (
-            plot_df
+            all_data_df
             .groupby('source', sort=True)['size']
-            .apply(_compute_size_stats)
+            .apply(_compute_series_stats)
             .unstack()
             .reset_index()
             .rename(columns={'source': 'input_set'})
         )
+
+        # Add boolean membership columns keyed by input_sets_to_plot dictionary keys.
+        for plot_group_name, group_set in group_membership_sets.items():
+            size_stats_df[plot_group_name] = (
+                size_stats_df['input_set'].isin(group_set)
+                | size_stats_df['input_set'].eq('Benchmark (Truth)')
+            )
 
         # Keep benchmark at the bottom for readability.
         if not size_stats_df.empty:
@@ -1057,12 +1087,13 @@ class CNVPlotter:
                 ignore_index=True,
             )
 
+        # Save or print one consolidated stats table.
         resolved_stats_output: Optional[Path] = None
         if stats_output_path:
             resolved_stats_output = Path(stats_output_path)
         elif output_dir:
             stats_suffix = svtype_str.replace(' ', '_')
-            resolved_stats_output = output_dir / f"size_distribution_stats{stats_suffix}.csv"
+            resolved_stats_output = output_dir / f"size_distribution_stats{stats_suffix}.tsv"
 
         if resolved_stats_output:
             resolved_stats_output.parent.mkdir(parents=True, exist_ok=True)
@@ -1076,93 +1107,129 @@ class CNVPlotter:
             print("Size stats table (not saved; provide output_dir or stats_output_path):")
             print(size_stats_df.to_string(index=False))
 
-        # Get min and max sizes for setting x-axis limits
-        min_size = plot_df['size'].min()
-        max_size = plot_df['size'].max()
-        
-        # ==================== PLOT 1: BINNED DENSITY ====================
-        fig, ax = plt.subplots(figsize=figsize)
-        
-        sns.histplot(
-            data=plot_df,
-            x='size',
-            hue='source',
-            log_scale=True,
-            element='step',
-            stat='density',
-            common_norm=False,
-            linewidth=2,
-            legend=True,
-            ax=ax
-        )
-        
-        ax.set_xlabel("Size (bp)", fontsize=12)
-        ax.set_ylabel("Density", fontsize=12)
-        ax.set_xlim(min_size * 0.9, max_size * 1.1)
-        title_suffix = " (with Benchmark)" if include_benchmark else ""
-        ax.set_title(f"CNV Size Distribution - Binned Density{svtype_str}{title_suffix}", 
-                    fontsize=14, fontweight='bold')
-        
-        # Customize legend
-        legend = ax.get_legend()
-        if legend:
-            legend.set_title('Source')
-            plt.setp(legend.get_texts(), fontsize=10)
-            plt.setp(legend.get_title(), fontsize=10)
+        # 4) Iterate plot groups and pull only required items from all_data.
+        for plot_group_name, plot_group_input_sets in input_sets_to_plot.items():
+            plot_group_name_clean = str(plot_group_name).lower().replace(' ', '_').replace('/', '_')
 
+            # Validate set_keys against data for this plot group.
+            valid_group_input_sets = [set_key for set_key in plot_group_input_sets if set_key in input_sets_keys]
+            if not valid_group_input_sets:
+                print(f"Warning: No valid input sets found for plot group '{plot_group_name}'.")
+                continue
 
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        
-        if output_dir:
-            density_path = output_dir / f"size_distribution_binned_density{svtype_str.replace(' ', '_')}.png"
-            plt.savefig(density_path, dpi=300, bbox_inches='tight')
-            print(f"✓ Binned density plot saved to: {density_path}")
+            output_subdir: Optional[Path] = None
+            if output_dir:
+                output_subdir = output_dir / plot_group_name_clean
+                output_subdir.mkdir(parents=True, exist_ok=True)
+
+            plot_sources = set(valid_group_input_sets)
+            if include_benchmark and benchmark_added:
+                plot_sources.add('Benchmark (Truth)')
+
+            plot_df = all_data_df[all_data_df['source'].isin(plot_sources)].copy()
+            if plot_df.empty:
+                print(f"Warning: No data available for plotting in plot group '{plot_group_name}'.")
+                continue
+
+            # Get min and max sizes for setting x-axis limits.
+            min_size = plot_df['size'].min()
+            max_size = plot_df['size'].max()
+
+            title_suffix = " (with Benchmark)" if include_benchmark else ""
+            title_prefix = f"{plot_group_name}: " if plot_group_name else ""
+
+            # ==================== PLOT 1: BINNED DENSITY ====================
+            fig, ax = plt.subplots(figsize=figsize)
+
+            sns.histplot(
+                data=plot_df,
+                x='size',
+                hue='source',
+                log_scale=True,
+                element='step',
+                stat='density',
+                common_norm=False,
+                linewidth=2,
+                legend=True,
+                ax=ax
+            )
+
+            ax.set_xlabel("Size (bp)", fontsize=12)
+            ax.set_ylabel("Density", fontsize=12)
+            ax.set_xlim(min_size * 0.9, max_size * 1.1)
+            ax.set_title(
+                f"{title_prefix}CNV Size Distribution - Binned Density{svtype_str}{title_suffix}",
+                fontsize=14,
+                fontweight='bold'
+            )
+
+            # Customize legend
+            legend = ax.get_legend()
+            if legend:
+                legend.set_title('Source')
+                plt.setp(legend.get_texts(), fontsize=10)
+                plt.setp(legend.get_title(), fontsize=10)
+
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+
+            if output_subdir:
+                density_path = output_subdir / f"size_distribution_binned_density{svtype_str.replace(' ', '_')}.png"
+                plt.savefig(density_path, dpi=300, bbox_inches='tight')
+                print(f"✓ Binned density plot saved to: {density_path}")
+            else:
+                plt.show()
+            plt.close()
+
+            # ==================== PLOT 2: KDE ====================
+            fig, ax = plt.subplots(figsize=figsize)
+
+            sns.kdeplot(
+                data=plot_df,
+                x='size',
+                hue='source',
+                log_scale=True,
+                common_norm=False,
+                fill=True,
+                alpha=0.4,
+                linewidth=2.5,
+                legend=True,
+                ax=ax
+            )
+
+            ax.set_xlabel("Size (bp)", fontsize=12)
+            ax.set_ylabel("Density", fontsize=12)
+            ax.set_xlim(min_size * 0.9, max_size * 1.1)
+            ax.set_title(
+                f"{title_prefix}CNV Size Distribution - KDE{svtype_str}{title_suffix}",
+                fontsize=14,
+                fontweight='bold'
+            )
+
+            # Customize legend
+            legend = ax.get_legend()
+            if legend:
+                legend.set_title('Source')
+                plt.setp(legend.get_texts(), fontsize=10)
+                plt.setp(legend.get_title(), fontsize=10)
+
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+
+            if output_subdir:
+                kde_path = output_subdir / f"size_distribution_kde{svtype_str.replace(' ', '_')}.png"
+                plt.savefig(kde_path, dpi=300, bbox_inches='tight')
+                print(f"✓ KDE saved to: {kde_path}")
+            else:
+                plt.show()
+            plt.close()
+
+            generated_groups += 1
+
+        if generated_groups == 0:
+            print("Warning: No size distribution plots were generated.")
         else:
-            plt.show()
-        plt.close()
-        
-        # ==================== PLOT 2: KDE ====================
-        fig, ax = plt.subplots(figsize=figsize)
-        
-        sns.kdeplot(
-            data=plot_df,
-            x='size',
-            hue='source',
-            log_scale=True,
-            common_norm=False,
-            fill=True,
-            alpha=0.4,
-            linewidth=2.5,
-            legend=True,
-            ax=ax
-        )
-        
-        ax.set_xlabel("Size (bp)", fontsize=12)
-        ax.set_ylabel("Density", fontsize=12)
-        ax.set_xlim(min_size * 0.9, max_size * 1.1)
-        ax.set_title(f"CNV Size Distribution - KDE{svtype_str}{title_suffix}", 
-                    fontsize=14, fontweight='bold')
-        
-        # Customize legend
-        legend = ax.get_legend()
-        if legend:
-            legend.set_title('Source')
-            plt.setp(legend.get_texts(), fontsize=10)
-            plt.setp(legend.get_title(), fontsize=10)
-
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        
-        if output_dir:
-            kde_path = output_dir / f"size_distribution_kde{svtype_str.replace(' ', '_')}.png"
-            plt.savefig(kde_path, dpi=300, bbox_inches='tight')
-            print(f"✓ KDE saved to: {kde_path}")
-        else:
-            plt.show()
-        plt.close()
-        
-        print(f"✓ Size distribution plots completed!")
+            print(f"✓ Size distribution plots completed for {generated_groups} plot group(s)!")
 
     def get_caller_source_distribution(
             self,

@@ -122,12 +122,8 @@ def main(config: dict):
         }
     }
 
-    # Size Distribution Set Keys
-    size_distribution_set_keys = [key for key in all_data['input_sets'].keys() if "intersections" in key]
-    size_distribution_set_keys.append("SNP_Array")
-
     # Input sets to plot
-    input_sets_to_plot = {
+    statistical_distribution_input_sets = {
         "30x": ['30x_Coverage_consensus_1of3_intersections', '30x_Coverage_consensus_1of3_unions', 
                 '30x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_unions', 
                 '30x_Coverage_consensus_3of3_intersections', '30x_Coverage_consensus_3of3_unions',
@@ -156,6 +152,7 @@ def main(config: dict):
                   '4x_Coverage_delly', '2x_Coverage_delly', 'SNP_Array'],
     }
 
+    size_distribution_input_sets = statistical_distribution_input_sets
 
     # === Step 3-5: Generate All Plots in Parallel ===
     # Define all plotting tasks as partial functions for parallel execution
@@ -172,7 +169,7 @@ def main(config: dict):
         # # Task 1.5: Statistical distributions for all SV types only
         partial(
             plotter.plot_statistical_distributions,
-            input_sets_to_plot=input_sets_to_plot,
+            input_sets_to_plot=statistical_distribution_input_sets,
             metrics=metrics,
             svtypes=[SVType.ALL],
             bounds=(500, 1_000_000),
@@ -182,7 +179,7 @@ def main(config: dict):
         # Task 2: Size distribution plots
         partial(
             plotter.plot_size_distribution,
-            set_keys=size_distribution_set_keys,
+            input_sets_to_plot=size_distribution_input_sets,
             output_dir=output_dir / "figures" / "size_distributions",
             include_benchmark=True,
             stats_output_path=output_dir / "logs" / "size_distribution_stats.tsv",
