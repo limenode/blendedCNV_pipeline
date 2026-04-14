@@ -119,7 +119,7 @@ def main(config: dict):
             "set_keys": ['2x_Coverage_consensus_2of3_unions', '30x_Coverage_consensus_2of3_unions', 'SNP_Array'],
             "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_2x_unions.png",
             "title": "Venn Diagram of Unions with 2x Coverage"
-        }
+        },
     }
 
     # Input sets to plot
@@ -202,13 +202,23 @@ def main(config: dict):
     for spec in venn_diagram_specs.values():
         plotting_tasks.append(
             partial(
-                plotter.plot_venn_diagram,
+                plotter.plot_recall_venn_diagram,
                 set_keys=spec['set_keys'],
                 output_path=spec['output_path'],
             )
         )
 
-
+    plotting_tasks = []
+    
+    for input_name in ['30x Coverage', '6x Coverage', '4x Coverage', '2x Coverage']:
+        plotting_tasks.append(
+            partial(
+                plotter.plot_count_venn_diagram,
+                config=config,
+                input_set_key=input_name,
+                output_path=output_dir / "figures" / "venn_diagrams" / f"count_venn_diagram_{input_name.replace(' ', '_')}.png",
+            )
+        )
 
     # Execute plotting tasks in parallel
     print(f"\nExecuting {len(plotting_tasks)} plotting tasks in parallel...")

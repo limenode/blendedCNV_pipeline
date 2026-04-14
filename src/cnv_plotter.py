@@ -680,7 +680,207 @@ class CNVPlotter:
                     import traceback
                     traceback.print_exc()
     
-    def plot_venn_diagram(
+    def plot_count_venn_diagram(
+        self,
+        config: dict,
+        input_set_key: str,
+        bounds: Optional[Tuple[float, float]] = None,
+        svtype: SVType = SVType.ALL,
+        figsize: Tuple[int, int] = (10, 8),
+        output_path: Optional[str | Path] = None,
+    ):
+        """
+        Plot caller overlap counts from TP+FP records in a 1-of-3 consensus input set.
+
+        This function expects exactly three caller names under:
+        config['input'][input_set_key].keys()
+        and uses TP/FP rows from:
+        self.data['input_sets'][f"{input_set_key}_consensus_1of3_intersections"]
+        """
+        input_cfg = config.get('input', {}).get(input_set_key)
+        if input_cfg is None:
+            print(f"Error: input_set_key '{input_set_key}' not found under config['input'].")
+            return
+
+        caller_names = list(input_cfg.keys())
+        if len(caller_names) != 3:
+            print(
+                f"Error: Expected exactly 3 callers in config['input']['{input_set_key}'], "
+                f"found {len(caller_names)}: {caller_names}"
+            )
+            return
+
+        intersection_key = f"{input_set_key.replace(' ', '_')}_consensus_1of3_intersections"
+        intersection_data = self.data.get('input_sets', {}).get(intersection_key)
+        if intersection_data is None:
+            print(f"Error: Input set '{intersection_key}' not found in self.data['input_sets'].")
+            return
+
+        if output_path:
+            output_dir = Path(output_path).parent
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+        if bounds is not None:
+            start, end = bounds
+            intersection_data = filter_by_size(
+                intersection_data,
+                lower_bound=int(start),
+                upper_bound=int(end),
+            )
+
+        tp_df = intersection_data.get('TP', pd.DataFrame()).copy()
+        fp_df = intersection_data.get('FP', pd.DataFrame()).copy()
+
+        if svtype != SVType.ALL:
+            if not tp_df.empty and 'svtype' in tp_df.columns:
+                tp_df = tp_df[tp_df['svtype'] == svtype.value].copy()
+            if not fp_df.empty and 'svtype' in fp_df.columns:
+                fp_df = fp_df[fp_df['svtype'] == svtype.value].copy()
+
+        caller_rank = {caller: idx for idx, caller in enumerate(caller_names)}
+
+        def _canonical_sources(source_str: str) -> Optional[str]:
+            callers = [s.strip() for s in str(source_str).split('|') if s and s.strip()]
+            callers = sorted(set(callers), key=lambda x: caller_rank.get(x, len(caller_rank)))
+            if not callers:
+                return None
+            if any(caller not in caller_rank for caller in callers):
+                return None
+            return "|".join(callers)
+
+        combo_counts: Dict[str, int] = defaultdict(int)
+        skipped_invalid_sources = 0
+        total_source_rows = 0
+
+        for df in [tp_df, fp_df]:
+            if df.empty:
+                continue
+            if 'sources' not in df.columns:
+                print("Warning: Missing 'sources' column in one TP/FP dataframe; skipping it.")
+                continue
+
+            for source_str in df['sources'].dropna().astype(str):
+                total_source_rows += 1
+                canonical = _canonical_sources(source_str)
+                if canonical is None:
+                    skipped_invalid_sources += 1
+                    continue
+                combo_counts[canonical] += 1
+
+        if not combo_counts:
+            print("Warning: No valid TP/FP source combinations found to plot.")
+            return
+
+        a, b, c = caller_names
+
+        def _combo_key(callers: List[str]) -> str:
+            return "|".join(sorted(callers, key=lambda x: caller_rank[x]))
+
+        overlap_counts = {
+            '100': combo_counts.get(_combo_key([a]), 0),
+            '010': combo_counts.get(_combo_key([b]), 0),
+            '001': combo_counts.get(_combo_key([c]), 0),
+            '110': combo_counts.get(_combo_key([a, b]), 0),
+            '101': combo_counts.get(_combo_key([a, c]), 0),
+            '011': combo_counts.get(_combo_key([b, c]), 0),
+            '111': combo_counts.get(_combo_key([a, b, c]), 0),
+        }
+
+        total_calls = sum(overlap_counts.values())
+        if total_calls == 0:
+            print("Warning: All overlap counts are zero after filtering.")
+            return
+
+        caller_totals = {
+            a: overlap_counts['100'] + overlap_counts['110'] + overlap_counts['101'] + overlap_counts['111'],
+            b: overlap_counts['010'] + overlap_counts['110'] + overlap_counts['011'] + overlap_counts['111'],
+            c: overlap_counts['001'] + overlap_counts['101'] + overlap_counts['011'] + overlap_counts['111'],
+        }
+
+        caller_labels = [
+            f"{caller}\n(n={caller_totals[caller]}, {(caller_totals[caller] / total_calls) * 100:.1f}%)"
+            for caller in [a, b, c]
+        ]
+
+        venn_subsets = (
+            overlap_counts['100'],
+            overlap_counts['010'],
+            overlap_counts['110'],
+            overlap_counts['001'],
+            overlap_counts['101'],
+            overlap_counts['011'],
+            overlap_counts['111'],
+        )
+        caller_labels_tuple: Tuple[str, str, str] = (
+            caller_labels[0],
+            caller_labels[1],
+            caller_labels[2],
+        )
+
+        fig, ax = plt.subplots(figsize=figsize)
+        venn_obj = venn3(subsets=venn_subsets, set_labels=caller_labels_tuple, ax=ax)
+        venn_circles_obj = venn3_circles(subsets=venn_subsets, ax=ax)
+
+        for region_id, count in overlap_counts.items():
+            region_label = venn_obj.get_label_by_id(region_id)
+            if region_label is not None:
+                region_label.set_text(str(count))
+
+        for circle in venn_circles_obj:
+            circle.set_linewidth(2)
+            circle.set_linestyle('--')
+
+        svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
+        title = f"Caller Source Overlap (TP+FP){svtype_str}\n{input_set_key} | n={total_calls}"
+        ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+
+        skipped_text = ""
+        if skipped_invalid_sources > 0:
+            skipped_text = f" | Skipped invalid source rows: {skipped_invalid_sources}/{total_source_rows}"
+        ax.text(
+            0.5,
+            -0.12,
+            f"Total counted TP+FP records: {total_calls}{skipped_text}",
+            ha='center',
+            transform=ax.transAxes,
+            fontsize=10,
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3),
+        )
+
+        plt.tight_layout()
+
+        if output_path:
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            print(f"✓ Venn diagram saved to: {output_path}")
+        else:
+            plt.show()
+        plt.close()
+
+        print(f"\n{'=' * 60}")
+        print("Count Venn Diagram Statistics (TP + FP Sources)")
+        print(f"{'=' * 60}")
+        print(f"Input set: {input_set_key}")
+        print(f"Consensus source set: {intersection_key}")
+        print(f"Callers from config: {caller_names}")
+        print(f"Total counted TP+FP records: {total_calls}")
+        if skipped_invalid_sources > 0:
+            print(f"Skipped invalid source rows: {skipped_invalid_sources}/{total_source_rows}")
+
+        print("\nPer-region counts:")
+        region_order = ['100', '010', '001', '110', '101', '011', '111']
+        for region_id in region_order:
+            count = overlap_counts[region_id]
+            pct = (count / total_calls) * 100 if total_calls > 0 else 0.0
+            print(f"  {region_id}: {count} ({pct:.1f}%)")
+
+        print("\nRaw source combination counts:")
+        for combo in sorted(combo_counts.keys(), key=lambda x: (x.count('|'), x)):
+            count = combo_counts[combo]
+            pct = (count / total_calls) * 100 if total_calls > 0 else 0.0
+            print(f"  {combo}: {count} ({pct:.1f}%)")
+
+
+    def plot_recall_venn_diagram(
         self,
         set_keys: List[str],
         bounds: Optional[Tuple[float, float]] = None,

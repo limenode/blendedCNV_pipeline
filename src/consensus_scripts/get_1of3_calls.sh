@@ -68,23 +68,30 @@ process_file() {
     union_file="$outdir/unions/${base_name%.bed}.union.bed"
 
     # Create intersection file - all individual calls with their source tool
-    bedtools sort -i "$all_calls" -g "$genome_file" > "$intersection_file"
-
-    # Create union file - merge overlapping regions and concatenate tool names
-    bedtools merge -c 4,5 -o distinct,collapse -i "$all_calls" | \
+    bedtools sort -i "$all_calls" -g "$genome_file" | \
+    bedtools merge -c 4,5 -o distinct,collapse -i - | \
     awk 'BEGIN{OFS="\t"} {
-        # Deduplicate and sort tool names
+        # Deduplicate tool names
         split($5, tools, ",");
         delete seen;
-        result = "";
         for (i in tools) {
-            if (!(tools[i] in seen)) {
-                seen[tools[i]] = 1;
-                result = result (result == "" ? "" : "|") tools[i];
-            }
+            seen[tools[i]] = 1;
         }
+
+        # Sort tool names alphabetically
+        n = asorti(seen, sorted_tools);
+
+        # Join sorted names with |
+        result = "";
+        for (i = 1; i <= n; i++) {
+            result = result (i == 1 ? "" : "|") sorted_tools[i];
+        }
+
         print $1, $2, $3, $4, result
-    }' | bedtools sort -i - -g "$genome_file" > "$union_file"
+    }' | bedtools sort -i - -g "$genome_file" > "$intersection_file"
+
+    # Create union file - same as intersections for 1/3 consensus
+    cp "$intersection_file" "$union_file"
 
     rm "$all_calls"
 }
