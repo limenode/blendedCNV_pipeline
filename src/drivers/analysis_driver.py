@@ -207,8 +207,6 @@ def main(config: dict):
                 output_path=spec['output_path'],
             )
         )
-
-    plotting_tasks = []
     
     for input_name in ['30x Coverage', '6x Coverage', '4x Coverage', '2x Coverage']:
         plotting_tasks.append(

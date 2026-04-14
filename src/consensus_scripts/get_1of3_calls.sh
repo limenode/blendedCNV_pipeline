@@ -67,31 +67,96 @@ process_file() {
     intersection_file="$outdir/intersections/${base_name%.bed}.intersection.bed"
     union_file="$outdir/unions/${base_name%.bed}.union.bed"
 
-    # Create intersection file - all individual calls with their source tool
+    all_calls_with_id=$(mktemp)
+    reciprocal_pairs=$(mktemp)
+    pairwise_intersection_calls=$(mktemp)
+    pairwise_union_calls=$(mktemp)
+    merged_intersection_reciprocal=$(mktemp)
+    merged_union_reciprocal=$(mktemp)
+    singleton_non_reciprocal=$(mktemp)
+
+    # Add a stable row id so we can track which calls participate in reciprocal overlaps.
     bedtools sort -i "$all_calls" -g "$genome_file" | \
-    bedtools merge -c 4,5 -o distinct,collapse -i - | \
-    awk 'BEGIN{OFS="\t"} {
-        # Deduplicate tool names
-        split($5, tools, ",");
-        delete seen;
-        for (i in tools) {
-            seen[tools[i]] = 1;
-        }
+    awk 'BEGIN{OFS="\t"} {print $1, $2, $3, $4, $5, NR}' > "$all_calls_with_id"
 
-        # Sort tool names alphabetically
-        n = asorti(seen, sorted_tools);
+    # Build reciprocal-overlap call pairs (one direction only: id_a < id_b).
+    bedtools intersect -a "$all_calls_with_id" -b "$all_calls_with_id" -r -f 0.5 -wa -wb | \
+    awk 'BEGIN{OFS="\t"} $6 < $12 {
+        inter_start = ($2 > $8 ? $2 : $8);
+        inter_end = ($3 < $9 ? $3 : $9);
+        union_start = ($2 < $8 ? $2 : $8);
+        union_end = ($3 > $9 ? $3 : $9);
+        print $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, inter_start, inter_end, union_start, union_end
+    }' > "$reciprocal_pairs"
 
-        # Join sorted names with |
-        result = "";
-        for (i = 1; i <= n; i++) {
-            result = result (i == 1 ? "" : "|") sorted_tools[i];
-        }
+    # Keep calls that are not part of any reciprocal pair as singletons.
+    awk 'BEGIN{OFS="\t"} NR==FNR {paired[$6]=1; paired[$12]=1; next} !($6 in paired) {print $1, $2, $3, $4, $5}' \
+        "$reciprocal_pairs" "$all_calls_with_id" > "$singleton_non_reciprocal"
 
-        print $1, $2, $3, $4, result
-    }' | bedtools sort -i - -g "$genome_file" > "$intersection_file"
+    # Create pairwise reciprocal intersection and union intervals.
+    awk 'BEGIN{OFS="\t"} {print $1, $13, $14, $4, $5 "|" $11}' "$reciprocal_pairs" > "$pairwise_intersection_calls"
+    awk 'BEGIN{OFS="\t"} {print $1, $15, $16, $4, $5 "|" $11}' "$reciprocal_pairs" > "$pairwise_union_calls"
 
-    # Create union file - same as intersections for 1/3 consensus
-    cp "$intersection_file" "$union_file"
+    # Merge reciprocal pairwise intersections.
+    if [[ -s "$pairwise_intersection_calls" ]]; then
+        bedtools sort -i "$pairwise_intersection_calls" -g "$genome_file" | \
+        bedtools merge -c 4,5 -o distinct,collapse -i - | \
+        awk 'BEGIN{OFS="\t"} {
+            gsub(/\|/, ",", $5);
+            split($5, tools, ",");
+            delete seen;
+            for (i in tools) {
+                if (tools[i] != "") {
+                    seen[tools[i]] = 1;
+                }
+            }
+
+            n = asorti(seen, sorted_tools);
+            result = "";
+            for (i = 1; i <= n; i++) {
+                result = result (i == 1 ? "" : "|") sorted_tools[i];
+            }
+
+            print $1, $2, $3, $4, result
+        }' > "$merged_intersection_reciprocal"
+    else
+        : > "$merged_intersection_reciprocal"
+    fi
+
+    # Merge reciprocal pairwise unions.
+    if [[ -s "$pairwise_union_calls" ]]; then
+        bedtools sort -i "$pairwise_union_calls" -g "$genome_file" | \
+        bedtools merge -c 4,5 -o distinct,collapse -i - | \
+        awk 'BEGIN{OFS="\t"} {
+            gsub(/\|/, ",", $5);
+            split($5, tools, ",");
+            delete seen;
+            for (i in tools) {
+                if (tools[i] != "") {
+                    seen[tools[i]] = 1;
+                }
+            }
+
+            n = asorti(seen, sorted_tools);
+            result = "";
+            for (i = 1; i <= n; i++) {
+                result = result (i == 1 ? "" : "|") sorted_tools[i];
+            }
+
+            print $1, $2, $3, $4, result
+        }' > "$merged_union_reciprocal"
+    else
+        : > "$merged_union_reciprocal"
+    fi
+
+    # Final outputs: reciprocal-derived calls + singleton calls.
+    cat "$merged_intersection_reciprocal" "$singleton_non_reciprocal" | \
+    bedtools sort -i - -g "$genome_file" > "$intersection_file"
+
+    cat "$merged_union_reciprocal" "$singleton_non_reciprocal" | \
+    bedtools sort -i - -g "$genome_file" > "$union_file"
+
+    rm "$all_calls_with_id" "$reciprocal_pairs" "$pairwise_intersection_calls" "$pairwise_union_calls" "$merged_intersection_reciprocal" "$merged_union_reciprocal" "$singleton_non_reciprocal"
 
     rm "$all_calls"
 }

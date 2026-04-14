@@ -737,53 +737,66 @@ class CNVPlotter:
             if not fp_df.empty and 'svtype' in fp_df.columns:
                 fp_df = fp_df[fp_df['svtype'] == svtype.value].copy()
 
-        caller_rank = {caller: idx for idx, caller in enumerate(caller_names)}
-
-        def _canonical_sources(source_str: str) -> Optional[str]:
-            callers = [s.strip() for s in str(source_str).split('|') if s and s.strip()]
-            callers = sorted(set(callers), key=lambda x: caller_rank.get(x, len(caller_rank)))
-            if not callers:
-                return None
-            if any(caller not in caller_rank for caller in callers):
-                return None
-            return "|".join(callers)
-
-        combo_counts: Dict[str, int] = defaultdict(int)
-        skipped_invalid_sources = 0
-        total_source_rows = 0
-
+        source_parts: List[pd.Series] = []
         for df in [tp_df, fp_df]:
             if df.empty:
                 continue
             if 'sources' not in df.columns:
                 print("Warning: Missing 'sources' column in one TP/FP dataframe; skipping it.")
                 continue
+            source_parts.append(df['sources'].dropna().astype(str).str.strip())
 
-            for source_str in df['sources'].dropna().astype(str):
-                total_source_rows += 1
-                canonical = _canonical_sources(source_str)
-                if canonical is None:
-                    skipped_invalid_sources += 1
-                    continue
-                combo_counts[canonical] += 1
+        if not source_parts:
+            print("Warning: No TP/FP 'sources' data available to plot.")
+            return
 
-        if not combo_counts:
+        all_sources = pd.concat(source_parts, ignore_index=True)
+        if all_sources.empty:
+            print("Warning: No valid TP/FP source combinations found to plot.")
+            return
+
+        source_dummies = all_sources.str.get_dummies(sep='|')
+        total_source_rows = len(source_dummies)
+
+        unexpected_callers = [col for col in source_dummies.columns if col not in caller_names]
+        skipped_invalid_sources = 0
+        if unexpected_callers:
+            invalid_mask = source_dummies[unexpected_callers].sum(axis=1) > 0
+            skipped_invalid_sources = int(invalid_mask.sum())
+            source_dummies = source_dummies.loc[~invalid_mask].copy()
+            print(
+                "Warning: Found unexpected callers in 'sources' and skipped affected rows: "
+                f"{unexpected_callers}"
+            )
+
+        source_dummies = source_dummies.reindex(columns=caller_names, fill_value=0).clip(upper=1)
+        source_dummies = source_dummies[source_dummies.sum(axis=1) > 0].copy()
+
+        if source_dummies.empty:
             print("Warning: No valid TP/FP source combinations found to plot.")
             return
 
         a, b, c = caller_names
 
-        def _combo_key(callers: List[str]) -> str:
-            return "|".join(sorted(callers, key=lambda x: caller_rank[x]))
-
         overlap_counts = {
-            '100': combo_counts.get(_combo_key([a]), 0),
-            '010': combo_counts.get(_combo_key([b]), 0),
-            '001': combo_counts.get(_combo_key([c]), 0),
-            '110': combo_counts.get(_combo_key([a, b]), 0),
-            '101': combo_counts.get(_combo_key([a, c]), 0),
-            '011': combo_counts.get(_combo_key([b, c]), 0),
-            '111': combo_counts.get(_combo_key([a, b, c]), 0),
+            '100': int(((source_dummies[a] == 1) & (source_dummies[b] == 0) & (source_dummies[c] == 0)).sum()),
+            '010': int(((source_dummies[a] == 0) & (source_dummies[b] == 1) & (source_dummies[c] == 0)).sum()),
+            '001': int(((source_dummies[a] == 0) & (source_dummies[b] == 0) & (source_dummies[c] == 1)).sum()),
+            '110': int(((source_dummies[a] == 1) & (source_dummies[b] == 1) & (source_dummies[c] == 0)).sum()),
+            '101': int(((source_dummies[a] == 1) & (source_dummies[b] == 0) & (source_dummies[c] == 1)).sum()),
+            '011': int(((source_dummies[a] == 0) & (source_dummies[b] == 1) & (source_dummies[c] == 1)).sum()),
+            '111': int(((source_dummies[a] == 1) & (source_dummies[b] == 1) & (source_dummies[c] == 1)).sum()),
+        }
+
+        combo_series = source_dummies.apply(
+            lambda row: "|".join(
+                [caller for caller in caller_names if int(row[caller]) == 1]
+            ),
+            axis=1,
+        )
+        combo_counts: Dict[str, int] = {
+            str(k): int(v)
+            for k, v in combo_series.value_counts().items()
         }
 
         total_calls = sum(overlap_counts.values())
