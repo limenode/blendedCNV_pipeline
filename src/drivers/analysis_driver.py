@@ -187,15 +187,15 @@ def main(config: dict):
         # Task 3: Caller source distribution
         partial(
             plotter.get_caller_source_distribution,
-            input_sets_to_include=[key for key in all_data['input_sets'].keys() if "intersections" in key],
+            input_sets_to_include=['30x_Coverage_consensus_2of3_intersections', '6x_Coverage_consensus_2of3_intersections',
+                                   '4x_Coverage_consensus_2of3_intersections', '2x_Coverage_consensus_2of3_intersections'],
             output_file=output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png",
         ),
         # Task 4: Get counts
         partial(
             plotter.get_count_statistics,
-            svtype=SVType.ALL,
             output_file=output_dir / "logs" / "count_statistics.tsv",
-        )
+        ),
     ]
 
     # Append Venn diagram plotting tasks

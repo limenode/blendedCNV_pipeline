@@ -892,7 +892,6 @@ class CNVPlotter:
             pct = (count / total_calls) * 100 if total_calls > 0 else 0.0
             print(f"  {combo}: {count} ({pct:.1f}%)")
 
-
     def plot_recall_venn_diagram(
         self,
         set_keys: List[str],
@@ -1712,18 +1711,17 @@ class CNVPlotter:
 
     def get_count_statistics(
         self, 
-        svtype: SVType = SVType.ALL,
         output_file: Optional[str | Path] = None,
     ) -> Dict[str, dict]:
 
-        # Summarize per-sample call counts for prediction (TP+FP) and benchmark (TP+FN).
+        # Summarize per-sample call counts for prediction (TP+FP) and benchmark (TP+FN)
+        # in one wide table: ALL columns plus DEL_/DUP_ prefixed columns.
         input_sets = self.data.get('input_sets', {})
         table_statistics: Dict[str, dict] = {}
 
         def _summarize_sample_counts(sample_counts: pd.Series) -> Dict[str, float | int]:
             stats = _compute_series_stats(sample_counts)
             return {
-                'n_samples': int(stats['count']),
                 'total_calls': int(sample_counts.sum()),
                 'mean_calls_per_sample': float(stats['mean']),
                 'median_calls': float(stats['median']),
@@ -1734,47 +1732,78 @@ class CNVPlotter:
                 'iqr_calls': float(stats['iqr']),
             }
 
-        for input_set_key, input_set_data in input_sets.items():
-            tp_df = _filter_svtype(input_set_data.get('TP', pd.DataFrame()), svtype)
-            fp_df = _filter_svtype(input_set_data.get('FP', pd.DataFrame()), svtype)
+        def _build_sample_counts(
+            left_df: pd.DataFrame,
+            right_df: pd.DataFrame,
+            svtype_filter: SVType,
+        ) -> pd.Series:
+            filtered_frames = [
+                _filter_svtype(df, svtype_filter)
+                for df in [left_df, right_df]
+            ]
+            sample_frames = [
+                df for df in filtered_frames
+                if not df.empty and 'sample' in df.columns
+            ]
+            if sample_frames:
+                return pd.concat(sample_frames, ignore_index=True).groupby('sample').size()
+            return pd.Series(dtype='int64')
 
-            # Prediction calls per sample: TP + FP
-            pred_frames = [df for df in [tp_df, fp_df] if not df.empty and 'sample' in df.columns]
-            if pred_frames:
-                pred_sample_counts = pd.concat(pred_frames, ignore_index=True).groupby('sample').size()
-            else:
-                pred_sample_counts = pd.Series(dtype='int64')
+        for input_set_key, input_set_data in input_sets.items():
+            tp_df = input_set_data.get('TP', pd.DataFrame())
+            fp_df = input_set_data.get('FP', pd.DataFrame())
+
+            pred_sample_counts_all = _build_sample_counts(tp_df, fp_df, SVType.ALL)
+            pred_sample_counts_del = _build_sample_counts(tp_df, fp_df, SVType.DEL)
+            pred_sample_counts_dup = _build_sample_counts(tp_df, fp_df, SVType.DUP)
+
+            del_stats = {
+                f"del_{key}": value
+                for key, value in _summarize_sample_counts(pred_sample_counts_del).items()
+            }
+            dup_stats = {
+                f"dup_{key}": value
+                for key, value in _summarize_sample_counts(pred_sample_counts_dup).items()
+            }
 
             table_statistics[input_set_key] = {
                 'display_name': self.input_name_mapping.get(input_set_key, input_set_key),
-                'svtype': svtype.value if svtype != SVType.ALL else SVType.ALL.value,
                 'input_set': input_set_key,
                 'call_definition': 'TP+FP',
-                **_summarize_sample_counts(pred_sample_counts),
+                'n_samples': int(pred_sample_counts_all.count()),
+                **_summarize_sample_counts(pred_sample_counts_all),
+                **del_stats,
+                **dup_stats,
             }
 
         # Build one benchmark row from the first available input set and append it last.
         first_input_set = next(iter(input_sets.items()), None)
         if first_input_set is not None:
             first_key, first_data = first_input_set
-            first_tp_df = _filter_svtype(first_data.get('TP', pd.DataFrame()), svtype)
-            first_fn_df = _filter_svtype(first_data.get('FN', pd.DataFrame()), svtype)
+            first_tp_df = first_data.get('TP', pd.DataFrame())
+            first_fn_df = first_data.get('FN', pd.DataFrame())
 
-            benchmark_frames = [
-                df for df in [first_tp_df, first_fn_df]
-                if not df.empty and 'sample' in df.columns
-            ]
-            if benchmark_frames:
-                benchmark_sample_counts = pd.concat(benchmark_frames, ignore_index=True).groupby('sample').size()
-            else:
-                benchmark_sample_counts = pd.Series(dtype='int64')
+            benchmark_sample_counts_all = _build_sample_counts(first_tp_df, first_fn_df, SVType.ALL)
+            benchmark_sample_counts_del = _build_sample_counts(first_tp_df, first_fn_df, SVType.DEL)
+            benchmark_sample_counts_dup = _build_sample_counts(first_tp_df, first_fn_df, SVType.DUP)
+
+            del_stats = {
+                f"del_{key}": value
+                for key, value in _summarize_sample_counts(benchmark_sample_counts_del).items()
+            }
+            dup_stats = {
+                f"dup_{key}": value
+                for key, value in _summarize_sample_counts(benchmark_sample_counts_dup).items()
+            }
 
             table_statistics['benchmark'] = {
                 'display_name': 'Benchmark (Truth)',
-                'svtype': svtype.value if svtype != SVType.ALL else SVType.ALL.value,
                 'input_set': 'benchmark',
                 'call_definition': 'TP+FN',
-                **_summarize_sample_counts(benchmark_sample_counts),
+                'n_samples': int(benchmark_sample_counts_all.count()),
+                **_summarize_sample_counts(benchmark_sample_counts_all),
+                **del_stats,
+                **dup_stats,
             }
 
         if output_file is not None:
