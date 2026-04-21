@@ -193,7 +193,8 @@ def _plot_single_metric_distribution_worker(
     figsize: tuple, 
     smoothing_sigma: float, 
     show_raw_points: bool, 
-    output_dir: str | Path
+    output_dir: str | Path,
+    title: Optional[str] = None,
 ):
     """
     Worker function to create a single plot for a metric/distribution combination.
@@ -279,7 +280,7 @@ def _plot_single_metric_distribution_worker(
         
         # Create title with metric name and distribution type
         dist_type_name = dist_type.value.replace('_', ' ').title() if hasattr(dist_type, 'value') else str(dist_type).replace('_', ' ').title()
-        plot_title = f"{metric_name} by CNV Size - {dist_type_name}"
+        plot_title = f"{metric_name} by CNV Size - {dist_type_name}" if title is None else title
         ax.set_title(plot_title, fontsize=14, fontweight='bold')
         
         ax.legend(fontsize=9, title_fontsize=10, loc='best')
@@ -547,7 +548,7 @@ class CNVPlotter:
 
     def plot_statistical_distributions(
         self,
-        input_sets_to_plot: Dict[str, List[str]],
+        plot_config: Dict[str, dict],
         metrics: List[Tuple[Callable[[int, int, int], float], str]],
         bounds: tuple[float, float],
         n_points: int = 100,
@@ -566,8 +567,7 @@ class CNVPlotter:
         combinations.
         
         Args:
-            input_sets_to_plot: Dict mapping plot group name -> list of input set keys
-                                (e.g., {'Intersections': ['30x', '6x'], 'Unions': ['30x', 'cnvpytor']})
+            plot_config: Dictionary mapping plot group names to dicts with 'sets' key listing input set keys to include in that plot group.
             metrics: List of (metric_function, metric_name) tuples where metric_function 
                      computes metric from (TP, FP, FN) counts
             bounds: Tuple of (start, end) size range in bp
@@ -582,8 +582,8 @@ class CNVPlotter:
 
         # Get unique items from input_sets_to_plot for validation
         unique_input_sets = set()
-        for input_set_list in input_sets_to_plot.values():
-            unique_input_sets.update(input_set_list)
+        for input_set_list in plot_config.values():
+            unique_input_sets.update(input_set_list.get('sets', []))
 
         # Get distribution data for all types (raw counts)
         distribution_data = self.get_distribution_data(
@@ -617,8 +617,8 @@ class CNVPlotter:
         
         # Prepare plotting tasks for parallel execution
         plotting_tasks = []
-        for plot_group_name, plot_group_input_sets in input_sets_to_plot.items():
-            plot_group_input_set = set(plot_group_input_sets)
+        for plot_group_name, plot_group_config in plot_config.items():
+            plot_group_input_sets = set(plot_group_config.get('sets', []))
 
             # Keep output files separated by plot group name (create directory if it doesn't exist).
             plot_group_name_clean = str(plot_group_name).lower().replace(' ', '_').replace('/', '_')
@@ -630,7 +630,7 @@ class CNVPlotter:
                     filtered_data_by_combination = {
                         key: data
                         for key, data in data_by_combination.items()
-                        if key[0] in plot_group_input_set
+                        if key[0] in plot_group_input_sets
                     }
 
                     color_map = {input_set: cmap(i) for i, input_set in enumerate(plot_group_input_sets)}
@@ -649,6 +649,7 @@ class CNVPlotter:
                         smoothing_sigma,
                         show_raw_points,
                         output_subdir,
+                        plot_group_config.get('title', None)
                     )
                     plotting_tasks.append(task_args)
         
@@ -1175,7 +1176,7 @@ class CNVPlotter:
 
     def plot_size_distribution(
         self,
-        input_sets_to_plot: Dict[str, List[str]],
+        plot_config: Dict[str, dict],
         svtype: SVType = SVType.ALL,
         figsize: Tuple[int, int] = (12, 6),
         output_dir: Optional[str | Path] = None,
@@ -1186,7 +1187,7 @@ class CNVPlotter:
         Generate size distribution plots (bin density and KDE) for CNVs.
         
         Args:
-            input_sets_to_plot: Dict mapping plot group name -> list of input set keys
+            plot_config: Dict mapping plot group name -> list of input set keys
             svtype: SV type to filter by (DEL, DUP, or ALL)
             figsize: Figure size tuple
             output_dir: Directory to save plots (if None, plots will be shown)
@@ -1205,20 +1206,21 @@ class CNVPlotter:
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
 
-        plot_groups_count = len(input_sets_to_plot)
         generated_groups = 0
         group_membership_sets: Dict[str, set] = {}
 
-        # 1) Collect all unique items across all input_sets_to_plot (preserve first-seen order).
+        # 1) Collect all unique items across all plot groups (preserve first-seen order).
         ordered_unique_input_sets: List[str] = []
         seen_input_sets = set()
-        for input_set_list in input_sets_to_plot.values():
+        for plot_group_name, plot_group_config in plot_config.items():
+            input_set_list = plot_group_config.get('sets', [])
             for set_key in input_set_list:
                 if set_key in input_sets_keys and set_key not in seen_input_sets:
                     seen_input_sets.add(set_key)
                     ordered_unique_input_sets.append(set_key)
 
-        for plot_group_name, plot_group_input_sets in input_sets_to_plot.items():
+        for plot_group_name, plot_group_config in plot_config.items():
+            plot_group_input_sets = plot_group_config.get('sets', [])
             group_membership_sets[str(plot_group_name)] = {
                 set_key for set_key in plot_group_input_sets if set_key in input_sets_keys
             }
@@ -1270,6 +1272,7 @@ class CNVPlotter:
                     temp_df = pd.DataFrame({
                         'size': sizes,
                         'source': 'Benchmark (Truth)',
+                        'display_name': 'Benchmark (Truth)',
                         'type': 'benchmark'
                     })
                     all_data.append(temp_df)
@@ -1289,6 +1292,9 @@ class CNVPlotter:
             .unstack()
             .reset_index()
             .rename(columns={'source': 'input_set'})
+        )
+        size_stats_df['input_set_display'] = size_stats_df['input_set'].map(
+            lambda set_name: self.input_name_mapping.get(set_name, set_name)
         )
 
         # Add boolean membership columns keyed by input_sets_to_plot dictionary keys.
@@ -1327,10 +1333,11 @@ class CNVPlotter:
             print(size_stats_df.to_string(index=False))
 
         # 4) Iterate plot groups and pull only required items from all_data.
-        for plot_group_name, plot_group_input_sets in input_sets_to_plot.items():
+        for plot_group_name, plot_group_config in plot_config.items():
             plot_group_name_clean = str(plot_group_name).lower().replace(' ', '_').replace('/', '_')
 
             # Validate set_keys against data for this plot group.
+            plot_group_input_sets = set(plot_group_config.get('sets', []))
             valid_group_input_sets = [set_key for set_key in plot_group_input_sets if set_key in input_sets_keys]
             if not valid_group_input_sets:
                 print(f"Warning: No valid input sets found for plot group '{plot_group_name}'.")
@@ -1354,8 +1361,17 @@ class CNVPlotter:
             min_size = plot_df['size'].min()
             max_size = plot_df['size'].max()
 
-            title_suffix = " (with Benchmark)" if include_benchmark else ""
-            title_prefix = f"{plot_group_name}: " if plot_group_name else ""
+            title = plot_group_config.get('title', None)
+            title_svtype = f" ({svtype.value})" if svtype != SVType.ALL else ""
+            if title is None:
+                title_suffix = " (with Benchmark)" if include_benchmark else ""
+                title_prefix = f"{plot_group_name}: " if plot_group_name else ""
+                title_binned = f"{title_prefix}CNV Size Distribution - Binned Density {title_svtype}{title_suffix}"
+                title_kde = f"{title_prefix}CNV Size Distribution (KDE) {title_svtype}{title_suffix}"
+            else:
+                title_binned = f"{title} - Binned Density{title_svtype}"
+                title_kde = f"{title} - KDE{title_svtype}"
+
 
             # ==================== PLOT 1: BINNED DENSITY ====================
             fig, ax = plt.subplots(figsize=figsize)
@@ -1377,7 +1393,7 @@ class CNVPlotter:
             ax.set_ylabel("Density", fontsize=12)
             ax.set_xlim(min_size * 0.9, max_size * 1.1)
             ax.set_title(
-                f"{title_prefix}CNV Size Distribution - Binned Density{svtype_str}{title_suffix}",
+                title_binned,
                 fontsize=14,
                 fontweight='bold'
             )
@@ -1386,6 +1402,9 @@ class CNVPlotter:
             legend = ax.get_legend()
             if legend:
                 legend.set_title('Source')
+                for text in legend.get_texts():
+                    source_label = text.get_text()
+                    text.set_text(self.input_name_mapping.get(source_label, source_label))
                 plt.setp(legend.get_texts(), fontsize=10)
                 plt.setp(legend.get_title(), fontsize=10)
 
@@ -1420,7 +1439,7 @@ class CNVPlotter:
             ax.set_ylabel("Density", fontsize=12)
             ax.set_xlim(min_size * 0.9, max_size * 1.1)
             ax.set_title(
-                f"{title_prefix}CNV Size Distribution - KDE{svtype_str}{title_suffix}",
+                title_kde,
                 fontsize=14,
                 fontweight='bold'
             )
@@ -1429,6 +1448,9 @@ class CNVPlotter:
             legend = ax.get_legend()
             if legend:
                 legend.set_title('Source')
+                for text in legend.get_texts():
+                    source_label = text.get_text()
+                    text.set_text(self.input_name_mapping.get(source_label, source_label))
                 plt.setp(legend.get_texts(), fontsize=10)
                 plt.setp(legend.get_title(), fontsize=10)
 
