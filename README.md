@@ -135,23 +135,23 @@ output_dir: "/path/to/output"
 genome_file: "/path/to/genome.txt"
 
 # Excluded regions file [optional]
-excluded_regions_file: "/path/to/excluded_regions.bed"
+excluded_regions_file: "/path/to/excluded_regions_hg38.bed"
 
-# Control datasets [optional]
+# Control datasets [optional, used with --run-benchmark]
 control:
   "SNP Array": "/path/to/array/data.cnv"
+
+# Benchmark datasets [required when using --run-benchmark] (accepts URLs or paths)
+benchmark_map:
+  "1000G": "/path/to/hgsvc2/benchmark.vcf"
+  "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
+  "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
 
 # Liftover specifications [optional]
 liftover:
   "SNP Array":
     "from": "hg18"
     "to": "hg38"
-
-# Benchmark datasets [only required for computation/analysis step] (accepts URLs or paths)
-benchmark_map:
-  "1000G": "/path/to/hgsvc2/benchmark.vcf"
-  "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
-  "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
 
 # Reciprocal overlap threshold for generating consensus calls [optional] (default: 0.5)
 consensus_reciprocal_threshold: 0.5
@@ -162,32 +162,36 @@ matching_reciprocal_threshold: 0.5
 
 ### Running the Pipeline
 
-#### Full Pipeline (Benchmarking)
+#### Consensus Calling
 
-Run the complete pipeline with a single command:
+Run the consensus calling on your input sets using the following command:
 
 ```bash
 python src/main.py config.yaml
 ```
 
-This will execute:
-1. **Processing Pipeline**: VCF conversion of evaluated call sets and controls, consensus calling, liftover
-2. **Computation Pipeline**: VCF conversion of benchmarks, binary classification of evaluated call sets
-3. **Analysis Pipeline**: Statistical metrics, plots, and Venn diagrams
+This will execute VCF conversion of evaluated call sets, consensus calling, and liftover if specified
 
-#### Individual Pipeline Components
+#### Benchmarking
 
-You can also run each pipeline component separately:
+Run the complete benchmarking pipeline using the following command:
 
 ```bash
-# Run only processing pipeline
-python src/processing_driver.py config.yaml
+# Run the full benchmark pipeline
+python src/main.py config.yaml --run-benchmark
+```
 
-# Run only computation pipeline
-python src/computation_driver.py config.yaml
+This will execute the following:
+1. **Computation Pipeline**: VCF conversion of benchmarks, binary classification of evaluated call sets
+2. **Analysis Pipeline**: Generate statistical metrics tables, plots, and Venn diagrams
 
-# Run only analysis pipeline
-python src/analysis_driver.py config.yaml
+If you would like to only run one of the two parts of the benchmark pipeline, you can add the following arguments:
+```bash
+# Only run the computation sub-pipeline
+python src/main.py config.yaml --run-benchmark --only-compute
+
+# Only run the analysis sub-pipeline
+python src/main.py config.yaml --run-benchmark --only-analyze
 ```
 
 ## Output Structure
@@ -195,32 +199,38 @@ python src/analysis_driver.py config.yaml
 ```
 output_dir/
 ├── {input 1}/
-│   ├── bed/                      # Per-tool BED files
+│   ├── bed/                      # Per-caller BED files for CNV calls
 │   ├── conensus_1of3/            # Consensus calls, requires 1/3 caller agreement
-│   ├── conensus_2of3/            # Consensus calls, requires 2/3 caller agreement (used for binary classification)
+│   ├── conensus_2of3/            # Consensus calls, requires 2/3 caller agreement
 │   ├── conensus_3of3/            # Consensus calls, requires 1/3 caller agreement
-│   └── binary_classification/    # TP/FP/FN classifications of 2/3 consensus calls against benchmarks
+│   └── binary_classification/    # Contains binary classification outputs per each call set (single callers + consensus calls)
+│       └── {call set 1}/         # TP/FP/FN classifications
+│       └── {call set 2...}/      
 ├── {input 2...}/
 │   └── [same structure as above]
 ├── {control 1}/
-│   ├── bed/                      # Array-based CNV calls
+│   ├── bed/                      # BED files for Array-based CNV calls 
 │   └── binary_classification/    # TP/FP/FN classifications
 ├── {control 2...}/
 │   └── [same structure as above]
 ├── benchmark_parsing/
-│   ├── {benchmark_1}             # Parsed benchmark BED files
-│   ├── {benchmark_2...}
-│   └── merged/                   # BED files for all benchmarks merged together
-├── figures/                      # Contains plots for various analyses
-└── logs/                         # Logs of various steps across the pipeline
+│   └── merged/                   # BED files with CNV calls of all benchmarks merged together
+├── figures/                      # Plots
+└── logs/                         # Logs and tables
 ```
 
-## Key Metrics
+## Key Metrics for Benchmarking
+
+- **True Positive**: A CNV in a call set with reciprocal overlap with at least one CNV in the benchmark call set that exceeds the threshold defined by `matching_reciprocal_threshold` in the configuration file (defaults to 0.50).
+- **False Positive**: A CNV in a call set with insufficient reciprocal overlap with any of the CNVs in the benchmark call set.
+- **False Negative**: A CNV in the benchmark call set that does not have any associated match in a call set. Any False Negative CNVs that are not detected by any of the call sets are deemed as "undiscoverable" and deducted from the total False Negative call set.
+  - This behavior does not change absolute difference in FN between call sets but does change relative difference. This change allows for 1) the amplification of trend differences between call sets, 2) more comparable value ranges between precision and recall, and 3) prevents the F-score graph trends from being dominated by those of the recall graph due to extremely high FN values.
 
 The pipeline computes:
 - **Precision**: TP / (TP + FP)
 - **Recall/Sensitivity**: TP / (TP + FN)
-- **F1 Score**: 2 × TP / (2 × TP + FP + FN)
+- **F_β Score**: ((1 + β^2) * TP) / (((1 + β^2) × TP) + (β^2 * FN) + FP)
+  - Calculated for β = {1/2, 1, 2}
 
 Metrics are generated across:
 - CNV size distributions
@@ -230,17 +240,17 @@ Metrics are generated across:
 
 ## Included Files - Sources
 
-This repository hosts files in the `data/` directory that contains information derived from several repositories. If you choose to use these files for this pipeline, please cite the appropriate sources.
+This repository hosts files in the `data/` directory that contains information derived from other databases. If you choose to use these files for this pipeline, please cite the appropriate sources.
 
-- `genome_primary.txt`
+- `genome_primary_hg38.txt`
   - Human reference genome GRCh38/hg38 chromosome lengths for chr1-chr22, chrX, and chrY.
   - Extracted from file provided in the 1000 Genomes database, hosted by IGSR: `https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa.fai`
-- `excluded_regions.bed`
+- `excluded_regions_hg38.bed`
   - Output from performing `bedtools merge` between the following regions:
     - Centromeric regions from file provided in the 1000 Genomes database, hosted by IGSR: `https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/20150713_location_of_centromeres_and_other_regions.txt`
     - Regions defined in the gap table provided by the UCSC hg38 database: `https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/gap.txt.gz` 
 - `included_regions.bed`
-  - Genomic regions derived from a .bed representation of `genome_primary.txt` subtracted by `excluded_regions.bed`, performed using `bedtools subtract`.
+  - Genomic regions derived from a .bed representation of `genome_primary_hg38.txt` subtracted by `excluded_regions_hg38.bed`, performed using `bedtools subtract`.
   - Is not directly used in the pipeline. Provided to the user as a convenient reference to the regions of interest if using the other two files when setting up a config.
 
 <!-- ## Citation
