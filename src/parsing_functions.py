@@ -169,6 +169,9 @@ def parse_vcfs_to_bed(config: dict) -> dict | None:
                 os.makedirs(output_prefix.parent, exist_ok=True)
                 output_prefix = str(output_prefix)
 
+                # Ensure proper order of columns and export DEL and DUP separately
+                data = data[['chrom', 'start', 'end', 'svtype', 'source']]
+
                 data[data["svtype"] == "DEL"].to_csv(
                     output_prefix + ".DEL.bed", sep="\t", index=False, header=False
                 )
