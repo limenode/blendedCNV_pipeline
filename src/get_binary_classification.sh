@@ -65,7 +65,7 @@ process_sample() {
         -f "$reciprocal_threshold" -r \
         -v \
         -wa -wb \
-        > "$fn_file"    
+        > "$fn_file"
 }
 
 

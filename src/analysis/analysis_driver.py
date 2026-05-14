@@ -4,8 +4,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
 from utils import parse_args, f0_5_score, f2_score, precision, recall, f1_score, SVType
-from cnv_plotter import CNVPlotter
-from analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
+from analysis.cnv_plotter import CNVPlotter
+from analysis.analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
 
 def main(config: dict):
     if 'input' not in config:

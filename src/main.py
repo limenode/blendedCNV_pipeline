@@ -7,9 +7,9 @@ This script orchestrates the complete CNV analysis pipeline:
 """
 
 from utils import parse_args
-from drivers.processing_driver import main as processing_main
-from drivers.computation_driver import main as computation_main
-from drivers.analysis_driver import main as analysis_main
+from processing.processing_driver import main as processing_main
+from computation.computation_driver import main as computation_main
+from analysis.analysis_driver import main as analysis_main
 
 
 def main():

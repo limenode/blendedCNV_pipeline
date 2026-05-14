@@ -7,8 +7,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from load_analysis_data import build_analysis_data_structure, filter_by_size
-from cnv_plotter import _create_record_ids
+from analysis.load_analysis_data import build_analysis_data_structure, filter_by_size
+from analysis.cnv_plotter import _create_record_ids
     
 
 def load_data_for_all_input_sets(

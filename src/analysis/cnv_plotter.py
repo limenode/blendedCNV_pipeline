@@ -14,7 +14,7 @@ import seaborn as sns
 from matplotlib.patches import Rectangle
 import os
 
-from load_analysis_data import filter_by_size
+from analysis.load_analysis_data import filter_by_size
 from utils import generate_size_intervals, DistributionType, SVType
 
 # Module-level helper function for multiprocessing

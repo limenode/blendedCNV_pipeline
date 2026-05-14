@@ -3,7 +3,7 @@ import json
 
 from parsing_functions import parse_control_to_bed, parse_benchmarks_to_bed
 from utils import parse_args
-from computation_functions import run_binary_classification_script
+from computation.computation_functions import run_binary_classification_script
 
 def main(config: dict):
     """
