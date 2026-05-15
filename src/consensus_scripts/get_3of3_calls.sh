@@ -90,11 +90,18 @@ process_file() {
     bedtools sort -i - -g "$genome_file" > "$intersection_file"
 
     # Create union file - all original regions from all 3 tools that participate
+    union_pre_merge=$(mktemp)
     awk -v type="$svtype" -v tools="$all_tools" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, tools}' \
         "$three_way_union" | \
-    sort -k1,1 -k2,2n | \
-    bedtools merge -c 4,5 -o distinct,distinct -i - | \
-    bedtools sort -i - -g "$genome_file" > "$union_file"
+    sort -k1,1 -k2,2n > "$union_pre_merge"
+
+    if [[ -s "$union_pre_merge" ]]; then
+        bedtools merge -c 4,5 -o distinct,distinct -i "$union_pre_merge" | \
+        bedtools sort -i - -g "$genome_file" > "$union_file"
+    else
+        : > "$union_file"
+    fi
+    rm "$union_pre_merge"
 
     rm "$three_way_intersect" "$three_way_union"
 

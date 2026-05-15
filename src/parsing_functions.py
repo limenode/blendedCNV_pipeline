@@ -123,68 +123,83 @@ def excluded_regions_filter(input_bed_path: str, excluded_bed_path: str):
     # Save the filtered BED over the original file
     filtered_bed.saveas(input_bed_path)
 
+def _process_single_vcf(
+    vcf_path: str,
+    tool: str,
+    sample_id: str,
+    input_map: dict,
+    valid_chromosomes,
+    output_prefix: str,
+    do_liftover: bool,
+    liftover_from: str | None,
+    liftover_to: str | None,
+    excluded_regions_file: str | None,
+) -> list | None:
+    cnv_parser = CNVParser(input_map)
+    data = cnv_parser.convert_vcf_to_bed(vcf_path, source=tool, valid_chromosomes=valid_chromosomes)
+
+    stats = None
+    if do_liftover and liftover_from and liftover_to:
+        data, stats = perform_liftover(data, liftover_from, liftover_to)
+
+    data = data[['chrom', 'start', 'end', 'svtype', 'source']]
+    data[data["svtype"] == "DEL"].to_csv(output_prefix + ".DEL.bed", sep="\t", index=False, header=False)
+    data[data["svtype"] == "DUP"].to_csv(output_prefix + ".DUP.bed", sep="\t", index=False, header=False)
+
+    if excluded_regions_file:
+        excluded_regions_filter(output_prefix + ".DEL.bed", excluded_regions_file)
+        excluded_regions_filter(output_prefix + ".DUP.bed", excluded_regions_file)
+
+    return stats
+
 def parse_vcfs_to_bed(config: dict) -> dict | None:
     output_dir = Path(config['output_dir'])
     liftover_stats = defaultdict(dict)
+    futures_to_meta = {}
 
-    # For each input set, create a CNVParser instance and convert VCF files to BED format
-    for key, input_map in config['input'].items():
-        print(f"Converting input set: {key}")
+    cpu_count = os.cpu_count()
+    target_workers = max(1, (2 * cpu_count) // 3) if cpu_count else 1
 
-        do_liftover = config['liftover'].get(key) is not None
-        if do_liftover:
-            liftover_stats[key] = {
-                'from': config['liftover'][key]['from'],
-                'to': config['liftover'][key]['to'],
-                'samples': {}
-            }
+    with ProcessPoolExecutor(max_workers=target_workers) as executor:
+        for key, input_map in config['input'].items():
+            print(f"Converting input set: {key}")
 
-        # Remove whitespace from key to create a valid directory name
-        output_subdir_name = key.replace(" ", "_")
-        output_subdir = output_dir / output_subdir_name
-        os.makedirs(output_subdir, exist_ok=True)
+            do_liftover = config['liftover'].get(key) is not None
+            if do_liftover:
+                liftover_stats[key] = {
+                    'from': config['liftover'][key]['from'],
+                    'to': config['liftover'][key]['to'],
+                    'samples': {}
+                }
 
-        # Create CNVParser instance and get all VCF files
-        cnv_parser = CNVParser(input_map)
-        all_vcf_files = cnv_parser.get_all_vcf_files()
+            output_subdir = output_dir / key.replace(" ", "_")
+            os.makedirs(output_subdir, exist_ok=True)
 
-        # Get valid chromosomes from config if available
-        valid_chromosomes = config.get('valid_chromosomes', None)
+            cnv_parser = CNVParser(input_map)
+            all_vcf_files = cnv_parser.get_all_vcf_files()
+            valid_chromosomes = config.get('valid_chromosomes', None)
 
-        # Convert all VCF files and export to files
-        for tool, id_path_pair in all_vcf_files.items():
-            for sample_id, vcf_path in id_path_pair:
-                data = cnv_parser.convert_vcf_to_bed(vcf_path, source=tool, valid_chromosomes=valid_chromosomes)
+            liftover_from = config['liftover'][key]['from'] if do_liftover else None
+            liftover_to = config['liftover'][key]['to'] if do_liftover else None
+            excluded_regions_file = config.get('excluded_regions_file') or None
 
-                # Check if liftover is needed and perform it if necessary
-                if do_liftover:
-                    from_build = config['liftover'][key]['from']
-                    to_build = config['liftover'][key]['to']
+            for tool, id_path_pair in all_vcf_files.items():
+                for sample_id, vcf_path in id_path_pair:
+                    output_prefix = str(output_subdir / "bed" / tool / sample_id)
+                    os.makedirs(Path(output_prefix).parent, exist_ok=True)
 
-                    data, stats = perform_liftover(data, from_build, to_build)
-                    liftover_stats[key]['samples'][sample_id] = stats
+                    future = executor.submit(
+                        _process_single_vcf,
+                        vcf_path, tool, sample_id, input_map, valid_chromosomes,
+                        output_prefix, do_liftover, liftover_from, liftover_to, excluded_regions_file,
+                    )
+                    futures_to_meta[future] = (key, sample_id)
 
-                # Export to file
-                output_prefix = output_subdir / "bed" / tool / sample_id
-                os.makedirs(output_prefix.parent, exist_ok=True)
-                output_prefix = str(output_prefix)
+        for future, (key, sample_id) in futures_to_meta.items():
+            stats = future.result()
+            if stats is not None:
+                liftover_stats[key]['samples'][sample_id] = stats
 
-                # Ensure proper order of columns and export DEL and DUP separately
-                data = data[['chrom', 'start', 'end', 'svtype', 'source']]
-
-                data[data["svtype"] == "DEL"].to_csv(
-                    output_prefix + ".DEL.bed", sep="\t", index=False, header=False
-                )
-                data[data["svtype"] == "DUP"].to_csv(
-                    output_prefix + ".DUP.bed", sep="\t", index=False, header=False
-                )
-
-                # Perform filtering of excluded regions
-                if 'excluded_regions_file' in config and config['excluded_regions_file']:
-                    excluded_regions_filter(output_prefix + ".DEL.bed", config['excluded_regions_file'])
-                    excluded_regions_filter(output_prefix + ".DUP.bed", config['excluded_regions_file'])
-
-    # return liftover stats
     return liftover_stats if liftover_stats else None
 
 def parse_control_to_bed(config: dict) -> dict | None:

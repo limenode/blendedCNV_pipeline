@@ -78,15 +78,22 @@ process_file() {
     union_file="$outdir/unions/${base_name%.bed}.union.bed"
 
     # Intersection - only the overlapping regions
+    intersection_combined=$(mktemp)
     {
         awk -v type="$svtype" -v tools="$tool_1_name,$tool_2_name" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, tools}' "$tool_1_tool_2_intersect"
         awk -v type="$svtype" -v tools="$tool_1_name,$tool_3_name" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, tools}' "$tool_1_tool_3_intersect"
         awk -v type="$svtype" -v tools="$tool_2_name,$tool_3_name" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, tools}' "$tool_2_tool_3_intersect"
-    } | \
-    sort -k1,1 -k2,2n | \
-    bedtools merge -c 4,5 -o distinct,distinct -i - > "$intersection_file"
+    } | sort -k1,1 -k2,2n > "$intersection_combined"
+
+    if [[ -s "$intersection_combined" ]]; then
+        bedtools merge -c 4,5 -o distinct,distinct -i "$intersection_combined" > "$intersection_file"
+    else
+        : > "$intersection_file"
+    fi
+    rm "$intersection_combined"
 
     # Union - entire span of all calls that intersect
+    union_combined=$(mktemp)
     {
         awk -v type="$svtype" -v tools="$tool_1_name,$tool_2_name" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, tools}' "$tool_1_tool_2"
         awk -v type="$svtype" -v tools="$tool_1_name,$tool_2_name" 'BEGIN{OFS="\t"} {print $4, $5, $6, type, tools}' "$tool_1_tool_2"
@@ -94,9 +101,14 @@ process_file() {
         awk -v type="$svtype" -v tools="$tool_1_name,$tool_3_name" 'BEGIN{OFS="\t"} {print $4, $5, $6, type, tools}' "$tool_1_tool_3"
         awk -v type="$svtype" -v tools="$tool_2_name,$tool_3_name" 'BEGIN{OFS="\t"} {print $1, $2, $3, type, tools}' "$tool_2_tool_3"
         awk -v type="$svtype" -v tools="$tool_2_name,$tool_3_name" 'BEGIN{OFS="\t"} {print $4, $5, $6, type, tools}' "$tool_2_tool_3"
-    } | \
-    sort -k1,1 -k2,2n | \
-    bedtools merge -c 4,5 -o distinct,distinct -i - > "$union_file"
+    } | sort -k1,1 -k2,2n > "$union_combined"
+
+    if [[ -s "$union_combined" ]]; then
+        bedtools merge -c 4,5 -o distinct,distinct -i "$union_combined" > "$union_file"
+    else
+        : > "$union_file"
+    fi
+    rm "$union_combined"
 
     echo "  ,\"union_counts\": {" >> "$log_file"
     echo "    \"${tool_1_name}_${tool_2_name}\": $(wc -l < "$tool_1_tool_2")," >> "$log_file"

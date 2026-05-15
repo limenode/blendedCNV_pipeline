@@ -845,7 +845,7 @@ class CNVPlotter:
             circle.set_linestyle('--')
 
         svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
-        title = f"Caller Source Overlap (TP+FP){svtype_str}\n{input_set_key} | n={total_calls}"
+        title = f"Caller Source Overlap (TP+FP){svtype_str}\n{input_set_key}"
         ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
 
         skipped_text = ""
