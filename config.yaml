@@ -39,3 +39,8 @@ consensus_reciprocal_threshold: 0.5
 
 # Reciprocal overlap threshold for matching calls to benchmarks [optional] (default: 0.5)
 matching_reciprocal_threshold: 0.5
+
+# Analysis plots configuration file [optional, used with --run-benchmark]
+# Defines plot groupings, Venn diagram specs, and samples of interest for the analysis phase.
+# If omitted, the analysis phase will skip all plot generation.
+analysis_plots_config: "/path/to/analysis_plots.yaml"

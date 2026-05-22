@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import yaml
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
@@ -7,11 +8,25 @@ from utils import parse_args, f0_5_score, f2_score, precision, recall, f1_score,
 from analysis.cnv_plotter import CNVPlotter
 from analysis.analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
 
+
+def _load_plots_config(config: dict) -> dict:
+    plots_config_path = config.get('analysis_plots_config')
+    if not plots_config_path:
+        print("No analysis_plots_config defined in configuration. Skipping plot generation.")
+        return {}
+    path = Path(plots_config_path)
+    if not path.exists():
+        print(f"Warning: analysis_plots_config file not found at '{plots_config_path}'. Skipping plot generation.")
+        return {}
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
 def main(config: dict):
     if 'input' not in config:
         print("No input sets defined in configuration. Exiting analysis pipeline.")
         return
-    
+
     if 'benchmark_map' not in config:
         print("No benchmark map defined in configuration. Skipping benchmark analysis.")
         return
@@ -48,7 +63,7 @@ def main(config: dict):
         # Add to input name mapping
         input_name_mapping[key_path + "_intersections"] = f"{key} Intersections"
         input_name_mapping[key_path + "_unions"] = f"{key} Unions"
-    
+
     # Append control sets
     control_sets_raw = list(config.get('control', {}).keys())
     for key in control_sets_raw:
@@ -57,10 +72,15 @@ def main(config: dict):
         input_name_mapping[key_path] = key
 
 
+    # === Load plots config ===
+    plots_config = _load_plots_config(config)
+    if not plots_config:
+        return
+
 
     # === Log Analysis Step 1: Load logs ===
     log_dir = Path(config['output_dir']) / "logs"
-    samples_of_interest = ['HG01890', 'NA19347', 'HG00513', 'HG01596', 'NA19238', 'NA19331', 'HG00096', 'HG00171', 'NA18989', 'HG00268', 'NA20847', 'HG00731', 'NA19129']
+    samples_of_interest = plots_config.get('samples_of_interest', [])
     analyze_logs(log_dir, output_dir=output_dir, samples=samples_of_interest)
 
 
@@ -82,220 +102,31 @@ def main(config: dict):
     with open(counts_output_path_all, 'w') as f:
         json.dump(counts_tuple_all, f, indent=4)
     print(f"\nSaved unfiltered counts summary to {counts_output_path_all}")
-    
+
     plotter = CNVPlotter(all_data, config, input_name_mapping)
     metrics = [(precision, "Precision"), (recall, "Recall"), (f1_score, "F1 Score"), (f0_5_score, "F 1/2 Score"), (f2_score, "F2 Score")]
 
-    # Venn Diagram specifications:
+    # Build venn_diagram_specs from plots config, inserting output paths
+    venn_diagrams_raw = plots_config.get('venn_diagrams', {})
     venn_diagram_specs = {
-        "6x_intersections": {
-            "set_keys": ['6x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
-            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_6x_intersections.png",
-            "title": "Venn Diagram of Intersections with 6x Coverage"
-        },
-
-        "4x_intersections": {
-            "set_keys": ['4x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
-            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_4x_intersections.png",
-            "title": "Venn Diagram of Intersections with 4x Coverage"
-        },
-
-        "2x_intersections": {
-            "set_keys": ['2x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
-            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_2x_intersections.png",
-            "title": "Venn Diagram of Intersections with 2x Coverage"
-        },
-        "6x_unions": {
-            "set_keys": ['6x_Coverage_consensus_2of3_unions', '30x_Coverage_consensus_2of3_unions', 'SNP_Array'],
-            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_6x_unions.png",
-            "title": "Venn Diagram of Unions with 6x Coverage"
-        },
-        "4x_unions": {
-            "set_keys": ['4x_Coverage_consensus_2of3_unions', '30x_Coverage_consensus_2of3_unions', 'SNP_Array'],
-            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_4x_unions.png",
-            "title": "Venn Diagram of Unions with 4x Coverage"
-        },
-        "2x_unions": {
-            "set_keys": ['2x_Coverage_consensus_2of3_unions', '30x_Coverage_consensus_2of3_unions', 'SNP_Array'],
-            "output_path": output_dir / "figures" / "venn_diagrams" / "venn_diagram_2x_unions.png",
-            "title": "Venn Diagram of Unions with 2x Coverage"
-        },
+        name: {
+            "set_keys": spec['sets'],
+            "output_path": output_dir / "figures" / "venn_diagrams" / spec['output_filename'],
+            "title": spec['title'],
+        }
+        for name, spec in venn_diagrams_raw.items()
     }
 
-    # Input sets to plot
-    statistical_distribution_input_sets = {
-        "30x": {
-            "sets": ['30x_Coverage_consensus_1of3_intersections', '30x_Coverage_consensus_1of3_unions', 
-                '30x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_unions', 
-                '30x_Coverage_consensus_3of3_intersections', '30x_Coverage_consensus_3of3_unions',
-                '30x_Coverage_cnvpytor', '30x_Coverage_gatk', '30x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for 30x Coverage Call Sets"
-        },
-        "6x": {
-            "sets": ['6x_Coverage_consensus_1of3_intersections', '6x_Coverage_consensus_1of3_unions',
-               '6x_Coverage_consensus_2of3_intersections', '6x_Coverage_consensus_2of3_unions',
-               '6x_Coverage_consensus_3of3_intersections', '6x_Coverage_consensus_3of3_unions',
-               '6x_Coverage_cnvpytor', '6x_Coverage_gatk', '6x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for 6x Coverage Call Sets"
-        },
-        "4x": {
-            "sets": ['4x_Coverage_consensus_1of3_intersections', '4x_Coverage_consensus_1of3_unions',
-                        '4x_Coverage_consensus_2of3_intersections', '4x_Coverage_consensus_2of3_unions',
-                        '4x_Coverage_consensus_3of3_intersections', '4x_Coverage_consensus_3of3_unions',
-                        '4x_Coverage_cnvpytor', '4x_Coverage_gatk', '4x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for 4x Coverage Call Sets"
-        },
-        "2x": {
-            "sets": ['2x_Coverage_consensus_1of3_intersections', '2x_Coverage_consensus_1of3_unions',
-                       '2x_Coverage_consensus_2of3_intersections', '2x_Coverage_consensus_2of3_unions',
-                       '2x_Coverage_consensus_3of3_intersections', '2x_Coverage_consensus_3of3_unions',
-                       '2x_Coverage_cnvpytor', '2x_Coverage_gatk', '2x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for 2x Coverage Call Sets"
-        },
-        "30x_no_unions": {
-            "sets": ['30x_Coverage_consensus_1of3_intersections', '30x_Coverage_consensus_2of3_intersections',
-                      '30x_Coverage_consensus_3of3_intersections', '30x_Coverage_cnvpytor', 
-                      '30x_Coverage_gatk', '30x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for 30x Coverage Call Sets"
-        },
-        "6x_no_unions": {
-            "sets": ['6x_Coverage_consensus_1of3_intersections', '6x_Coverage_consensus_2of3_intersections',
-                      '6x_Coverage_consensus_3of3_intersections', '6x_Coverage_cnvpytor', 
-                      '6x_Coverage_gatk', '6x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for 6x Coverage Call Sets"
-        },
-        "4x_no_unions": {
-            "sets": ['4x_Coverage_consensus_1of3_intersections', '4x_Coverage_consensus_2of3_intersections',
-                      '4x_Coverage_consensus_3of3_intersections', '4x_Coverage_cnvpytor', 
-                      '4x_Coverage_gatk', '4x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for 4x Coverage Call Sets"
-        },
-        "2x_no_unions": {
-            "sets": ['2x_Coverage_consensus_1of3_intersections', '2x_Coverage_consensus_2of3_intersections',
-                      '2x_Coverage_consensus_3of3_intersections', '2x_Coverage_cnvpytor', 
-                      '2x_Coverage_gatk', '2x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for 2x Coverage Call Sets"
-        },
-        "Intersections": {
-            "sets": ['30x_Coverage_consensus_2of3_intersections', '6x_Coverage_consensus_2of3_intersections',
-                      '4x_Coverage_consensus_2of3_intersections', '2x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
-            "title": "Statistical Distributions for Intersection Call Sets"
-        },
-        "Unions": {
-            "sets": ['30x_Coverage_consensus_2of3_unions', '6x_Coverage_consensus_2of3_unions',
-                      '4x_Coverage_consensus_2of3_unions', '2x_Coverage_consensus_2of3_unions', 'SNP_Array'],
-            "title": "Statistical Distributions for Union Call Sets"
-        },
-        "CNVpytor": {
-            "sets": ['30x_Coverage_cnvpytor', '6x_Coverage_cnvpytor', 
-                     '4x_Coverage_cnvpytor', '2x_Coverage_cnvpytor', 'SNP_Array'],
-            "title": "Statistical Distributions for CNVpytor Call Sets"
-        },
-        "GATK": {
-            "sets": ['30x_Coverage_gatk', '6x_Coverage_gatk', 
-                     '4x_Coverage_gatk', '2x_Coverage_gatk', 'SNP_Array'],
-            "title": "Statistical Distributions for GATK Call Sets"
-        },
-        "DELLY": {
-            "sets": ['30x_Coverage_delly', '6x_Coverage_delly', 
-                     '4x_Coverage_delly', '2x_Coverage_delly', 'SNP_Array'],
-            "title": "Statistical Distributions for DELLY Call Sets"
-        },
-    }
+    statistical_distribution_input_sets = plots_config.get('statistical_distributions', {})
+    size_distribution_input_sets = plots_config.get('size_distributions', {})
 
-    size_distribution_input_sets = {
-                "30x": {
-            "sets": ['30x_Coverage_consensus_1of3_intersections', '30x_Coverage_consensus_1of3_unions', 
-                '30x_Coverage_consensus_2of3_intersections', '30x_Coverage_consensus_2of3_unions', 
-                '30x_Coverage_consensus_3of3_intersections', '30x_Coverage_consensus_3of3_unions',
-                '30x_Coverage_cnvpytor', '30x_Coverage_gatk', '30x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for 30x Coverage Call Sets"
-        },
-        "6x": {
-            "sets": ['6x_Coverage_consensus_1of3_intersections', '6x_Coverage_consensus_1of3_unions',
-               '6x_Coverage_consensus_2of3_intersections', '6x_Coverage_consensus_2of3_unions',
-               '6x_Coverage_consensus_3of3_intersections', '6x_Coverage_consensus_3of3_unions',
-               '6x_Coverage_cnvpytor', '6x_Coverage_gatk', '6x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for 6x Coverage Call Sets"
-        },
-        "4x": {
-            "sets": ['4x_Coverage_consensus_1of3_intersections', '4x_Coverage_consensus_1of3_unions',
-                        '4x_Coverage_consensus_2of3_intersections', '4x_Coverage_consensus_2of3_unions',
-                        '4x_Coverage_consensus_3of3_intersections', '4x_Coverage_consensus_3of3_unions',
-                        '4x_Coverage_cnvpytor', '4x_Coverage_gatk', '4x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for 4x Coverage Call Sets"
-        },
-        "2x": {
-            "sets": ['2x_Coverage_consensus_1of3_intersections', '2x_Coverage_consensus_1of3_unions',
-                       '2x_Coverage_consensus_2of3_intersections', '2x_Coverage_consensus_2of3_unions',
-                       '2x_Coverage_consensus_3of3_intersections', '2x_Coverage_consensus_3of3_unions',
-                       '2x_Coverage_cnvpytor', '2x_Coverage_gatk', '2x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for 2x Coverage Call Sets"
-        },
-        "30x_no_unions": {
-            "sets": ['30x_Coverage_consensus_1of3_intersections', '30x_Coverage_consensus_2of3_intersections',
-                      '30x_Coverage_consensus_3of3_intersections', '30x_Coverage_cnvpytor', 
-                      '30x_Coverage_gatk', '30x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for 30x Coverage Call Sets"
-        },
-        "6x_no_unions": {
-            "sets": ['6x_Coverage_consensus_1of3_intersections', '6x_Coverage_consensus_2of3_intersections',
-                      '6x_Coverage_consensus_3of3_intersections', '6x_Coverage_cnvpytor', 
-                      '6x_Coverage_gatk', '6x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for 6x Coverage Call Sets"
-        },
-        "4x_no_unions": {
-            "sets": ['4x_Coverage_consensus_1of3_intersections', '4x_Coverage_consensus_2of3_intersections',
-                      '4x_Coverage_consensus_3of3_intersections', '4x_Coverage_cnvpytor', 
-                      '4x_Coverage_gatk', '4x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for 4x Coverage Call Sets"
-        },
-        "2x_no_unions": {
-            "sets": ['2x_Coverage_consensus_1of3_intersections', '2x_Coverage_consensus_2of3_intersections',
-                      '2x_Coverage_consensus_3of3_intersections', '2x_Coverage_cnvpytor', 
-                      '2x_Coverage_gatk', '2x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for 2x Coverage Call Sets"
-        },
-        "Intersections": {
-            "sets": ['30x_Coverage_consensus_2of3_intersections', '6x_Coverage_consensus_2of3_intersections',
-                      '4x_Coverage_consensus_2of3_intersections', '2x_Coverage_consensus_2of3_intersections', 'SNP_Array'],
-            "title": "Size Distributions for Intersection Call Sets"
-        },
-        "Unions": {
-            "sets": ['30x_Coverage_consensus_2of3_unions', '6x_Coverage_consensus_2of3_unions',
-                      '4x_Coverage_consensus_2of3_unions', '2x_Coverage_consensus_2of3_unions', 'SNP_Array'],
-            "title": "Size Distributions for Union Call Sets"
-        },
-        "CNVpytor": {
-            "sets": ['30x_Coverage_cnvpytor', '6x_Coverage_cnvpytor', 
-                     '4x_Coverage_cnvpytor', '2x_Coverage_cnvpytor', 'SNP_Array'],
-            "title": "Size Distributions for CNVpytor Call Sets"
-        },
-        "GATK": {
-            "sets": ['30x_Coverage_gatk', '6x_Coverage_gatk', 
-                     '4x_Coverage_gatk', '2x_Coverage_gatk', 'SNP_Array'],
-            "title": "Size Distributions for GATK Call Sets"
-        },
-        "DELLY": {
-            "sets": ['30x_Coverage_delly', '6x_Coverage_delly', 
-                     '4x_Coverage_delly', '2x_Coverage_delly', 'SNP_Array'],
-            "title": "Size Distributions for DELLY Call Sets"
-        },
-    }
+    caller_source_sets = plots_config.get('caller_source_distribution', {}).get('sets', [])
+    count_venn_input_names = plots_config.get('count_venn_diagrams', [])
 
     # === Step 3-5: Generate All Plots in Parallel ===
     # Define all plotting tasks as partial functions for parallel execution
     plotting_tasks = [
-        # Task 1: Statistical distributions
-        # partial(
-        #     plotter.plot_statistical_distributions,
-        #     input_sets_to_plot=input_sets_to_plot,
-        #     metrics=metrics,
-        #     bounds=(500, 1_000_000),
-        #     output_dir=output_dir / "figures" / "statistical_distributions",
-        #     cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_cumulative_stats.tsv",
-        # ),
-        # # Task 1.5: Statistical distributions for all SV types only
+        # Task 1: Statistical distributions for all SV types only
         partial(
             plotter.plot_statistical_distributions,
             plot_config=statistical_distribution_input_sets,
@@ -316,8 +147,7 @@ def main(config: dict):
         # Task 3: Caller source distribution
         partial(
             plotter.get_caller_source_distribution,
-            input_sets_to_include=['30x_Coverage_consensus_2of3_intersections', '6x_Coverage_consensus_2of3_intersections',
-                                   '4x_Coverage_consensus_2of3_intersections', '2x_Coverage_consensus_2of3_intersections'],
+            input_sets_to_include=caller_source_sets,
             output_file=output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png",
         ),
         # Task 4: Get counts
@@ -336,8 +166,8 @@ def main(config: dict):
                 output_path=spec['output_path'],
             )
         )
-    
-    for input_name in ['30x Coverage', '6x Coverage', '4x Coverage', '2x Coverage']:
+
+    for input_name in count_venn_input_names:
         plotting_tasks.append(
             partial(
                 plotter.plot_count_venn_diagram,
@@ -351,7 +181,7 @@ def main(config: dict):
     print(f"\nExecuting {len(plotting_tasks)} plotting tasks in parallel...")
     with ProcessPoolExecutor(max_workers=len(plotting_tasks)) as executor:
         futures = [executor.submit(task) for task in plotting_tasks]
-        
+
         # Collect results as they complete
         completed = 0
         for future in as_completed(futures):
@@ -368,6 +198,5 @@ def main(config: dict):
 if __name__ == "__main__":
     # Allow running standalone for testing
     config, args = parse_args()
-    
-    main(config)
 
+    main(config)
