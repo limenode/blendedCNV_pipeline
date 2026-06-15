@@ -119,6 +119,8 @@ def main(config: dict):
 
     statistical_distribution_input_sets = plots_config.get('statistical_distributions', {})
     size_distribution_input_sets = plots_config.get('size_distributions', {})
+    statistical_distribution_split_by_svtype_sets = plots_config.get('statistical_distributions_split_by_svtype_sets', {})
+    
 
     caller_source_sets = plots_config.get('caller_source_distribution', {}).get('sets', [])
     count_venn_input_names = plots_config.get('count_venn_diagrams', [])
@@ -136,6 +138,16 @@ def main(config: dict):
             output_dir=output_dir / "figures" / "statistical_distributions_all_only",
             cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_cumulative_stats.tsv",
         ),
+        # Task 1b: Statistical distributions split by SV type
+        partial(
+            plotter.plot_statistical_distributions,
+            plot_config=statistical_distribution_split_by_svtype_sets,
+            metrics=metrics,
+            svtypes=[SVType.DEL, SVType.DUP],
+            bounds=(500, 1_000_000),
+            output_dir=output_dir / "figures" / "statistical_distributions_split_by_svtype",
+            cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_split_by_svtype_cumulative_stats.tsv",
+        ),  
         # Task 2: Size distribution plots
         partial(
             plotter.plot_size_distribution,
@@ -143,6 +155,15 @@ def main(config: dict):
             output_dir=output_dir / "figures" / "size_distributions",
             include_benchmark=True,
             stats_output_path=output_dir / "logs" / "size_distribution_stats.tsv",
+        ),
+        # Task 2b: Size distribtion plots mod 3000
+        partial(
+            plotter.plot_size_distribution,
+            plot_config=size_distribution_input_sets,
+            output_dir=output_dir / "figures" / "size_distributions",
+            include_benchmark=True,
+            stats_output_path=output_dir / "logs" / "size_distribution_stats.tsv",
+            modulus=3000,
         ),
         # Task 3: Caller source distribution
         partial(

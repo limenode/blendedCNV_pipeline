@@ -232,6 +232,48 @@ statistical_distributions:
       - 2x_Coverage_delly
       - SNP_Array
     title: "Statistical Distributions for DELLY Call Sets"
+  
+  Intersections_and_Unions:
+    sets:
+      - 30x_Coverage_consensus_2of3_intersections
+      - 30x_Coverage_consensus_2of3_unions
+      - 6x_Coverage_consensus_2of3_intersections
+      - 6x_Coverage_consensus_2of3_unions
+      - 4x_Coverage_consensus_2of3_intersections
+      - 4x_Coverage_consensus_2of3_unions
+      - 2x_Coverage_consensus_2of3_intersections
+      - 2x_Coverage_consensus_2of3_unions
+    title: "Statistical Distributions for Intersections vs Unions"
+
+statistical_distributions_split_by_svtype_sets:
+  Intersections:
+    sets:
+      - 30x_Coverage_consensus_2of3_intersections
+      - 6x_Coverage_consensus_2of3_intersections
+      - 4x_Coverage_consensus_2of3_intersections
+      - 2x_Coverage_consensus_2of3_intersections
+      - SNP_Array
+    title: "Statistical Distributions for Intersection Call Sets"
+
+  Unions:
+    sets:
+      - 30x_Coverage_consensus_2of3_unions
+      - 6x_Coverage_consensus_2of3_unions
+      - 4x_Coverage_consensus_2of3_unions
+      - 2x_Coverage_consensus_2of3_unions
+      - SNP_Array
+    title: "Statistical Distributions for Union Call Sets"
+  Intersections_and_Unions:
+    sets:
+      - 30x_Coverage_consensus_2of3_intersections
+      - 30x_Coverage_consensus_2of3_unions
+      - 6x_Coverage_consensus_2of3_intersections
+      - 6x_Coverage_consensus_2of3_unions
+      - 4x_Coverage_consensus_2of3_intersections
+      - 4x_Coverage_consensus_2of3_unions
+      - 2x_Coverage_consensus_2of3_intersections
+      - 2x_Coverage_consensus_2of3_unions
+    title: "Statistical Distributions for Intersections vs Unions"
 
 # Size distribution plot groups
 # output figures placed under <output_dir>/figures/size_distributions/

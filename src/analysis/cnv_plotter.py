@@ -278,9 +278,14 @@ def _plot_single_metric_distribution_worker(
         ax.set_xlabel("CNV Size (bp)", fontsize=12)
         ax.set_ylabel(metric_name, fontsize=12)
         
-        # Create title with metric name and distribution type
+        # Create title with metric name and distribution type. A config-provided
+        # title is treated as a base/prefix; the metric and distribution type are
+        # always appended so each metric x dist_type plot in a group is distinct.
         dist_type_name = dist_type.value.replace('_', ' ').title() if hasattr(dist_type, 'value') else str(dist_type).replace('_', ' ').title()
-        plot_title = f"{metric_name} by CNV Size - {dist_type_name}" if title is None else title
+        if title is None:
+            plot_title = f"{metric_name} by CNV Size - {dist_type_name}"
+        else:
+            plot_title = f"{title} - {metric_name} - {dist_type_name}"
         ax.set_title(plot_title, fontsize=14, fontweight='bold')
         
         ax.legend(fontsize=9, title_fontsize=10, loc='best')
@@ -1174,6 +1179,17 @@ class CNVPlotter:
             print(f"  Combination {comb}: {count} ({detected:.1f}% of detected, {pct_truth:.1f}% of truth)")
             print(f"    - {pct_each_method_str}")
 
+    @staticmethod
+    def _apply_size_xlim(ax, min_size: float, max_size: float, use_log: bool) -> None:
+        """Set x-axis limits for size plots, padding additively on a linear
+        (modular) scale and multiplicatively on a log scale."""
+        if use_log:
+            ax.set_xlim(min_size * 0.9, max_size * 1.1)
+        else:
+            span = max_size - min_size
+            pad = span * 0.05 if span > 0 else 1.0
+            ax.set_xlim(min_size - pad, max_size + pad)
+
     def plot_size_distribution(
         self,
         plot_config: Dict[str, dict],
@@ -1182,10 +1198,11 @@ class CNVPlotter:
         output_dir: Optional[str | Path] = None,
         include_benchmark: bool = True,
         stats_output_path: Optional[str | Path] = None,
+        modulus: Optional[float] = None,
     ):
         """
         Generate size distribution plots (bin density and KDE) for CNVs.
-        
+
         Args:
             plot_config: Dict mapping plot group name -> list of input set keys
             svtype: SV type to filter by (DEL, DUP, or ALL)
@@ -1193,13 +1210,34 @@ class CNVPlotter:
             output_dir: Directory to save plots (if None, plots will be shown)
             include_benchmark: Whether to include benchmark truth set in plots
             stats_output_path: Path to save size summary stats table (csv/tsv)
+            modulus: If provided, each CNV size x is transformed to ``x % modulus``
+                before binning/KDE. This collapses sizes into a [0, modulus) range
+                to reveal periodicity. The x-axis is plotted on a linear scale when
+                set (log scale is meaningless for modular residues).
         """
+
+        if modulus is not None and modulus <= 0:
+            raise ValueError(f"modulus must be a positive value, got {modulus}.")
 
         input_sets = self.data.get('input_sets', {})
         input_sets_keys = set(input_sets.keys())
 
+        # Modulus controls axis scaling, labels and output file/title naming.
+        use_log = modulus is None
+        if modulus is None:
+            modulus_label = ""
+            mod_suffix = ""
+            mod_title = ""
+        else:
+            modulus_label = f"{int(modulus)}" if float(modulus).is_integer() else f"{modulus}"
+            mod_suffix = f"_mod{modulus_label}"
+            mod_title = f" [mod {modulus_label}]"
+        x_axis_label = f"Size mod {modulus_label} (bp)" if modulus is not None else "Size (bp)"
+
         # Create a string representation of the SV type for titles and filenames.
         svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
+        # Combined suffix for output filenames (svtype + modulus).
+        file_suffix = svtype_str.replace(' ', '_') + mod_suffix
 
         # Prepare output directory
         if output_dir:
@@ -1284,6 +1322,11 @@ class CNVPlotter:
 
         all_data_df = pd.concat(all_data, ignore_index=True)
 
+        # Collapse sizes into [0, modulus) so the bin/KDE analysis runs on the
+        # modular residues rather than the raw sizes.
+        if modulus is not None:
+            all_data_df['size'] = all_data_df['size'] % modulus
+
         # Build a single summary stats table across all unique input sets.
         size_stats_df = (
             all_data_df
@@ -1317,8 +1360,7 @@ class CNVPlotter:
         if stats_output_path:
             resolved_stats_output = Path(stats_output_path)
         elif output_dir:
-            stats_suffix = svtype_str.replace(' ', '_')
-            resolved_stats_output = output_dir / f"size_distribution_stats{stats_suffix}.tsv"
+            resolved_stats_output = output_dir / f"size_distribution_stats{file_suffix}.tsv"
 
         if resolved_stats_output:
             resolved_stats_output.parent.mkdir(parents=True, exist_ok=True)
@@ -1366,11 +1408,11 @@ class CNVPlotter:
             if title is None:
                 title_suffix = " (with Benchmark)" if include_benchmark else ""
                 title_prefix = f"{plot_group_name}: " if plot_group_name else ""
-                title_binned = f"{title_prefix}CNV Size Distribution - Binned Density {title_svtype}{title_suffix}"
-                title_kde = f"{title_prefix}CNV Size Distribution (KDE) {title_svtype}{title_suffix}"
+                title_binned = f"{title_prefix}CNV Size Distribution - Binned Density {title_svtype}{mod_title}{title_suffix}"
+                title_kde = f"{title_prefix}CNV Size Distribution (KDE) {title_svtype}{mod_title}{title_suffix}"
             else:
-                title_binned = f"{title} - Binned Density{title_svtype}"
-                title_kde = f"{title} - KDE{title_svtype}"
+                title_binned = f"{title} - Binned Density{title_svtype}{mod_title}"
+                title_kde = f"{title} - KDE{title_svtype}{mod_title}"
 
 
             # ==================== PLOT 1: BINNED DENSITY ====================
@@ -1380,7 +1422,7 @@ class CNVPlotter:
                 data=plot_df,
                 x='size',
                 hue='source',
-                log_scale=True,
+                log_scale=use_log,
                 element='step',
                 stat='density',
                 common_norm=False,
@@ -1389,9 +1431,9 @@ class CNVPlotter:
                 ax=ax
             )
 
-            ax.set_xlabel("Size (bp)", fontsize=12)
+            ax.set_xlabel(x_axis_label, fontsize=12)
             ax.set_ylabel("Density", fontsize=12)
-            ax.set_xlim(min_size * 0.9, max_size * 1.1)
+            self._apply_size_xlim(ax, min_size, max_size, use_log)
             ax.set_title(
                 title_binned,
                 fontsize=14,
@@ -1412,7 +1454,7 @@ class CNVPlotter:
             plt.tight_layout()
 
             if output_subdir:
-                density_path = output_subdir / f"size_distribution_binned_density{svtype_str.replace(' ', '_')}.png"
+                density_path = output_subdir / f"size_distribution_binned_density{file_suffix}.png"
                 plt.savefig(density_path, dpi=300, bbox_inches='tight')
                 print(f"✓ Binned density plot saved to: {density_path}")
             else:
@@ -1426,7 +1468,7 @@ class CNVPlotter:
                 data=plot_df,
                 x='size',
                 hue='source',
-                log_scale=True,
+                log_scale=use_log,
                 common_norm=False,
                 fill=True,
                 alpha=0.4,
@@ -1435,9 +1477,9 @@ class CNVPlotter:
                 ax=ax
             )
 
-            ax.set_xlabel("Size (bp)", fontsize=12)
+            ax.set_xlabel(x_axis_label, fontsize=12)
             ax.set_ylabel("Density", fontsize=12)
-            ax.set_xlim(min_size * 0.9, max_size * 1.1)
+            self._apply_size_xlim(ax, min_size, max_size, use_log)
             ax.set_title(
                 title_kde,
                 fontsize=14,
@@ -1458,7 +1500,7 @@ class CNVPlotter:
             plt.tight_layout()
 
             if output_subdir:
-                kde_path = output_subdir / f"size_distribution_kde{svtype_str.replace(' ', '_')}.png"
+                kde_path = output_subdir / f"size_distribution_kde{file_suffix}.png"
                 plt.savefig(kde_path, dpi=300, bbox_inches='tight')
                 print(f"✓ KDE saved to: {kde_path}")
             else:

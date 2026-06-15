@@ -175,7 +175,7 @@ def build_analysis_data_structure(binary_classification_dir: Path, samples_to_in
             print(f"Skipping sample {sample_id} (not in specified sample list)")
             continue
 
-        print(f"Loading data for sample: {sample_id}")
+        # print(f"Loading data for sample: {sample_id}")
         sample_data = load_sample_data(sample_id, sample_files)
         
         # Add to classification collections
