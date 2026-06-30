@@ -9,6 +9,7 @@ import numpy as np
 
 from analysis.load_analysis_data import build_analysis_data_structure, filter_by_size
 from analysis.cnv_plotter import _create_record_ids
+from output_layout import OutputLayout
     
 
 def load_data_for_all_input_sets(
@@ -209,7 +210,7 @@ def get_counts_from_config(config: Dict,
     if not output_dir:
         print("Warning: 'output_dir' not specified in config.")
         return {}, {}
-    output_dir = Path(output_dir)
+    layout = OutputLayout(Path(output_dir))
 
     consensus_types = ['consensus_1of3', 'consensus_2of3', 'consensus_3of3']
 
@@ -220,19 +221,19 @@ def get_counts_from_config(config: Dict,
     input_sets = config.get('input', {})
     for key, path in input_sets.items():
         for consensus_type in consensus_types:
-            output_subdir = output_dir / key.replace(" ", "_") / consensus_type
+            output_subdir = layout.set_dir(key) / consensus_type
             sets_to_process[f"{key}.{consensus_type}"] = output_subdir
             input_names.append(f"{key}.{consensus_type}")
-    
+
     controls = config.get('control', {})
     for key, path in controls.items():
-        output_subdir = output_dir / key.replace(" ", "_") / "bed"
+        output_subdir = layout.control_bed_dir(key)
         sets_to_process[key] = output_subdir
         control_names.append(key)
-    
+
     benchmarks = config.get('benchmark_map', {})
     if benchmarks:
-        sets_to_process['Benchmark'] = output_dir / "benchmark_parsing" / "merged"
+        sets_to_process['Benchmark'] = layout.benchmark
 
     script_path = Path("./src/get_bed_counts.sh")
 

@@ -13,6 +13,7 @@ from pybedtools import BedTool
 from liftover import get_lifter
 from utils import ensure_chr_prefix, sanitize_svtype
 from cnv_parser import CNVParser
+from output_layout import OutputLayout
 
 def perform_liftover(
     input: pd.DataFrame, 
@@ -153,7 +154,7 @@ def _process_single_vcf(
     return stats
 
 def parse_vcfs_to_bed(config: dict) -> dict | None:
-    output_dir = Path(config['output_dir'])
+    layout = OutputLayout(Path(config['output_dir']))
     liftover_stats = defaultdict(dict)
     futures_to_meta = {}
 
@@ -172,7 +173,7 @@ def parse_vcfs_to_bed(config: dict) -> dict | None:
                     'samples': {}
                 }
 
-            output_subdir = output_dir / key.replace(" ", "_")
+            output_subdir = layout.set_dir(key)
             os.makedirs(output_subdir, exist_ok=True)
 
             cnv_parser = CNVParser(input_map)
@@ -185,7 +186,7 @@ def parse_vcfs_to_bed(config: dict) -> dict | None:
 
             for tool, id_path_pair in all_vcf_files.items():
                 for sample_id, vcf_path in id_path_pair:
-                    output_prefix = str(output_subdir / "bed" / tool / sample_id)
+                    output_prefix = str(layout.bed_dir(key, tool) / sample_id)
                     os.makedirs(Path(output_prefix).parent, exist_ok=True)
 
                     future = executor.submit(
@@ -214,17 +215,15 @@ def parse_control_to_bed(config: dict) -> dict | None:
     if 'control' not in config:
         print("No control datasets found in config. Skipping control processing.")
         return
-    
-    output_dir = Path(config['output_dir'])
-    
+
+    layout = OutputLayout(Path(config['output_dir']))
+
     # Collect samples of interest from consensus calls directories
     samples_of_interest = set()
     for key in config['input'].keys():
-        output_subdir_name = key.replace(" ", "_")
-        
         # Check both intersections and unions directories
         for consensus_type in ['intersections', 'unions']:
-            consensus_dir = output_dir / output_subdir_name / "consensus_2of3" / consensus_type
+            consensus_dir = layout.consensus_rep_dir(key, 2, consensus_type)
             if consensus_dir.exists():
                 for file_path in consensus_dir.glob('*.bed'):
                     # Extract sample ID (string before first dot)
@@ -252,8 +251,7 @@ def parse_control_to_bed(config: dict) -> dict | None:
             }
         
         # Create output directory
-        output_subdir_name = control_name.replace(" ", "_")
-        output_subdir = output_dir / output_subdir_name / "bed"
+        output_subdir = layout.control_bed_dir(control_name)
         os.makedirs(output_subdir, exist_ok=True)
         
         # Parse PennCNV file
@@ -288,8 +286,8 @@ def parse_control_to_bed(config: dict) -> dict | None:
         # Group by sample and export to BED files
         for sample_id, sample_df in df.groupby('sample_id'):
 
-            # Append source (output_subdir_name.lower()) to the dataframes
-            sample_df['source'] = output_subdir_name.lower()
+            # Append source (sanitized control name, lowercased) to the dataframes
+            sample_df['source'] = control_name.replace(" ", "_").lower()
 
             # Export DEL and DUP separately
             del_df = sample_df[sample_df['svtype'] == 'DEL'][['chrom', 'start', 'end', 'svtype', 'source']]
@@ -616,7 +614,9 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     if 'benchmark_map' not in config:
         print("No benchmark map found in config. Skipping benchmark parsing.")
         return pd.DataFrame(), None
-    
+
+    layout = OutputLayout(Path(config['output_dir']))
+
     # Get common samples only
     sample_sets = []
     for _, vcf_path in config['benchmark_map'].items():
@@ -690,7 +690,7 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     
     # Split across samples and merge nearby/overlapping records within each sample
     items = []
-    output_dir = Path(config['output_dir']) / "benchmark_parsing" / "merged"
+    output_dir = layout.benchmark
     os.makedirs(output_dir, exist_ok=True)
     for (sample_id, svtype), sample_df in sample_df.groupby(['sample_id', 'svtype']):
         items.append((
@@ -730,7 +730,7 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     # Write DEL and DUP files for each sample
     print("Exporting merged benchmarks to BED files...")
 
-    output_dir = Path(config['output_dir']) / "benchmark_parsing" / "merged"
+    output_dir = layout.benchmark
     os.makedirs(output_dir, exist_ok=True)
     for (sample_id, svtype), group_df in merged_sample_df.groupby(['sample_id', 'svtype']):
         sample_id_str = str(sample_id)

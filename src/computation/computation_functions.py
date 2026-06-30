@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import List, Tuple
 from concurrent.futures import ProcessPoolExecutor
 
+from output_layout import OutputLayout
+
 def _run_subprocess_with_command(command: List[str]) -> None:
     subprocess.run(command, check=True)
 
@@ -16,7 +18,7 @@ def run_binary_classification_script(
         config: Configuration dictionary loaded from YAML
         sets_for_classification: List of tuples containing (input_path, output_path) for classification
     """
-    output_dir = Path(config['output_dir'])
+    layout = OutputLayout(Path(config['output_dir']))
     commands: List[List[str]] = []
 
     for input_path, output_path in sets_for_classification:
@@ -28,7 +30,7 @@ def run_binary_classification_script(
             "./src/get_binary_classification.sh",
             input_path,
             output_path,
-            str(output_dir / "benchmark_parsing" / "merged"),
+            str(layout.benchmark),
             config['genome_file'],
             str(config.get('matching_reciprocal_threshold', 0.5))
         ])
