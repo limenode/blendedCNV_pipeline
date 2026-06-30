@@ -1,41 +1,7 @@
 import os
 from pathlib import Path
 import json
-from cnv_parser import CNVParser
 import subprocess
-
-def convert_vcfs_to_bed(config: dict):
-    output_dir = Path(config['output_dir'])
-
-    # For each input set, create a CNVParser instance and convert VCF files to BED format
-    for key, input_map in config['input'].items():
-        print(f"Converting input set: {key}")
-
-        # Remove whitespace from key to create a valid directory name
-        output_subdir_name = key.replace(" ", "_")
-        output_subdir = output_dir / output_subdir_name
-        os.makedirs(output_subdir, exist_ok=True)
-
-        # Create CNVParser instance and get all VCF files
-        cnv_parser = CNVParser(input_map)
-        all_vcf_files = cnv_parser.get_all_vcf_files()
-
-        # Convert all VCF files and export to files
-        for tool, id_path_pair in all_vcf_files.items():
-            for sample_id, vcf_path in id_path_pair:
-                data = cnv_parser.convert_vcf_to_bed(vcf_path)
-
-                # Export to file
-                output_prefix = output_subdir / "bed" / tool / sample_id
-                os.makedirs(output_prefix.parent, exist_ok=True)
-                output_prefix = str(output_prefix)
-
-                data[data["svtype"] == "DEL"].to_csv(
-                    output_prefix + ".DEL.bed", sep="\t", index=False, header=False
-                )
-                data[data["svtype"] == "DUP"].to_csv(
-                    output_prefix + ".DUP.bed", sep="\t", index=False, header=False
-            )
 
 def run_consensus_calls_script(config: dict):
     output_dir = Path(config['output_dir'])
@@ -74,8 +40,7 @@ def run_consensus_calls_script(config: dict):
             "./src/consensus_scripts/get_1of3_calls.sh",
             *tools_and_names,
             str(output_subdir / "consensus_1of3"),
-            config['genome_file'],
-            str(config.get('excluded_regions_file', "-"))
+            config['genome_file']
         ]
         subprocess.run(command, check=True)
 
@@ -85,7 +50,6 @@ def run_consensus_calls_script(config: dict):
             *tools_and_names,
             str(output_subdir / "consensus_2of3"),
             config['genome_file'],
-            str(config.get('excluded_regions_file', "-")),
             str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
         subprocess.run(command, check=True)
@@ -96,7 +60,6 @@ def run_consensus_calls_script(config: dict):
             *tools_and_names,
             str(output_subdir / "consensus_3of3"),
             config['genome_file'],
-            str(config.get('excluded_regions_file', "-")),
             str(config.get('consensus_reciprocal_threshold', 0.5))
         ]
         subprocess.run(command, check=True)

@@ -10,11 +10,10 @@ tool_3_name=$5
 tool_3_dir=$6
 outdir=$7
 genome_file=$8
-excluded_regions_file="${9:-}"
 
 mkdir -p "$outdir/intersections" "$outdir/unions"
 
-export outdir tool_1_name tool_1_dir tool_2_name tool_2_dir tool_3_name tool_3_dir genome_file excluded_regions_file
+export outdir tool_1_name tool_1_dir tool_2_name tool_2_dir tool_3_name tool_3_dir genome_file
 
 process_file() {
     local file="$1"
