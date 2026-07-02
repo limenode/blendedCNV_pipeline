@@ -1,5 +1,5 @@
 """
-BlendedCNV Pipeline - Main Entry Point
+BlendedCNV Pipeline - Entry Point
 
 This script orchestrates the complete CNV analysis pipeline:
 1. Computation: VCF conversion, consensus calling, benchmarking
@@ -14,40 +14,29 @@ from analysis.analysis_driver import main as analysis_main
 
 def main():
     """
-    Main pipeline entry point.
-    Runs computation pipeline followed by analysis pipeline.
+    Pipeline entry point.
     """
     # Parse command-line arguments
     config = parse_args()
 
-    print("\n" + "="*80)
-    print("BLENDEDCNV PIPELINE - STARTING")
-    print("="*80)
+    print("\n" + "="*80 + "\nBLENDEDCNV PIPELINE\n" + "="*80)
 
     # Step 1: Run processing pipeline
     if config.do_processing:
-        print("\n" + "="*80)
-        print("PHASE 1: PROCESSING PIPELINE")
-        print("="*80)
+        print("\n" + "="*80 + "\nPHASE 1: PROCESSING PIPELINE\n" + "="*80)
         processing_main(config)
 
     # Step 2: Run computation pipeline
     if config.do_computation:
-        print("\n" + "="*80)
-        print("PHASE 2: COMPUTATION PIPELINE")
-        print("="*80)
+        print("\n" + "="*80 + "\nPHASE 2: COMPUTATION PIPELINE\n" + "="*80)
         computation_main(config)
 
     # Step 3: Run analysis pipeline
     if config.do_analysis:
-        print("\n" + "="*80)
-        print("PHASE 3: ANALYSIS PIPELINE")
-        print("="*80)
+        print("\n" + "="*80 + "\nPHASE 3: ANALYSIS PIPELINE\n" + "="*80)
         analysis_main(config)
     
-    print("\n" + "="*80)
-    print("BLENDEDCNV PIPELINE - COMPLETE")
-    print("="*80)
+    print("\n" + "="*80 + "\nPIPELINE COMPLETED SUCCESSFULLY\n" + "="*80)
     print(f"\nResults available in: {config.output_dir}")
 
 
