@@ -1,19 +1,17 @@
-from pathlib import Path
 import json
 
 from parsing_functions import parse_control_to_bed, parse_benchmarks_to_bed
-from utils import parse_args
+from utils import parse_args, PipelineConfig
 from computation.computation_functions import run_binary_classification_script
-from output_layout import OutputLayout
 
-def main(config: dict):
+def main(config: PipelineConfig):
     """
     Main computation pipeline.
 
     Args:
-        config: Configuration dictionary loaded from YAML
+        config: Parsed pipeline configuration
     """
-    layout = OutputLayout(Path(config['output_dir']))
+    layout = config.layout
 
     print("\nStep 3: Processing control datasets (SNP Array)...")
     control_liftover_results = parse_control_to_bed(config)
@@ -35,7 +33,7 @@ def main(config: dict):
 
     print("\nStep 6: Running binary classification script...")
     bin_class_sets = []
-    for key, input_map in config['input'].items():
+    for key, input_map in config.input.items():
         # Add the consensus call sets (intersections, then unions) for classification
         for representation in ("intersections", "unions"):
             for level in (1, 2, 3):
@@ -53,7 +51,7 @@ def main(config: dict):
             ))
 
     # Add control datasets to the sets for classification
-    for key in config['control'].keys():
+    for key in config.control.keys():
         bin_class_sets.append((
             str(layout.control_bed_dir(key)),
             str(layout.control_classification_dir(key)),
@@ -64,5 +62,5 @@ def main(config: dict):
 
 if __name__ == "__main__":
     # Allow running standalone for testing
-    config, args = parse_args()
+    config = parse_args()
     main(config)

@@ -1,6 +1,7 @@
 import argparse
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Tuple, Optional
+from typing import List, Tuple, Optional
 import numpy as np
 from enum import Enum
 import yaml
@@ -8,6 +9,8 @@ import requests
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 import os
+
+from output_layout import OutputLayout
 
 class DistributionType(Enum):
     DENSITY = "density"
@@ -19,7 +22,57 @@ class SVType(Enum):
     DUP = "DUP"
     ALL = "ALL"
 
-def parse_args() -> tuple[dict[str, Any], argparse.Namespace]:
+
+@dataclass(frozen=True)
+class PipelineConfig:
+    """Parsed, validated pipeline configuration. Built once in ``parse_args()``."""
+
+    # --- Required ---
+    input: dict                       # set_key -> {tool_label: glob_pattern}
+    output_dir: Path
+    genome_file: str                  # passed to shell scripts as a path string
+    layout: OutputLayout              # derived from output_dir
+
+    # --- Optional sections (empty/None if absent) ---
+    control: dict = field(default_factory=dict)
+    benchmark_map: dict = field(default_factory=dict)
+    liftover: dict = field(default_factory=dict)
+    valid_chromosomes: set = field(default_factory=set)
+    excluded_regions_file: Optional[str] = None
+    analysis_plots_config: Optional[str] = None
+
+    # --- Thresholds ---
+    consensus_reciprocal_threshold: float = 0.5
+    matching_reciprocal_threshold: float = 0.5
+
+    # --- Phase gating (resolved from CLI flags in parse_args) ---
+    do_processing: bool = True
+    do_computation: bool = False
+    do_analysis: bool = False
+
+    @classmethod
+    def from_raw(cls, raw: dict, *, do_processing: bool,
+                 do_computation: bool, do_analysis: bool) -> "PipelineConfig":
+        output_dir = Path(raw['output_dir'])
+        return cls(
+            input=raw.get('input', {}),
+            output_dir=output_dir,
+            genome_file=raw['genome_file'],
+            layout=OutputLayout(output_dir),
+            control=raw.get('control', {}),
+            benchmark_map=raw.get('benchmark_map', {}),
+            liftover=raw.get('liftover', {}),
+            valid_chromosomes=raw.get('valid_chromosomes', set()),
+            excluded_regions_file=raw.get('excluded_regions_file') or None,
+            analysis_plots_config=raw.get('analysis_plots_config'),
+            consensus_reciprocal_threshold=raw.get('consensus_reciprocal_threshold', 0.5),
+            matching_reciprocal_threshold=raw.get('matching_reciprocal_threshold', 0.5),
+            do_processing=do_processing,
+            do_computation=do_computation,
+            do_analysis=do_analysis,
+        )
+
+def parse_args() -> PipelineConfig:
     parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
     parser.add_argument('config', type=Path, help='Path to configuration YAML file')
     parser.add_argument('--run-benchmark', action='store_true', help='Whether to run benchmarking after processing')
@@ -58,8 +111,17 @@ def parse_args() -> tuple[dict[str, Any], argparse.Namespace]:
             print(f"Loaded {len(valid_chromosomes)} valid chromosomes from {genome_file}")
         else:
             print(f"Warning: Genome file {genome_file} not found. Chromosome validation will be skipped.")
-    
-    return config, args
+
+    do_processing  = not (args.only_compute or args.only_analyze)
+    do_computation = args.run_benchmark and not (args.only_process or args.only_analyze)
+    do_analysis    = args.run_benchmark and not (args.only_process or args.only_compute)
+
+    return PipelineConfig.from_raw(
+        config,
+        do_processing=do_processing,
+        do_computation=do_computation,
+        do_analysis=do_analysis,
+    )
 
 def _is_url(path: str) -> bool:
     """Check if a path is a URL."""

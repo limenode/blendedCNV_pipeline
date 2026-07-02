@@ -9,7 +9,7 @@ import numpy as np
 
 from analysis.load_analysis_data import build_analysis_data_structure, filter_by_size
 from analysis.cnv_plotter import _create_record_ids
-from output_layout import OutputLayout
+from utils import PipelineConfig
     
 
 def load_data_for_all_input_sets(
@@ -184,7 +184,7 @@ def get_bed_counts(directory: Path,
     # Parse and return JSON output
     return json.loads(result.stdout)
 
-def get_counts_from_config(config: Dict, 
+def get_counts_from_config(config: PipelineConfig,
                            bounds: Optional[Tuple[int, int]] = None,
                            samples: Optional[List[str]] = None) -> Tuple[dict, dict]:
     """
@@ -204,13 +204,8 @@ def get_counts_from_config(config: Dict,
         - post_processed_results: Dictionary with aggregated counts by svtype 
     """
     results = {}
-    
-    # Get parameters from config
-    output_dir = config.get('output_dir', '')
-    if not output_dir:
-        print("Warning: 'output_dir' not specified in config.")
-        return {}, {}
-    layout = OutputLayout(Path(output_dir))
+
+    layout = config.layout
 
     consensus_types = ['consensus_1of3', 'consensus_2of3', 'consensus_3of3']
 
@@ -218,21 +213,18 @@ def get_counts_from_config(config: Dict,
     input_names = []
     control_names = []
 
-    input_sets = config.get('input', {})
-    for key, path in input_sets.items():
+    for key, path in config.input.items():
         for consensus_type in consensus_types:
             output_subdir = layout.set_dir(key) / consensus_type
             sets_to_process[f"{key}.{consensus_type}"] = output_subdir
             input_names.append(f"{key}.{consensus_type}")
 
-    controls = config.get('control', {})
-    for key, path in controls.items():
+    for key, path in config.control.items():
         output_subdir = layout.control_bed_dir(key)
         sets_to_process[key] = output_subdir
         control_names.append(key)
 
-    benchmarks = config.get('benchmark_map', {})
-    if benchmarks:
+    if config.benchmark_map:
         sets_to_process['Benchmark'] = layout.benchmark
 
     script_path = Path("./src/get_bed_counts.sh")

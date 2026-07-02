@@ -1,12 +1,11 @@
 import os
-from pathlib import Path
 import json
 import subprocess
 
-from output_layout import OutputLayout
+from utils import PipelineConfig
 
-def run_consensus_calls_script(config: dict):
-    layout = OutputLayout(Path(config['output_dir']))
+def run_consensus_calls_script(config: PipelineConfig):
+    layout = config.layout
     results = {
         "consensus_1of3": {},
         "consensus_2of3": {},
@@ -14,7 +13,7 @@ def run_consensus_calls_script(config: dict):
     }
     consensus_types = ["consensus_1of3", "consensus_2of3", "consensus_3of3"]
 
-    for key, input_map in config['input'].items():
+    for key, input_map in config.input.items():
         print(f"Running consensus calls script for input set: {key}")
 
         tool_list = list(input_map.keys())
@@ -39,7 +38,7 @@ def run_consensus_calls_script(config: dict):
             "./src/consensus_scripts/get_1of3_calls.sh",
             *tools_and_names,
             str(layout.consensus_dir(key, 1)),
-            config['genome_file']
+            config.genome_file
         ]
         subprocess.run(command, check=True)
 
@@ -48,8 +47,8 @@ def run_consensus_calls_script(config: dict):
             "./src/consensus_scripts/get_2of3_calls.sh",
             *tools_and_names,
             str(layout.consensus_dir(key, 2)),
-            config['genome_file'],
-            str(config.get('consensus_reciprocal_threshold', 0.5))
+            config.genome_file,
+            str(config.consensus_reciprocal_threshold)
         ]
         subprocess.run(command, check=True)
 
@@ -58,8 +57,8 @@ def run_consensus_calls_script(config: dict):
             "./src/consensus_scripts/get_3of3_calls.sh",
             *tools_and_names,
             str(layout.consensus_dir(key, 3)),
-            config['genome_file'],
-            str(config.get('consensus_reciprocal_threshold', 0.5))
+            config.genome_file,
+            str(config.consensus_reciprocal_threshold)
         ]
         subprocess.run(command, check=True)
 

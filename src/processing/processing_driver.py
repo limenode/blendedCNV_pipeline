@@ -1,13 +1,11 @@
 import json
-from pathlib import Path
 
-from utils import parse_args
+from utils import parse_args, PipelineConfig
 from parsing_functions import parse_vcfs_to_bed
 from processing.processing_functions import run_consensus_calls_script
-from output_layout import OutputLayout
 
-def main(config: dict):
-    layout = OutputLayout(Path(config['output_dir']))
+def main(config: PipelineConfig):
+    layout = config.layout
 
     print("\nStep 1: Converting VCF files to BED format...")
     input_liftover_results = parse_vcfs_to_bed(config)
@@ -24,5 +22,5 @@ def main(config: dict):
 
 if __name__ == "__main__":
     # Allow running standalone for testing
-    config, args = parse_args()
+    config = parse_args()
     main(config)

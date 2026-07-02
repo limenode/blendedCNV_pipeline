@@ -15,7 +15,7 @@ from matplotlib.patches import Rectangle
 import os
 
 from analysis.load_analysis_data import filter_by_size
-from utils import generate_size_intervals, DistributionType, SVType
+from utils import generate_size_intervals, DistributionType, SVType, PipelineConfig
 
 # Module-level helper function for multiprocessing
 def _create_record_ids(df: pd.DataFrame, classification: str, svtype: SVType = SVType.ALL) -> set:
@@ -369,7 +369,7 @@ def _filter_svtype(df: pd.DataFrame, svtype: SVType) -> pd.DataFrame:
     return df
 
 class CNVPlotter:
-    def __init__(self, data: dict, config: dict, input_name_mapping: dict):
+    def __init__(self, data: dict, config: PipelineConfig, input_name_mapping: dict):
         self.data = data
         self.config = config
         self.input_name_mapping = input_name_mapping
@@ -688,7 +688,7 @@ class CNVPlotter:
     
     def plot_count_venn_diagram(
         self,
-        config: dict,
+        config: PipelineConfig,
         input_set_key: str,
         bounds: Optional[Tuple[float, float]] = None,
         svtype: SVType = SVType.ALL,
@@ -699,19 +699,19 @@ class CNVPlotter:
         Plot caller overlap counts from TP+FP records in a 1-of-3 consensus input set.
 
         This function expects exactly three caller names under:
-        config['input'][input_set_key].keys()
+        config.input[input_set_key].keys()
         and uses TP/FP rows from:
         self.data['input_sets'][f"{input_set_key}_consensus_1of3_intersections"]
         """
-        input_cfg = config.get('input', {}).get(input_set_key)
+        input_cfg = config.input.get(input_set_key)
         if input_cfg is None:
-            print(f"Error: input_set_key '{input_set_key}' not found under config['input'].")
+            print(f"Error: input_set_key '{input_set_key}' not found under config.input.")
             return
 
         caller_names = list(input_cfg.keys())
         if len(caller_names) != 3:
             print(
-                f"Error: Expected exactly 3 callers in config['input']['{input_set_key}'], "
+                f"Error: Expected exactly 3 callers in config.input['{input_set_key}'], "
                 f"found {len(caller_names)}: {caller_names}"
             )
             return

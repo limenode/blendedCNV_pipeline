@@ -1,19 +1,9 @@
-"""Single source of truth for the pipeline's output directory tree.
+"""Pipeline's output directory tree.
 
 Every producer and consumer should build paths through ``OutputLayout`` instead
 of concatenating strings, so the on-disk contract lives in exactly one place.
 
-The layout is pure: it computes paths and never creates directories — callers
-keep doing their own ``mkdir``. This keeps it trivial to read and test.
-
-Seam with the shell scripts: the consensus scripts receive a ``consensus_<k>of3``
-directory as an argument and themselves create the ``intersections/`` and
-``unions/`` subdirectories (and the per-sample file names). ``OutputLayout``
-therefore owns the tree down to :meth:`consensus_dir`; :meth:`consensus_rep_dir`
-mirrors the subdirectories the scripts produce so Python consumers can find them.
-
-This is the Phase-1 layout: every path is identical to the current build. Change
-the tree by editing method bodies here, not the call sites.
+The layout computes paths and never creates directories.
 """
 
 from __future__ import annotations
@@ -58,17 +48,6 @@ class OutputLayout:
 
     def figure_group(self, name: str) -> Path:
         return self.figures / name
-
-    # ------------------------------------------------------------------ #
-    # Global summary files (currently emitted at the root, beside logs/)
-    # ------------------------------------------------------------------ #
-    @property
-    def counts_summary(self) -> Path:
-        return self.root / "analysis_counts_summary.json"
-
-    @property
-    def counts_summary_all(self) -> Path:
-        return self.root / "analysis_counts_summary_all.json"
 
     # ------------------------------------------------------------------ #
     # Named figure groups (as currently emitted under figures/)

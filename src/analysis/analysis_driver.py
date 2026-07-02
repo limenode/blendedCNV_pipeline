@@ -4,14 +4,13 @@ import yaml
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
-from utils import parse_args, f0_5_score, f2_score, precision, recall, f1_score, SVType
+from utils import parse_args, PipelineConfig, f0_5_score, f2_score, precision, recall, f1_score, SVType
 from analysis.cnv_plotter import CNVPlotter
 from analysis.analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
-from output_layout import OutputLayout
 
 
-def _load_plots_config(config: dict) -> dict:
-    plots_config_path = config.get('analysis_plots_config')
+def _load_plots_config(config: PipelineConfig) -> dict:
+    plots_config_path = config.analysis_plots_config
     if not plots_config_path:
         print("No analysis_plots_config defined in configuration. Skipping plot generation.")
         return {}
@@ -23,12 +22,12 @@ def _load_plots_config(config: dict) -> dict:
         return yaml.safe_load(f)
 
 
-def main(config: dict):
-    if 'input' not in config:
+def main(config: PipelineConfig):
+    if not config.input:
         print("No input sets defined in configuration. Exiting analysis pipeline.")
         return
 
-    if 'benchmark_map' not in config:
+    if not config.benchmark_map:
         print("No benchmark map defined in configuration. Skipping benchmark analysis.")
         return
 
@@ -41,17 +40,17 @@ def main(config: dict):
     input_name_mapping = {}
 
     # Get all input set keys
-    input_sets_raw = list(config['input'].keys())
+    input_sets_raw = list(config.input.keys())
     print(f"Available input sets: {input_sets_raw}")
 
     # Append each caller, "Intersection", and "Union" to input set keys for binary classification results
-    output_dir = Path(config['output_dir'])
-    layout = OutputLayout(output_dir)
+    output_dir = config.output_dir
+    layout = config.layout
     for key in input_sets_raw:
         key_path = key.replace(" ", "_")
         input_set_subdir = layout.classification_root(key)
 
-        for caller in config['input'][key].keys():
+        for caller in config.input[key].keys():
             caller_key = f"{key_path}_{caller}"
             input_sets_paths[caller_key] = input_set_subdir / caller
             input_name_mapping[caller_key] = f"{key} {caller}"
@@ -67,7 +66,7 @@ def main(config: dict):
         input_name_mapping[key_path + "_unions"] = f"{key} Unions"
 
     # Append control sets
-    control_sets_raw = list(config.get('control', {}).keys())
+    control_sets_raw = list(config.control.keys())
     for key in control_sets_raw:
         key_path = key.replace(" ", "_")
         input_sets_paths[key_path] = layout.control_classification_dir(key)
@@ -95,12 +94,12 @@ def main(config: dict):
     counts_tuple_all = get_counts_from_config(config, samples=list(samples))
 
     # Dump counts to JSON for record-keeping
-    counts_output_path = layout.counts_summary
+    counts_output_path = layout.logs / "analysis_counts_summary.json"
     with open(counts_output_path, 'w') as f:
         json.dump(counts_tuple, f, indent=4)
     print(f"\nSaved counts summary to {counts_output_path}")
 
-    counts_output_path_all = layout.counts_summary_all
+    counts_output_path_all = layout.logs / "analysis_counts_summary_all.json"
     with open(counts_output_path_all, 'w') as f:
         json.dump(counts_tuple_all, f, indent=4)
     print(f"\nSaved unfiltered counts summary to {counts_output_path_all}")
@@ -220,6 +219,6 @@ def main(config: dict):
 
 if __name__ == "__main__":
     # Allow running standalone for testing
-    config, args = parse_args()
+    config = parse_args()
 
     main(config)
