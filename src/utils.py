@@ -72,27 +72,26 @@ class PipelineConfig:
             do_analysis=do_analysis,
         )
 
-def parse_args() -> PipelineConfig:
-    parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
-    parser.add_argument('config', type=Path, help='Path to configuration YAML file')
-    parser.add_argument('--run-benchmark', action='store_true', help='Whether to run benchmarking after processing')
-    parser.add_argument('--only-process', action='store_true', help='Only run the processing pipeline without computation or analysis')
-    parser.add_argument('--only-compute', action='store_true', help='Only run the computation pipeline without processing or analysis')
-    parser.add_argument('--only-analyze', action='store_true', help='Only run the analysis pipeline without processing or computation')
-    args = parser.parse_args()
+def build_config(config_path: Path, *, do_processing: bool,
+                 do_computation: bool, do_analysis: bool) -> PipelineConfig:
+    """Load a config YAML and build a PipelineConfig.
 
+    Parses the YAML at `config_path`, resolves benchmark URLs and valid
+    chromosomes, and applies the caller-supplied phase flags. `parse_args` wraps
+    this for CLI use; tests can call it directly with an explicit path.
+    """
     # Load configuration from YAML file
-    print(f"Loading configuration from: {args.config}")
-    with open(args.config, 'r') as f:
+    print(f"Loading configuration from: {config_path}")
+    with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
-    
+
     # Process benchmark_map to handle URLs
     if 'benchmark_map' in config and config['benchmark_map']:
         # Get project root (parent of the config file's directory or workspace root)
-        project_root = Path(args.config).parent
+        project_root = Path(config_path).parent
         tmp_dir = project_root / 'tmp'
         tmp_dir.mkdir(exist_ok=True)
-        
+
         for benchmark_name, benchmark_path in config['benchmark_map'].items():
             if isinstance(benchmark_path, str) and _is_url(benchmark_path):
                 print(f"Downloading {benchmark_name} from {benchmark_path}...")
@@ -112,12 +111,29 @@ def parse_args() -> PipelineConfig:
         else:
             print(f"Warning: Genome file {genome_file} not found. Chromosome validation will be skipped.")
 
+    return PipelineConfig.from_raw(
+        config,
+        do_processing=do_processing,
+        do_computation=do_computation,
+        do_analysis=do_analysis,
+    )
+
+
+def parse_args() -> PipelineConfig:
+    parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
+    parser.add_argument('config', type=Path, help='Path to configuration YAML file')
+    parser.add_argument('--run-benchmark', action='store_true', help='Whether to run benchmarking after processing')
+    parser.add_argument('--only-process', action='store_true', help='Only run the processing pipeline without computation or analysis')
+    parser.add_argument('--only-compute', action='store_true', help='Only run the computation pipeline without processing or analysis')
+    parser.add_argument('--only-analyze', action='store_true', help='Only run the analysis pipeline without processing or computation')
+    args = parser.parse_args()
+
     do_processing  = not (args.only_compute or args.only_analyze)
     do_computation = args.run_benchmark and not (args.only_process or args.only_analyze)
     do_analysis    = args.run_benchmark and not (args.only_process or args.only_compute)
 
-    return PipelineConfig.from_raw(
-        config,
+    return build_config(
+        args.config,
         do_processing=do_processing,
         do_computation=do_computation,
         do_analysis=do_analysis,
