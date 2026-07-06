@@ -69,16 +69,21 @@ def reciprocal_overlap(a: Call, b: Call) -> float:
 def build_graph(
     calls: list[Call],
     *,
-    reciprocal_threshold: float = 0.5,
     link_same_caller: bool = False,
+    min_edge_overlap: float = 0.0,
 ) -> nx.Graph:
     """Build the overlap graph from CNV calls.
 
     Every call becomes a node (id = its index in `calls`, `call` attribute set),
-    so calls with no matches still appear. 
-    An edge joins two calls when their `reciprocal_overlap` meets 
-    `reciprocal_threshold`; the fraction is stored as the edge `weight`. 
-    Same-caller pairs are skipped unless `link_same_caller` is set.
+    so calls with no matches still appear. Any two calls that overlap at all are
+    joined by an edge whose `weight` is their `reciprocal_overlap`; no consensus
+    threshold is applied here. Choosing a threshold is left to the consensus
+    function, which filters edges by `weight` -- so one graph serves every
+    threshold. Same-caller pairs are skipped unless `link_same_caller` is set.
+
+    `min_edge_overlap` is only a construction floor to keep the graph sparse on
+    very large cohorts; leave it at 0.0 (keep every overlap) unless edge count
+    becomes a problem, and keep it well below any consensus threshold you sweep.
 
     Edges never cross `(sample_id, svtype, chrom)`, so calls from different
     samples stay in separate sub-graphs even when passed in together.
@@ -104,7 +109,7 @@ def build_graph(
                 if not link_same_caller and a.caller == b.caller:
                     continue
                 overlap = reciprocal_overlap(a, b)
-                if overlap >= reciprocal_threshold:
+                if overlap >= min_edge_overlap:
                     graph.add_edge(a_id, b_id, weight=overlap)
 
     return graph
@@ -133,3 +138,69 @@ def build_graph_from_beds(
     """Build one overlap graph from a list of BED files."""
     calls = [call for path in bed_paths for call in read_bed_file(path)]
     return build_graph(calls, **kwargs)
+
+
+@dataclass(frozen=True)
+class ConsensusCall:
+    """A consensus call merged from one connected component of the graph.
+
+    `supporting_callers` is the set of distinct callers backing it (its
+    consensus level = `len(supporting_callers)`); `members` are the node ids it
+    was merged from, kept for provenance back to the original calls.
+    """
+
+    chrom: str
+    start: int
+    end: int
+    svtype: str
+    supporting_callers: frozenset[str]
+    members: tuple[int, ...]
+
+
+def consensus_by_components(
+    graph: nx.Graph,
+    *,
+    min_nodes: int = 1,
+    min_weight: float = 0.0,
+) -> list[ConsensusCall]:
+    """Call consensus by merging connected components of the overlap graph.
+
+    Edges below `min_weight` are dropped first (isolated nodes are kept), then
+    every remaining connected component of at least `min_nodes` calls is merged
+    into one `ConsensusCall`. 
+    
+    With `min_nodes=1, min_weight=0.0` this returns
+    every call with overlapping ones merged -- the 1-of-3 (union) set; raising
+    either knob tightens toward stricter agreement.
+
+    Note: `min_nodes` counts *nodes*, not distinct callers. Two calls from the
+    same caller can land in one component via a third call, so a k-node component
+    may span fewer than k callers. Filter on `len(supporting_callers)` instead if
+    you want strict k-of-3 caller agreement.
+    """
+    filtered = nx.Graph()
+    filtered.add_nodes_from(graph.nodes(data=True))
+    filtered.add_edges_from(
+        (u, v, data)
+        for u, v, data in graph.edges(data=True)
+        if data["weight"] >= min_weight
+    )
+
+    consensus: list[ConsensusCall] = []
+    for component in nx.connected_components(filtered):
+        if len(component) >= min_nodes:
+            consensus.append(_merge_component(graph, component))
+    return consensus
+
+
+def _merge_component(graph: nx.Graph, component: set[int]) -> ConsensusCall:
+    """Merge one component's calls into a single union-span `ConsensusCall`."""
+    calls = [graph.nodes[node_id]["call"] for node_id in component]
+    return ConsensusCall(
+        chrom=calls[0].chrom,      # uniform within a component by construction
+        start=min(call.start for call in calls),
+        end=max(call.end for call in calls),
+        svtype=calls[0].svtype,    # uniform within a component by construction
+        supporting_callers=frozenset(call.caller for call in calls),
+        members=tuple(sorted(component)),
+    )
