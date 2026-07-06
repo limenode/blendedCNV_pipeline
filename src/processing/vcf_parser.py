@@ -234,7 +234,7 @@ def _process_single_vcf_to_df(
 
             new_size = new_end - new_start
 
-            if ((new_size - old_size).abs() / old_size) > size_change_treshold:
+            if (abs(new_size - old_size) / old_size) > size_change_treshold:
                 print(
                     f"Warning: Size change >{size_change_treshold * 100}% after liftover for {chrom}:{start}-{end}"
                 )
