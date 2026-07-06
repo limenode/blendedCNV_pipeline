@@ -46,7 +46,7 @@ def main(config: PipelineConfig):
         # Add individual tool results to the sets for classification
         for tool in input_map.keys():
             bin_class_sets.append((
-                str(layout.bed_dir(key, tool)),
+                str(layout.bed_tool_dir(key, tool)),
                 str(layout.classification_dir(key, tool)),
             ))
 

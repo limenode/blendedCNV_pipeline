@@ -78,7 +78,10 @@ class OutputLayout:
     def set_dir(self, set_key: str) -> Path:
         return self.root / _slug(set_key)
 
-    def bed_dir(self, set_key: str, tool: str) -> Path:
+    def bed_dir(self, set_key: str) -> Path:
+        return self.set_dir(set_key) / "bed"
+
+    def bed_tool_dir(self, set_key: str, tool: str) -> Path:
         return self.set_dir(set_key) / "bed" / tool
 
     def consensus_dir(self, set_key: str, level: int) -> Path:

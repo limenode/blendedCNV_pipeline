@@ -259,10 +259,10 @@ def _process_single_vcf_to_df(
     statistics = {
         "total_call_count": total_call_count,
         "total_del_call_count": total_del_call_count,
-        "total_dup_base_count": total_dup_call_count,
+        "total_dup_call_count": total_dup_call_count,
         "total_base_count": total_base_count,
         "total_del_base_count": total_del_base_count,
-        "total_dup_call_count": total_dup_base_count,
+        "total_dup_base_count": total_dup_base_count,
         "calls_removed_from_failed_liftover": calls_removed_from_failed_liftover,
         "bases_removed_from_failed_liftover": bases_removed_from_failed_liftover,
         "calls_del_removed_from_failed_liftover": calls_del_removed_from_failed_liftover,
@@ -286,7 +286,7 @@ def parse_input_map(config: PipelineConfig) -> dict[str, dict[str, dict[str, Pat
     }
 
 
-def process_vcfs_to_beds(config: PipelineConfig, type: str) -> pd.DataFrame:
+def process_vcfs_to_beds(config: PipelineConfig, type: str, common_only: bool = True) -> pd.DataFrame:
     """Convert all input VCFs to BED format, applying liftover if needed.
     Returns a DataFrame of liftover statistics for each input set, tool, and sample.
     """
@@ -296,11 +296,24 @@ def process_vcfs_to_beds(config: PipelineConfig, type: str) -> pd.DataFrame:
     all_statistics = []
 
     if type == "input":
-        io_map = parse_input_map(config)
+        io_map = parse_input_map(config)        
         liftover_map = config.liftover
 
         for input_name, tools in io_map.items():
+            
+            common_samples = set()
+            
+            if common_only:
+                # Check if all tools have a given sample, if not then drop that sample from the other tools
+                for tool, sample_map in tools.items():
+                    if len(common_samples) == 0:
+                        common_samples = set(sample_map.keys())
+                    else:
+                        common_samples = common_samples.intersection(set(sample_map.keys()))
+
             for tool, sample_map in tools.items():
+                if common_only:
+                    sample_map = {sample_id: vcf_path for sample_id, vcf_path in sample_map.items() if sample_id in common_samples}
                 liftover_dict = liftover_map.get(tool, None)
                 lifter = (
                     get_lifter(liftover_dict.get("from"), liftover_dict.get("to"))
@@ -309,12 +322,12 @@ def process_vcfs_to_beds(config: PipelineConfig, type: str) -> pd.DataFrame:
                 )
 
                 for sample_id, vcf_path in sample_map.items():
-                    layout.bed_dir(input_name, tool).mkdir(parents=True, exist_ok=True)
+                    layout.bed_tool_dir(input_name, tool).mkdir(parents=True, exist_ok=True)
                     bed_path_del = (
-                        layout.bed_dir(input_name, tool) / f"{sample_id}.DEL.bed"
+                        layout.bed_tool_dir(input_name, tool) / f"{sample_id}.DEL.bed"
                     )
                     bed_path_dup = (
-                        layout.bed_dir(input_name, tool) / f"{sample_id}.DUP.bed"
+                        layout.bed_tool_dir(input_name, tool) / f"{sample_id}.DUP.bed"
                     )
 
                     df, statistics = _process_single_vcf_to_df(vcf_path, lifter)

@@ -26,11 +26,11 @@ def run_consensus_calls_script(config: PipelineConfig):
 
         tools_and_names = [
             tool_list[0],
-            str(layout.bed_dir(key, tool_list[0])),
+            str(layout.bed_tool_dir(key, tool_list[0])),
             tool_list[1],
-            str(layout.bed_dir(key, tool_list[1])),
+            str(layout.bed_tool_dir(key, tool_list[1])),
             tool_list[2],
-            str(layout.bed_dir(key, tool_list[2])),
+            str(layout.bed_tool_dir(key, tool_list[2])),
         ]
 
         # Consensus calls 1/3 script
