@@ -8,10 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from analysis.load_analysis_data import build_analysis_data_structure, filter_by_size
-from analysis.cnv_plotter import _create_record_ids
 from utils import PipelineConfig
     
-
 def load_data_for_all_input_sets(
         input_sets_paths: Dict[str, Path], 
         shared_samples_only: bool = True, 
