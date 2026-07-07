@@ -15,3 +15,12 @@ test/
 
 # user-defined config
 internal.config*
+
+# tests
+test.ipynb
+
+# vscode settings
+.vscode/
+
+# Claude
+CLAUDE.md

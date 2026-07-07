@@ -4,13 +4,13 @@ import yaml
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
-from utils import parse_args, f0_5_score, f2_score, precision, recall, f1_score, SVType
+from utils import parse_args, PipelineConfig, f0_5_score, f2_score, precision, recall, f1_score, SVType
 from analysis.cnv_plotter import CNVPlotter
 from analysis.analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
 
 
-def _load_plots_config(config: dict) -> dict:
-    plots_config_path = config.get('analysis_plots_config')
+def _load_plots_config(config: PipelineConfig) -> dict:
+    plots_config_path = config.analysis_plots_config
     if not plots_config_path:
         print("No analysis_plots_config defined in configuration. Skipping plot generation.")
         return {}
@@ -22,12 +22,12 @@ def _load_plots_config(config: dict) -> dict:
         return yaml.safe_load(f)
 
 
-def main(config: dict):
-    if 'input' not in config:
+def main(config: PipelineConfig):
+    if not config.input:
         print("No input sets defined in configuration. Exiting analysis pipeline.")
         return
 
-    if 'benchmark_map' not in config:
+    if not config.benchmark_map:
         print("No benchmark map defined in configuration. Skipping benchmark analysis.")
         return
 
@@ -40,16 +40,17 @@ def main(config: dict):
     input_name_mapping = {}
 
     # Get all input set keys
-    input_sets_raw = list(config['input'].keys())
+    input_sets_raw = list(config.input.keys())
     print(f"Available input sets: {input_sets_raw}")
 
     # Append each caller, "Intersection", and "Union" to input set keys for binary classification results
-    output_dir = Path(config['output_dir'])
+    output_dir = config.output_dir
+    layout = config.layout
     for key in input_sets_raw:
         key_path = key.replace(" ", "_")
-        input_set_subdir = output_dir / key_path / "binary_classification"
+        input_set_subdir = layout.classification_root(key)
 
-        for caller in config['input'][key].keys():
+        for caller in config.input[key].keys():
             caller_key = f"{key_path}_{caller}"
             input_sets_paths[caller_key] = input_set_subdir / caller
             input_name_mapping[caller_key] = f"{key} {caller}"
@@ -65,10 +66,10 @@ def main(config: dict):
         input_name_mapping[key_path + "_unions"] = f"{key} Unions"
 
     # Append control sets
-    control_sets_raw = list(config.get('control', {}).keys())
+    control_sets_raw = list(config.control.keys())
     for key in control_sets_raw:
         key_path = key.replace(" ", "_")
-        input_sets_paths[key_path] = output_dir / key_path / "binary_classification"
+        input_sets_paths[key_path] = layout.control_classification_dir(key)
         input_name_mapping[key_path] = key
 
 
@@ -79,7 +80,7 @@ def main(config: dict):
 
 
     # === Log Analysis Step 1: Load logs ===
-    log_dir = Path(config['output_dir']) / "logs"
+    log_dir = layout.logs
     samples_of_interest = plots_config.get('samples_of_interest', [])
     analyze_logs(log_dir, output_dir=output_dir, samples=samples_of_interest)
 
@@ -93,12 +94,12 @@ def main(config: dict):
     counts_tuple_all = get_counts_from_config(config, samples=list(samples))
 
     # Dump counts to JSON for record-keeping
-    counts_output_path = output_dir / "analysis_counts_summary.json"
+    counts_output_path = layout.logs / "analysis_counts_summary.json"
     with open(counts_output_path, 'w') as f:
         json.dump(counts_tuple, f, indent=4)
     print(f"\nSaved counts summary to {counts_output_path}")
 
-    counts_output_path_all = output_dir / "analysis_counts_summary_all.json"
+    counts_output_path_all = layout.logs / "analysis_counts_summary_all.json"
     with open(counts_output_path_all, 'w') as f:
         json.dump(counts_tuple_all, f, indent=4)
     print(f"\nSaved unfiltered counts summary to {counts_output_path_all}")
@@ -111,7 +112,7 @@ def main(config: dict):
     venn_diagram_specs = {
         name: {
             "set_keys": spec['sets'],
-            "output_path": output_dir / "figures" / "venn_diagrams" / spec['output_filename'],
+            "output_path": layout.venn_figures / spec['output_filename'],
             "title": spec['title'],
         }
         for name, spec in venn_diagrams_raw.items()
@@ -135,8 +136,8 @@ def main(config: dict):
             metrics=metrics,
             svtypes=[SVType.ALL],
             bounds=(500, 1_000_000),
-            output_dir=output_dir / "figures" / "statistical_distributions_all_only",
-            cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_cumulative_stats.tsv",
+            output_dir=layout.stat_dist_all_figures,
+            cumulative_stats_output_path=layout.log("statistical_distributions_cumulative_stats.tsv"),
         ),
         # Task 1b: Statistical distributions split by SV type
         partial(
@@ -145,36 +146,36 @@ def main(config: dict):
             metrics=metrics,
             svtypes=[SVType.DEL, SVType.DUP],
             bounds=(500, 1_000_000),
-            output_dir=output_dir / "figures" / "statistical_distributions_split_by_svtype",
-            cumulative_stats_output_path=output_dir / "logs" / "statistical_distributions_split_by_svtype_cumulative_stats.tsv",
+            output_dir=layout.stat_dist_split_figures,
+            cumulative_stats_output_path=layout.log("statistical_distributions_split_by_svtype_cumulative_stats.tsv"),
         ),  
         # Task 2: Size distribution plots
         partial(
             plotter.plot_size_distribution,
             plot_config=size_distribution_input_sets,
-            output_dir=output_dir / "figures" / "size_distributions",
+            output_dir=layout.size_figures,
             include_benchmark=True,
-            stats_output_path=output_dir / "logs" / "size_distribution_stats.tsv",
+            stats_output_path=layout.log("size_distribution_stats.tsv"),
         ),
         # Task 2b: Size distribtion plots mod 3000
         partial(
             plotter.plot_size_distribution,
             plot_config=size_distribution_input_sets,
-            output_dir=output_dir / "figures" / "size_distributions",
+            output_dir=layout.size_figures,
             include_benchmark=True,
-            stats_output_path=output_dir / "logs" / "size_distribution_stats.tsv",
+            stats_output_path=layout.log("size_distribution_stats.tsv"),
             modulus=3000,
         ),
         # Task 3: Caller source distribution
         partial(
             plotter.get_caller_source_distribution,
             input_sets_to_include=caller_source_sets,
-            output_file=output_dir / "figures" / "caller_source_distribution" / "caller_source_distribution.png",
+            output_file=layout.caller_source_figures / "caller_source_distribution.png",
         ),
         # Task 4: Get counts
         partial(
             plotter.get_count_statistics,
-            output_file=output_dir / "logs" / "count_statistics.tsv",
+            output_file=layout.log("count_statistics.tsv"),
         ),
     ]
 
@@ -194,7 +195,7 @@ def main(config: dict):
                 plotter.plot_count_venn_diagram,
                 config=config,
                 input_set_key=input_name,
-                output_path=output_dir / "figures" / "venn_diagrams" / f"count_venn_diagram_{input_name.replace(' ', '_')}.png",
+                output_path=layout.venn_figures / f"count_venn_diagram_{input_name.replace(' ', '_')}.png",
             )
         )
 
@@ -218,6 +219,6 @@ def main(config: dict):
 
 if __name__ == "__main__":
     # Allow running standalone for testing
-    config, args = parse_args()
+    config = parse_args()
 
     main(config)

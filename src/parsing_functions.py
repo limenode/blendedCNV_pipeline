@@ -1,18 +1,15 @@
 from collections import defaultdict
-from pathlib import Path
 import os
 import re
 from cyvcf2 import VCF
-from typing import Optional, List, Dict
+from typing import List, Dict
 from concurrent.futures import ProcessPoolExecutor
 import subprocess
 from io import StringIO
 import pandas as pd
-from pybedtools import BedTool
 
 from liftover import get_lifter
-from utils import ensure_chr_prefix, sanitize_svtype
-from cnv_parser import CNVParser
+from utils import ensure_chr_prefix, sanitize_svtype, PipelineConfig
 
 def perform_liftover(
     input: pd.DataFrame, 
@@ -113,118 +110,27 @@ def perform_liftover(
 
     return output, stats
 
-def excluded_regions_filter(input_bed_path: str, excluded_bed_path: str):
-    input_bed = BedTool(input_bed_path)
-    excluded_bed = BedTool(excluded_bed_path)
-
-    # Perform bedtools intersect -v with 50% overlap
-    filtered_bed = input_bed.intersect(excluded_bed, v=True, f=0.5)
-
-    # Save the filtered BED over the original file
-    filtered_bed.saveas(input_bed_path)
-
-def _process_single_vcf(
-    vcf_path: str,
-    tool: str,
-    sample_id: str,
-    input_map: dict,
-    valid_chromosomes,
-    output_prefix: str,
-    do_liftover: bool,
-    liftover_from: str | None,
-    liftover_to: str | None,
-    excluded_regions_file: str | None,
-) -> list | None:
-    cnv_parser = CNVParser(input_map)
-    data = cnv_parser.convert_vcf_to_bed(vcf_path, source=tool, valid_chromosomes=valid_chromosomes)
-
-    stats = None
-    if do_liftover and liftover_from and liftover_to:
-        data, stats = perform_liftover(data, liftover_from, liftover_to)
-
-    data = data[['chrom', 'start', 'end', 'svtype', 'source']]
-    data[data["svtype"] == "DEL"].to_csv(output_prefix + ".DEL.bed", sep="\t", index=False, header=False)
-    data[data["svtype"] == "DUP"].to_csv(output_prefix + ".DUP.bed", sep="\t", index=False, header=False)
-
-    if excluded_regions_file:
-        excluded_regions_filter(output_prefix + ".DEL.bed", excluded_regions_file)
-        excluded_regions_filter(output_prefix + ".DUP.bed", excluded_regions_file)
-
-    return stats
-
-def parse_vcfs_to_bed(config: dict) -> dict | None:
-    output_dir = Path(config['output_dir'])
-    liftover_stats = defaultdict(dict)
-    futures_to_meta = {}
-
-    cpu_count = os.cpu_count()
-    target_workers = max(1, (2 * cpu_count) // 3) if cpu_count else 1
-
-    with ProcessPoolExecutor(max_workers=target_workers) as executor:
-        for key, input_map in config['input'].items():
-            print(f"Converting input set: {key}")
-
-            do_liftover = config['liftover'].get(key) is not None
-            if do_liftover:
-                liftover_stats[key] = {
-                    'from': config['liftover'][key]['from'],
-                    'to': config['liftover'][key]['to'],
-                    'samples': {}
-                }
-
-            output_subdir = output_dir / key.replace(" ", "_")
-            os.makedirs(output_subdir, exist_ok=True)
-
-            cnv_parser = CNVParser(input_map)
-            all_vcf_files = cnv_parser.get_all_vcf_files()
-            valid_chromosomes = config.get('valid_chromosomes', None)
-
-            liftover_from = config['liftover'][key]['from'] if do_liftover else None
-            liftover_to = config['liftover'][key]['to'] if do_liftover else None
-            excluded_regions_file = config.get('excluded_regions_file') or None
-
-            for tool, id_path_pair in all_vcf_files.items():
-                for sample_id, vcf_path in id_path_pair:
-                    output_prefix = str(output_subdir / "bed" / tool / sample_id)
-                    os.makedirs(Path(output_prefix).parent, exist_ok=True)
-
-                    future = executor.submit(
-                        _process_single_vcf,
-                        vcf_path, tool, sample_id, input_map, valid_chromosomes,
-                        output_prefix, do_liftover, liftover_from, liftover_to, excluded_regions_file,
-                    )
-                    futures_to_meta[future] = (key, sample_id)
-
-        for future, (key, sample_id) in futures_to_meta.items():
-            stats = future.result()
-            if stats is not None:
-                liftover_stats[key]['samples'][sample_id] = stats
-
-    return liftover_stats if liftover_stats else None
-
-def parse_control_to_bed(config: dict) -> dict | None:
+def parse_control_to_bed(config: PipelineConfig) -> dict | None:
     """
     Convert control datasets (e.g., SNP Array from PennCNV) to BED format.
     Only performs BED conversion without consensus calls or further processing.
     Only processes samples that exist in the consensus calls directories.
-    
+
     Args:
-        config: Configuration dictionary containing control dataset paths
+        config: Parsed pipeline configuration containing control dataset paths
     """
-    if 'control' not in config:
+    if not config.control:
         print("No control datasets found in config. Skipping control processing.")
         return
-    
-    output_dir = Path(config['output_dir'])
-    
+
+    layout = config.layout
+
     # Collect samples of interest from consensus calls directories
     samples_of_interest = set()
-    for key in config['input'].keys():
-        output_subdir_name = key.replace(" ", "_")
-        
+    for key in config.input.keys():
         # Check both intersections and unions directories
         for consensus_type in ['intersections', 'unions']:
-            consensus_dir = output_dir / output_subdir_name / "consensus_2of3" / consensus_type
+            consensus_dir = layout.consensus_rep_dir(key, 2, consensus_type)
             if consensus_dir.exists():
                 for file_path in consensus_dir.glob('*.bed'):
                     # Extract sample ID (string before first dot)
@@ -240,25 +146,25 @@ def parse_control_to_bed(config: dict) -> dict | None:
     liftover_stats = defaultdict(dict)
 
 
-    for control_name, control_path in config['control'].items():
+    for control_name, control_path in config.control.items():
         print(f"Processing control dataset: {control_name}")
 
-        do_liftover = config['liftover'].get(control_name) is not None
+        do_liftover = config.liftover.get(control_name) is not None
         if do_liftover:
             liftover_stats[control_name] = {
-                'from': config['liftover'][control_name]['from'],
-                'to': config['liftover'][control_name]['to'],
+                'from': config.liftover[control_name]['from'],
+                'to': config.liftover[control_name]['to'],
                 'samples': {}
             }
         
         # Create output directory
-        output_subdir_name = control_name.replace(" ", "_")
-        output_subdir = output_dir / output_subdir_name / "bed"
+        output_subdir = layout.control_bed_dir(control_name)
         os.makedirs(output_subdir, exist_ok=True)
         
         # Parse PennCNV file
         print(f"  Parsing PennCNV file: {control_path}")
         df = parse_penncnv_to_bed(control_path)
+        print("test")
         
         if df.empty:
             print(f"  Warning: No records found in {control_path}")
@@ -271,14 +177,14 @@ def parse_control_to_bed(config: dict) -> dict | None:
             print(f"  Warning: No records found for samples of interest in {control_path}")
             continue
 
-        # Limit to chromosomes in config['valid_chromosomes'] if available
-        if 'valid_chromosomes' in config:
-            df = df[df['chrom'].isin(config['valid_chromosomes'])]
+        # Limit to valid chromosomes if available
+        if config.valid_chromosomes:
+            df = df[df['chrom'].isin(config.valid_chromosomes)]
 
         # Perform liftover if configured for this control dataset
         if do_liftover:
-            from_build = config['liftover'][control_name]['from']
-            to_build = config['liftover'][control_name]['to']
+            from_build = config.liftover[control_name]['from']
+            to_build = config.liftover[control_name]['to']
 
             df, stats = perform_liftover(df, from_build, to_build)
             liftover_stats[control_name]['samples'] = stats
@@ -288,8 +194,8 @@ def parse_control_to_bed(config: dict) -> dict | None:
         # Group by sample and export to BED files
         for sample_id, sample_df in df.groupby('sample_id'):
 
-            # Append source (output_subdir_name.lower()) to the dataframes
-            sample_df['source'] = output_subdir_name.lower()
+            # Append source (sanitized control name, lowercased) to the dataframes
+            sample_df['source'] = control_name.replace(" ", "_").lower()
 
             # Export DEL and DUP separately
             del_df = sample_df[sample_df['svtype'] == 'DEL'][['chrom', 'start', 'end', 'svtype', 'source']]
@@ -462,91 +368,6 @@ def _merge_one_sample(
     out_df['sample_id'] = sample_id
     return out_df[['chrom', 'start', 'end', 'svtype', 'source', 'sample_id']]
 
-def get_per_source_stats(sample_df: pd.DataFrame) -> pd.DataFrame:
-    if sample_df.empty:
-        print("No benchmark records parsed before liftover.")
-        return pd.DataFrame()
-
-    source_record_counts = sample_df.groupby('source').size().rename('record_count')
-    sample_counts_by_source = sample_df.groupby('source')['sample_id'].nunique().rename('sample_count')
-    per_sample_counts = (
-        sample_df.groupby(['source', 'sample_id'])
-        .size()
-        .rename('records_per_sample')
-        .reset_index()
-    )
-
-    # Create temporary CNV size column for descriptive stats.
-    sample_df_with_size = sample_df.copy()
-    sample_df_with_size['size'] = sample_df_with_size['end'] - sample_df_with_size['start']
-
-    size_stats = (
-        sample_df_with_size.groupby('source')['size']
-        .agg(['mean', 'median', 'min', 'max'])
-        .rename(columns={'mean': 'size_mean', 'median': 'size_median', 'min': 'size_min', 'max': 'size_max'})
-    )
-
-    size_q1 = sample_df_with_size.groupby('source')['size'].quantile(0.25).rename('size_q1')
-    size_q3 = sample_df_with_size.groupby('source')['size'].quantile(0.75).rename('size_q3')
-    size_iqr = (size_q3 - size_q1).rename('size_iqr')
-
-    del_counts = (
-        sample_df_with_size[sample_df_with_size['svtype'] == 'DEL']
-        .groupby('source')
-        .size()
-        .rename('del_count')
-    )
-    dup_counts = (
-        sample_df_with_size[sample_df_with_size['svtype'] == 'DUP']
-        .groupby('source')
-        .size()
-        .rename('dup_count')
-    )
-
-    pre_liftover_summary = (
-        pd.concat(
-            [
-                source_record_counts,
-                sample_counts_by_source,
-                per_sample_counts.groupby('source')['records_per_sample'].mean().rename('records_per_sample_mean'),
-                per_sample_counts.groupby('source')['records_per_sample'].median().rename('records_per_sample_median'),
-                per_sample_counts.groupby('source')['records_per_sample'].min().rename('records_per_sample_min'),
-                per_sample_counts.groupby('source')['records_per_sample'].max().rename('records_per_sample_max'),
-                size_stats,
-                size_q1,
-                size_q3,
-                size_iqr,
-                del_counts,
-                dup_counts,
-            ],
-            axis=1,
-        )
-        .fillna(0)
-        .reset_index()
-    )
-
-    # Additional derived QC metrics.
-    pre_liftover_summary['avg_records_per_sample'] = (
-        pre_liftover_summary['record_count'] / pre_liftover_summary['sample_count'].replace(0, pd.NA)
-    )
-    pre_liftover_summary['del_fraction'] = (
-        pre_liftover_summary['del_count'] / pre_liftover_summary['record_count'].replace(0, pd.NA)
-    )
-    pre_liftover_summary['dup_fraction'] = (
-        pre_liftover_summary['dup_count'] / pre_liftover_summary['record_count'].replace(0, pd.NA)
-    )
-
-    # Make numeric output easier to read in logs.
-    numeric_cols = [
-        'record_count', 'sample_count', 'records_per_sample_mean', 'records_per_sample_median',
-        'records_per_sample_min', 'records_per_sample_max', 'avg_records_per_sample',
-        'size_mean', 'size_median', 'size_min', 'size_max', 'size_q1', 'size_q3', 'size_iqr',
-        'del_count', 'dup_count', 'del_fraction', 'dup_fraction'
-    ]
-    pre_liftover_summary[numeric_cols] = pre_liftover_summary[numeric_cols].apply(pd.to_numeric, errors='coerce')
-    
-    return pre_liftover_summary
-
 def _parse_single_benchmark_from_path(
     vcf_path: str, 
     benchmark_name: str, 
@@ -611,15 +432,17 @@ def _parse_single_benchmark_from_path(
     
     return data
 
-def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
-    
-    if 'benchmark_map' not in config:
+def parse_benchmarks_to_bed(config: PipelineConfig) -> tuple[pd.DataFrame, dict | None]:
+
+    if not config.benchmark_map:
         print("No benchmark map found in config. Skipping benchmark parsing.")
         return pd.DataFrame(), None
-    
+
+    layout = config.layout
+
     # Get common samples only
     sample_sets = []
-    for _, vcf_path in config['benchmark_map'].items():
+    for _, vcf_path in config.benchmark_map.items():
         try:
             vcf = VCF(vcf_path)
             sample_sets.append(set(vcf.samples))
@@ -631,7 +454,7 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     sample_ids = list(common_samples)
     
     # Get valid chromosomes from genome file
-    genome_file_path = config['genome_file']
+    genome_file_path = config.genome_file
     valid_chroms = set()
     try:
         with open(genome_file_path) as f:
@@ -643,7 +466,7 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
         print("Proceeding without chromosome filtering.")
 
     process_args_list = []
-    for benchmark_name, vcf_path in config['benchmark_map'].items():
+    for benchmark_name, vcf_path in config.benchmark_map.items():
         process_args = (vcf_path, benchmark_name, sample_ids, valid_chroms)
         process_args_list.append(process_args)
 
@@ -652,30 +475,26 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
 
     # Collect results from all benchmarks into a single list of records
     sample_data: List[Dict] = []
-    for benchmark_name, records in zip(config['benchmark_map'].keys(), results):
+    for benchmark_name, records in zip(config.benchmark_map.keys(), results):
         print(f"Parsed {len(records)} records from benchmark '{benchmark_name}'")
         sample_data.extend(records)
 
     # Covert to DataFrame
     sample_df = pd.DataFrame(sample_data)
 
-    # Limit to chromosomes in config['valid_chromosomes'] if available
-    if 'valid_chromosomes' in config:
-        sample_df = sample_df[sample_df['chrom'].isin(config['valid_chromosomes'])]
-
-    # pre_liftover_stats = get_per_source_stats(sample_df)
-    # print("\nPre-liftover benchmark summary by source:")
-    # print(pre_liftover_stats)
+    # Limit to valid chromosomes if available
+    if config.valid_chromosomes:
+        sample_df = sample_df[sample_df['chrom'].isin(config.valid_chromosomes)]
 
     # Perform liftover per source
     liftover_results = {}
     for source in sample_df['source'].unique():
-        if source not in config['liftover']:
+        if source not in config.liftover:
             continue
 
         source_df = sample_df[sample_df['source'] == source]
-        from_build = config['liftover'][source]['from'] if config['liftover'].get(source) else None
-        to_build = config['liftover'][source]['to'] if config['liftover'].get(source) else None
+        from_build = config.liftover[source]['from'] if config.liftover.get(source) else None
+        to_build = config.liftover[source]['to'] if config.liftover.get(source) else None
 
         if from_build and to_build:
             print(f"Performing liftover for benchmark '{source}' from {from_build} to {to_build}...")
@@ -684,20 +503,16 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
             liftover_results[source] = stats
             print(f"  Liftover completed for benchmark '{source}'.")
 
-    # post_liftover_stats = get_per_source_stats(sample_df)
-    # print("\nPost-liftover benchmark summary by source:")
-    # print(post_liftover_stats)
-    
     # Split across samples and merge nearby/overlapping records within each sample
     items = []
-    output_dir = Path(config['output_dir']) / "benchmark_parsing" / "merged"
+    output_dir = layout.benchmark
     os.makedirs(output_dir, exist_ok=True)
     for (sample_id, svtype), sample_df in sample_df.groupby(['sample_id', 'svtype']):
         items.append((
-            sample_id, 
-            svtype, 
-            sample_df, 
-            config['genome_file']
+            sample_id,
+            svtype,
+            sample_df,
+            config.genome_file
         ))
 
     # Setup and run parallel processing with ProcessPoolExecutor
@@ -717,9 +532,9 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     )
 
     # Perform liftover on merged records if configured for merged benchmarks
-    if 'merged' in config['liftover']:
-        from_build = config['liftover']['merged']['from']
-        to_build = config['liftover']['merged']['to']
+    if 'merged' in config.liftover:
+        from_build = config.liftover['merged']['from']
+        to_build = config.liftover['merged']['to']
 
         print(f"Performing liftover for merged benchmarks from {from_build} to {to_build}...")
         
@@ -730,7 +545,7 @@ def parse_benchmarks_to_bed(config: dict) -> tuple[pd.DataFrame, dict | None]:
     # Write DEL and DUP files for each sample
     print("Exporting merged benchmarks to BED files...")
 
-    output_dir = Path(config['output_dir']) / "benchmark_parsing" / "merged"
+    output_dir = layout.benchmark
     os.makedirs(output_dir, exist_ok=True)
     for (sample_id, svtype), group_df in merged_sample_df.groupby(['sample_id', 'svtype']):
         sample_id_str = str(sample_id)
