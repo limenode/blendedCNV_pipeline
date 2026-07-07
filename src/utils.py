@@ -22,7 +22,6 @@ class SVType(Enum):
     DUP = "DUP"
     ALL = "ALL"
 
-
 @dataclass(frozen=True)
 class PipelineConfig:
     """Parsed, validated pipeline configuration. Built once in ``parse_args()``."""
@@ -38,6 +37,7 @@ class PipelineConfig:
     benchmark_map: dict = field(default_factory=dict)
     liftover: dict = field(default_factory=dict)
     valid_chromosomes: set = field(default_factory=set)
+    chromosome_order: List[str] = field(default_factory=list)
     excluded_regions_file: Optional[str] = None
     analysis_plots_config: Optional[str] = None
 
@@ -63,6 +63,7 @@ class PipelineConfig:
             benchmark_map=raw.get('benchmark_map', {}),
             liftover=raw.get('liftover', {}),
             valid_chromosomes=raw.get('valid_chromosomes', set()),
+            chromosome_order=raw.get('chromosome_order', []),
             excluded_regions_file=raw.get('excluded_regions_file') or None,
             analysis_plots_config=raw.get('analysis_plots_config'),
             consensus_reciprocal_threshold=raw.get('consensus_reciprocal_threshold', 0.5),
@@ -105,9 +106,10 @@ def build_config(config_path: Path, *, do_processing: bool,
         genome_file = Path(config['genome_file'])
         if genome_file.exists():
             with open(genome_file, 'r') as f:
-                valid_chromosomes = set(line.split()[0] for line in f)
-            config['valid_chromosomes'] = valid_chromosomes
-            print(f"Loaded {len(valid_chromosomes)} valid chromosomes from {genome_file}")
+                ordered_chromosomes = [line.split()[0] for line in f if line.strip()]
+            config['valid_chromosomes'] = set(ordered_chromosomes)
+            config['chromosome_order'] = ordered_chromosomes
+            print(f"Loaded {len(ordered_chromosomes)} valid chromosomes from {genome_file}")
         else:
             print(f"Warning: Genome file {genome_file} not found. Chromosome validation will be skipped.")
 
@@ -144,7 +146,7 @@ def _is_url(path: str) -> bool:
     try:
         result = urlparse(path)
         return result.scheme in ('http', 'https', 'ftp', 'ftps')
-    except:
+    except ValueError:
         return False
 
 def _download_benchmark(url: str, tmp_dir: Path, benchmark_name: str) -> Path:
@@ -180,73 +182,6 @@ def _download_benchmark(url: str, tmp_dir: Path, benchmark_name: str) -> Path:
                     f.write(chunk)
     
     return local_path
-
-def generate_size_intervals_old(
-    start: float, 
-    end: float, 
-    n_points: int, 
-    distribution_type: DistributionType = DistributionType.DENSITY
-) -> List[Tuple[float, float]]:
-    """
-    Generate size intervals for different distribution analyses.
-    
-    Creates logarithmically-spaced points and generates intervals based on the
-    distribution type:
-    - density: Adjacent pairs (bin intervals)
-    - cumulative: Start value to each point (cumulative from beginning)
-    - complementary_cumulative: Each point to end value (cumulative from end)
-    
-    Args:
-        start: Starting value (lower bound)
-        end: Ending value (upper bound)
-        n_points: Number of points in logspace
-        distribution_type: Type of intervals to generate
-    Returns:
-        List of (lower, upper) tuples representing size intervals
-    
-    Examples:
-        >>> generate_size_intervals(1e3, 1e6, 10, "density")
-        [(1000, 2154), (2154, 4642), ..., (464159, 1000000)]
-        
-        >>> generate_size_intervals(1e3, 1e6, 10, "cumulative")
-        [(1000, 1000), (1000, 2154), ..., (1000, 1000000)]
-        
-        >>> generate_size_intervals(1e3, 1e6, 10, "complementary_cumulative")
-        [(1000, 1000000), (2154, 1000000), ..., (1000000, 1000000)]
-    """
-    # Generate logarithmically-spaced points
-    points = np.logspace(np.log10(start), np.log10(end), n_points)
-    
-    intervals = []
-    
-    if distribution_type == DistributionType.DENSITY:
-        # Adjacent pairs: bin intervals for density distribution
-        for i in range(len(points) - 1):
-            intervals.append((points[i], points[i + 1]))
-    
-    elif distribution_type == DistributionType.CUMULATIVE:
-        # Start to each point: cumulative distribution
-        for point in points:
-            intervals.append((start, point))
-        # Remove the first interval if it is (start, start) to avoid zero-length interval
-        if intervals and intervals[0][0] >= intervals[0][1]:
-            intervals.pop(0)
-    
-    elif distribution_type == DistributionType.COMPLEMENTARY_CUMULATIVE:
-        # Each point to end: complementary cumulative distribution
-        for point in points:
-            intervals.append((point, end))
-        # Remove the last interval if it is (end, end) to avoid zero-length interval
-        if intervals and intervals[-1][0] >= intervals[-1][1]:
-            intervals.pop()
-    
-    else:
-        raise ValueError(
-            f"Unknown distribution_type: '{distribution_type}'. "
-            f"Must be 'density', 'cumulative', or 'complementary_cumulative'"
-        )
-    
-    return intervals
 
 # Define metric functions
 def precision(tp: int, fp: int, fn: int) -> float:

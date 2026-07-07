@@ -12,10 +12,12 @@ merge, ...), so alternatives can be compared on identical inputs.
 
 from collections import defaultdict
 from dataclasses import dataclass
+import glob
 from pathlib import Path
 from typing import Iterable
-
 import networkx as nx
+
+from utils import PipelineConfig
 
 
 @dataclass(frozen=True)
@@ -132,13 +134,6 @@ def build_sample_graphs_from_beds(
     calls = [call for path in bed_paths for call in read_bed_file(path)]
     return build_sample_graphs(calls, **kwargs)
 
-def build_graph_from_beds(
-    bed_paths: Iterable[Path], **kwargs
-) -> nx.Graph:
-    """Build one overlap graph from a list of BED files."""
-    calls = [call for path in bed_paths for call in read_bed_file(path)]
-    return build_graph(calls, **kwargs)
-
 
 @dataclass(frozen=True)
 class ConsensusCall:
@@ -155,6 +150,9 @@ class ConsensusCall:
     svtype: str
     supporting_callers: frozenset[str]
     members: tuple[int, ...]
+    
+    def bed_str(self) -> str:
+        return f"{self.chrom}\t{self.start}\t{self.end}\t{self.svtype}\t{'|'.join(sorted(self.supporting_callers))}"
 
 
 def consensus_by_components(
@@ -162,21 +160,19 @@ def consensus_by_components(
     *,
     min_nodes: int = 1,
     min_weight: float = 0.0,
+    chrom_order: list[str] | None = None,
 ) -> list[ConsensusCall]:
     """Call consensus by merging connected components of the overlap graph.
 
     Edges below `min_weight` are dropped first (isolated nodes are kept), then
     every remaining connected component of at least `min_nodes` calls is merged
-    into one `ConsensusCall`. 
-    
-    With `min_nodes=1, min_weight=0.0` this returns
-    every call with overlapping ones merged -- the 1-of-3 (union) set; raising
-    either knob tightens toward stricter agreement.
+    into one `ConsensusCall`.
 
-    Note: `min_nodes` counts *nodes*, not distinct callers. Two calls from the
-    same caller can land in one component via a third call, so a k-node component
-    may span fewer than k callers. Filter on `len(supporting_callers)` instead if
-    you want strict k-of-3 caller agreement.
+    `min_nodes=1, min_weight=0.0` returns all calls merged (the 1-of-3 (union) set).
+
+    Output is sorted by genomic coordinate. `chrom_order` sets the chromosome
+    ordering; contigs not in it sort after the known ones. When omitted, chroms
+    sort lexicographically (`chr1, chr10, chr11, ... chr2`).
     """
     filtered = nx.Graph()
     filtered.add_nodes_from(graph.nodes(data=True))
@@ -190,6 +186,10 @@ def consensus_by_components(
     for component in nx.connected_components(filtered):
         if len(component) >= min_nodes:
             consensus.append(_merge_component(graph, component))
+
+    # Sort by genomic coordinate; unknown contigs sort after the known ones.
+    rank = {chrom: i for i, chrom in enumerate(chrom_order or [])}
+    consensus.sort(key=lambda c: (rank.get(c.chrom, len(rank)), c.chrom, c.start, c.end))
     return consensus
 
 
@@ -204,3 +204,66 @@ def _merge_component(graph: nx.Graph, component: set[int]) -> ConsensusCall:
         supporting_callers=frozenset(call.caller for call in calls),
         members=tuple(sorted(component)),
     )
+
+def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float = 0.5):
+    """Compute consensus calls from per-caller BED files and write them to the layout.
+
+    Args:
+        config (PipelineConfig): The pipeline configuration.
+        weight_threshold (float, optional): The minimum weight for edges in the overlap graph. Defaults to 0.5.
+    """
+    
+    layout = config.layout
+    input_keys = config.input.keys()
+    
+    input_network_paths = {}
+    for key in input_keys:
+        bed_paths = glob.glob(str(layout.bed_dir(key)) + "/*/*.bed")
+        input_network_paths[key] = [Path(p) for p in bed_paths if Path(p).is_file()]
+        
+    input_networks = {}
+
+    for key in input_keys:
+        input_networks[key] = build_sample_graphs_from_beds(input_network_paths[key])
+
+    for key, networks in input_networks.items():
+        for sample_id, network in networks.items():
+            for level in (1, 2, 3):
+                consensus_calls = consensus_by_components(
+                    network,
+                    min_nodes=level,
+                    min_weight=weight_threshold,
+                    chrom_order=config.chromosome_order,
+                )
+                output_dir = layout.consensus_rep_dir(key, level, "unions")
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_file = output_dir / f"{sample_id}.bed"
+                output_file_del = output_dir / f"{sample_id}.DEL.union.bed"
+                output_file_dup = output_dir / f"{sample_id}.DUP.union.bed"
+
+                with open(output_file, "w") as f:
+                    for call in consensus_calls:
+                        f.write(f"{call.bed_str()}\n")
+
+                with open(output_file_del, "w") as f:
+                    for call in consensus_calls:
+                        if call.svtype == "DEL":
+                            f.write(f"{call.bed_str()}\n")
+
+                with open(output_file_dup, "w") as f:
+                    for call in consensus_calls:
+                        if call.svtype == "DUP":
+                            f.write(f"{call.bed_str()}\n")
+                
+                # Temporarily copy the union files to the "intersection" directory for downstream processing
+                intersection_dir = layout.consensus_rep_dir(key, level, "intersections")
+                intersection_dir.mkdir(parents=True, exist_ok=True)
+                intersection_file = intersection_dir / f"{sample_id}.bed"
+                intersection_file_del = intersection_dir / f"{sample_id}.DEL.intersection.bed"
+                intersection_file_dup = intersection_dir / f"{sample_id}.DUP.intersection.bed"
+                
+                import shutil
+                shutil.copy(output_file, intersection_file)
+                shutil.copy(output_file_del, intersection_file_del)
+                shutil.copy(output_file_dup, intersection_file_dup)
+                
