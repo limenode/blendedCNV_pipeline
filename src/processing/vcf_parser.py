@@ -6,7 +6,7 @@ import pandas as pd
 
 from cyvcf2 import VCF
 
-from utils import PipelineConfig
+from utils import PipelineConfig, lift_interval, LiftoverStatus
 from liftover import get_lifter, ChainFile
 
 valid_chromosomes = (
@@ -199,6 +199,10 @@ def _process_single_vcf_to_df(
     bases_removed_from_failed_liftover = 0
     bases_removed_from_failed_liftover_del = 0
     bases_removed_from_failed_liftover_dup = 0
+    calls_removed_unmapped = 0
+    bases_removed_unmapped = 0
+    calls_removed_size_change = 0
+    bases_removed_size_change = 0
 
     for record in vcf:
         if not record.ALT or len(record.ALT) == 0:
@@ -228,17 +232,10 @@ def _process_single_vcf_to_df(
 
         if lifter:
             old_size = end - start
+            status, lifted = lift_interval(lifter, chrom, start, end, size_change_treshold)
 
-            new_start = lifter[chrom][start][0][1]
-            new_end = lifter[chrom][end][0][1]
-
-            new_size = new_end - new_start
-
-            if (abs(new_size - old_size) / old_size) > size_change_treshold:
-                print(
-                    f"Warning: Size change >{size_change_treshold * 100}% after liftover for {chrom}:{start}-{end}"
-                )
-
+            # Drop records that fail to map or whose size drifts past the threshold.
+            if lifted is None:
                 calls_removed_from_failed_liftover += 1
                 bases_removed_from_failed_liftover += old_size
 
@@ -249,8 +246,16 @@ def _process_single_vcf_to_df(
                     calls_dup_removed_from_failed_liftover += 1
                     bases_removed_from_failed_liftover_dup += old_size
 
-            else:
-                start, end = new_start, new_end
+                if status is LiftoverStatus.UNMAPPED:
+                    calls_removed_unmapped += 1
+                    bases_removed_unmapped += old_size
+                else:  # LiftoverStatus.SIZE_CHANGE
+                    calls_removed_size_change += 1
+                    bases_removed_size_change += old_size
+
+                continue
+
+            start, end = lifted
 
         records.append((chrom, start, end, svtype))
 
@@ -269,6 +274,10 @@ def _process_single_vcf_to_df(
         "calls_dup_removed_from_failed_liftover": calls_dup_removed_from_failed_liftover,
         "bases_removed_from_failed_liftover_del": bases_removed_from_failed_liftover_del,
         "bases_removed_from_failed_liftover_dup": bases_removed_from_failed_liftover_dup,
+        "calls_removed_unmapped": calls_removed_unmapped,
+        "bases_removed_unmapped": bases_removed_unmapped,
+        "calls_removed_size_change": calls_removed_size_change,
+        "bases_removed_size_change": bases_removed_size_change,
     }
 
     return df, statistics
