@@ -349,15 +349,19 @@ def identify_undiscoverable_cnvs(
 def _compute_series_stats(series: pd.Series) -> pd.Series:
     q1 = series.quantile(0.25)
     q3 = series.quantile(0.75)
+    median = series.median()
+    # Median absolute deviation: median(|x - median(x)|), a robust spread measure.
+    mad = float((series - median).abs().median())
     return pd.Series({
         'count': int(series.count()),
         'min': float(series.min()),
         'q1': float(q1),
-        'median': float(series.median()),
+        'median': float(median),
         'q3': float(q3),
         'iqr': float(q3 - q1),
         'mean': float(series.mean()),
         'stdev': float(series.std(ddof=1)) if series.count() > 1 else np.nan,
+        'mad': mad,
         'max': float(series.max()),
     })
 
@@ -1789,6 +1793,7 @@ class CNVPlotter:
                 'total_calls': int(sample_counts.sum()),
                 'mean_calls_per_sample': float(stats['mean']),
                 'median_calls': float(stats['median']),
+                'mad_calls': float(stats['mad']),
                 'min_calls': float(stats['min']),
                 'max_calls': float(stats['max']),
                 'q1_calls': float(stats['q1']),
