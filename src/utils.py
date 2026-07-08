@@ -234,11 +234,6 @@ def generate_size_intervals(
 
     return intervals
 
-def get_count_from_bed_file(bed_file: str | Path) -> int:
-    """Count the number of records in a BED file."""
-    with open(bed_file, 'r') as f:
-        return sum(1 for _ in f)
-
 def ensure_chr_prefix(chrom: str) -> str:
     """Ensure chromosome name has 'chr' prefix."""
     if not chrom.startswith('chr'):

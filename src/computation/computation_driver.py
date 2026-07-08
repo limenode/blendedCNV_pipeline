@@ -1,6 +1,6 @@
 import json
 
-from parsing_functions import parse_benchmarks_to_bed
+from computation.benchmark_parser import process_benchmarks_to_beds
 from computation.penncnv_parser import process_penncnv_to_beds
 from utils import parse_args, PipelineConfig
 from computation.computation_functions import run_binary_classification_script
@@ -19,7 +19,7 @@ def main(config: PipelineConfig):
     _ = process_penncnv_to_beds(config)
 
     print("\nStep 4: Parsing all benchmarks to BED format...")
-    _, benchmark_liftover_results = parse_benchmarks_to_bed(config)
+    benchmark_liftover_results = process_benchmarks_to_beds(config)
 
     if benchmark_liftover_results:
         liftover_log = layout.log("benchmark_liftover_results.json")
