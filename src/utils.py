@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 import os
 
+from liftover import ChainFile
+
 from output_layout import OutputLayout
 
 class DistributionType(Enum):
@@ -21,6 +23,12 @@ class SVType(Enum):
     DEL = "DEL"
     DUP = "DUP"
     ALL = "ALL"
+
+class LiftoverStatus(Enum):
+    """Outcome of lifting one interval to another genome build."""
+    OK = "ok"                    # lifted successfully
+    UNMAPPED = "unmapped"        # an endpoint failed to map (unknown chrom / empty result)
+    SIZE_CHANGE = "size_change"  # length drifted past the allowed threshold
 
 @dataclass(frozen=True)
 class PipelineConfig:
@@ -226,16 +234,48 @@ def generate_size_intervals(
 
     return intervals
 
-def get_count_from_bed_file(bed_file: str | Path) -> int:
-    """Count the number of records in a BED file."""
-    with open(bed_file, 'r') as f:
-        return sum(1 for _ in f)
-
 def ensure_chr_prefix(chrom: str) -> str:
     """Ensure chromosome name has 'chr' prefix."""
     if not chrom.startswith('chr'):
         return f'chr{chrom}'
     return chrom
+
+def lift_interval(
+    lifter: ChainFile,
+    chrom: str,
+    start: int,
+    end: int,
+    size_change_threshold: float = 0.10,
+) -> Tuple[LiftoverStatus, Optional[Tuple[int, int]]]:
+    """Lift a (start, end) interval to another genome build.
+
+    Returns a `(status, coords)` pair:
+      - `(LiftoverStatus.OK, (start, end))`     -- lifted successfully
+      - `(LiftoverStatus.UNMAPPED, None)`       -- an endpoint failed to map
+                                                   (unknown chromosome or empty result)
+      - `(LiftoverStatus.SIZE_CHANGE, None)`    -- length changed by more than
+                                                   `size_change_threshold` (default 10%)
+
+    Callers drop the record on any non-OK status and can attribute the drop to
+    its reason. This is the shared per-record liftover used by both the VCF and
+    PennCNV parsers; build the `lifter` once with
+    `liftover.get_lifter(from_build, to_build)` and reuse it across records.
+    """
+    old_size = end - start
+
+    try:
+        new_start = lifter[chrom][start]
+        new_end = lifter[chrom][end]
+    except (KeyError, IndexError):
+        return LiftoverStatus.UNMAPPED, None
+
+    if not new_start or not new_end:
+        return LiftoverStatus.UNMAPPED, None
+
+    new_start, new_end = new_start[0][1], new_end[0][1]
+    if old_size and abs((new_end - new_start) - old_size) / old_size > size_change_threshold:
+        return LiftoverStatus.SIZE_CHANGE, None
+    return LiftoverStatus.OK, (new_start, new_end)
 
 def sanitize_svtype(svtype: Optional[str], record_id: str = "") -> str:
     """
