@@ -21,7 +21,7 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
     """
 
     layout = config.layout
-    input_keys = config.input.keys()
+    input_keys = config.experimental.keys()
 
     input_network_paths = {}
     for key in input_keys:

@@ -291,7 +291,7 @@ def parse_input_map(config: PipelineConfig) -> dict[str, dict[str, dict[str, Pat
     """
     return {
         input_name: {tool: expand_pattern(pattern) for tool, pattern in tools.items()}
-        for input_name, tools in config.input.items()
+        for input_name, tools in config.experimental.items()
     }
 
 
@@ -304,7 +304,7 @@ def process_vcfs_to_beds(config: PipelineConfig, type: str, common_only: bool = 
 
     all_statistics = []
 
-    if type == "input":
+    if type == "experimental":
         io_map = parse_input_map(config)        
         liftover_map = config.liftover
 

@@ -56,13 +56,13 @@ def process_benchmarks_to_beds(
 ) -> dict | None:
     """Convert gold-standard benchmark VCFs to per-sample DEL/DUP BED files.
 
-    Every benchmark in `benchmark_map` is read exactly once; its per-sample
+    Every benchmark in `benchmark` is read exactly once; its per-sample
     calls are buffered by (sample_id, svtype) so overlapping intervals from
     different benchmarks can be merged into one record set (with sources
     combined) before writing, matching the "merged" benchmark semantics.
     Returns a per-benchmark summary of records dropped by liftover, or None.
     """
-    if not config.benchmark_map:
+    if not config.benchmark:
         print("No benchmark map found in config. Skipping benchmark parsing.")
         return None
 
@@ -70,7 +70,7 @@ def process_benchmarks_to_beds(
 
     sample_ids: set[str] = set()
     if common_only:
-        for key in config.input.keys():
+        for key in config.experimental.keys():
             bed_paths = glob.glob(str(layout.set_dir(key)) + "/consensus*/*/*.bed")
             sample_ids |= {Path(path).name.split(".")[0] for path in bed_paths}
 
@@ -87,7 +87,7 @@ def process_benchmarks_to_beds(
     # (sample_id, svtype) -> list of (chrom, start, end, source) across all benchmarks
     buffers: dict[tuple[str, str], List[Tuple[str, int, int, str]]] = defaultdict(list)
 
-    for bench_name, bench_path in config.benchmark_map.items():
+    for bench_name, bench_path in config.benchmark.items():
         print(f"Processing benchmark {bench_name} at {bench_path}")
         vcf = VCF(bench_path, samples=sample_id_list, threads=2)
         source = bench_name.replace(" ", "_").lower()

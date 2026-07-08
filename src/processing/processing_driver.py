@@ -4,7 +4,7 @@ from processing.consensus_calling import compute_consensus_from_beds
 
 def main(config: PipelineConfig):
     print("\nStep 1: Converting VCF files to BED format...")
-    _ = process_vcfs_to_beds(config, "input")
+    _ = process_vcfs_to_beds(config, "experimental")
 
     print("\nStep 2: Running consensus calls script...")
     compute_consensus_from_beds(config, weight_threshold=0.5)

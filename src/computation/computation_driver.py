@@ -29,7 +29,7 @@ def main(config: PipelineConfig):
 
     print("\nStep 6: Running binary classification script...")
     bin_class_sets = []
-    for key, input_map in config.input.items():
+    for key, input_map in config.experimental.items():
         # Add the consensus call sets (intersections, then unions) for classification
         for representation in ("intersections", "unions"):
             for level in (1, 2, 3):

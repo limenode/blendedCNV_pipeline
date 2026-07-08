@@ -211,7 +211,7 @@ def get_counts_from_config(config: PipelineConfig,
     input_names = []
     control_names = []
 
-    for key, path in config.input.items():
+    for key, path in config.experimental.items():
         for consensus_type in consensus_types:
             output_subdir = layout.set_dir(key) / consensus_type
             sets_to_process[f"{key}.{consensus_type}"] = output_subdir
@@ -222,7 +222,7 @@ def get_counts_from_config(config: PipelineConfig,
         sets_to_process[key] = output_subdir
         control_names.append(key)
 
-    if config.benchmark_map:
+    if config.benchmark:
         sets_to_process['Benchmark'] = layout.benchmark
 
     script_path = Path("./src/get_bed_counts.sh")
