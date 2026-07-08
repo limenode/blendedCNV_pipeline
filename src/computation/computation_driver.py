@@ -29,7 +29,7 @@ def main(config: PipelineConfig):
 
     print("\nStep 6: Running binary classification script...")
     bin_class_sets = []
-    for key, input_map in config.experimental.items():
+    for key, tools in config.experimental.items():
         # Add the consensus call sets (intersections, then unions) for classification
         for representation in ("intersections", "unions"):
             for level in (1, 2, 3):
@@ -42,7 +42,7 @@ def main(config: PipelineConfig):
                 )
 
         # Add individual tool results to the sets for classification
-        for tool in input_map.keys():
+        for tool in tools.keys():
             bin_class_sets.append(
                 (
                     str(layout.bed_tool_dir(key, tool)),

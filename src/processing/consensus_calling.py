@@ -1,4 +1,4 @@
-"""Consensus calling over the input-set overlap graph.
+"""Consensus calling over the experimental-set overlap graph.
 
 Wraps the shared overlap-graph primitives (see `overlap_graph`) with the
 consensus-specific driver that writes 1/2/3-of-3 call sets to the output layout.
@@ -21,20 +21,20 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
     """
 
     layout = config.layout
-    input_keys = config.experimental.keys()
+    experimental_keys = config.experimental.keys()
 
-    input_network_paths = {}
-    for key in input_keys:
+    network_paths = {}
+    for key in experimental_keys:
         bed_paths = glob.glob(str(layout.bed_dir(key)) + "/*/*.bed")
-        input_network_paths[key] = [Path(p) for p in bed_paths if Path(p).is_file()]
+        network_paths[key] = [Path(p) for p in bed_paths if Path(p).is_file()]
 
-    input_networks = {}
+    networks = {}
 
-    for key in input_keys:
-        input_networks[key] = build_sample_graphs_from_beds(input_network_paths[key])
+    for key in experimental_keys:
+        networks[key] = build_sample_graphs_from_beds(network_paths[key])
 
-    for key, networks in input_networks.items():
-        for sample_id, network in networks.items():
+    for key, sample_graphs in networks.items():
+        for sample_id, network in sample_graphs.items():
             for level in (1, 2, 3):
                 consensus_calls = merge_components(
                     network,
