@@ -35,14 +35,14 @@ class PipelineConfig:
     """Parsed, validated pipeline configuration. Built once in ``parse_args()``."""
 
     # --- Required ---
-    input: dict                       # set_key -> {tool_label: glob_pattern}
+    experimental: dict                # set_key -> {tool_label: glob_pattern}
     output_dir: Path
     genome_file: str                  # passed to shell scripts as a path string
     layout: OutputLayout              # derived from output_dir
 
     # --- Optional sections (empty/None if absent) ---
     control: dict = field(default_factory=dict)
-    benchmark_map: dict = field(default_factory=dict)
+    benchmark: dict = field(default_factory=dict)
     liftover: dict = field(default_factory=dict)
     valid_chromosomes: set = field(default_factory=set)
     chromosome_order: List[str] = field(default_factory=list)
@@ -63,12 +63,12 @@ class PipelineConfig:
                  do_computation: bool, do_analysis: bool) -> "PipelineConfig":
         output_dir = Path(raw['output_dir'])
         return cls(
-            input=raw.get('input', {}),
+            experimental=raw.get('experimental', {}),
             output_dir=output_dir,
             genome_file=raw['genome_file'],
             layout=OutputLayout(output_dir),
             control=raw.get('control', {}),
-            benchmark_map=raw.get('benchmark_map', {}),
+            benchmark=raw.get('benchmark', {}),
             liftover=raw.get('liftover', {}),
             valid_chromosomes=raw.get('valid_chromosomes', set()),
             chromosome_order=raw.get('chromosome_order', []),
@@ -94,18 +94,18 @@ def build_config(config_path: Path, *, do_processing: bool,
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    # Process benchmark_map to handle URLs
-    if 'benchmark_map' in config and config['benchmark_map']:
+    # Process benchmark to handle URLs
+    if 'benchmark' in config and config['benchmark']:
         # Get project root (parent of the config file's directory or workspace root)
         project_root = Path(config_path).parent
         tmp_dir = project_root / 'tmp'
         tmp_dir.mkdir(exist_ok=True)
 
-        for benchmark_name, benchmark_path in config['benchmark_map'].items():
+        for benchmark_name, benchmark_path in config['benchmark'].items():
             if isinstance(benchmark_path, str) and _is_url(benchmark_path):
                 print(f"Downloading {benchmark_name} from {benchmark_path}...")
                 local_path = _download_benchmark(benchmark_path, tmp_dir, benchmark_name)
-                config['benchmark_map'][benchmark_name] = str(local_path)
+                config['benchmark'][benchmark_name] = str(local_path)
                 print(f"Saved to: {local_path}")
 
     # Read genome.txt and store set of valid chromosomes

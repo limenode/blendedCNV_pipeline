@@ -23,11 +23,11 @@ def _load_plots_config(config: PipelineConfig) -> dict:
 
 
 def main(config: PipelineConfig):
-    if not config.input:
+    if not config.experimental:
         print("No input sets defined in configuration. Exiting analysis pipeline.")
         return
 
-    if not config.benchmark_map:
+    if not config.benchmark:
         print("No benchmark map defined in configuration. Skipping benchmark analysis.")
         return
 
@@ -40,7 +40,7 @@ def main(config: PipelineConfig):
     input_name_mapping = {}
 
     # Get all input set keys
-    input_sets_raw = list(config.input.keys())
+    input_sets_raw = list(config.experimental.keys())
     print(f"Available input sets: {input_sets_raw}")
 
     # Append each caller, "Intersection", and "Union" to input set keys for binary classification results
@@ -50,7 +50,7 @@ def main(config: PipelineConfig):
         key_path = key.replace(" ", "_")
         input_set_subdir = layout.classification_root(key)
 
-        for caller in config.input[key].keys():
+        for caller in config.experimental[key].keys():
             caller_key = f"{key_path}_{caller}"
             input_sets_paths[caller_key] = input_set_subdir / caller
             input_name_mapping[caller_key] = f"{key} {caller}"

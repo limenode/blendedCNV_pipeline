@@ -61,7 +61,7 @@ def process_penncnv_to_beds(config: PipelineConfig, common_only: bool = True) ->
     # Collect samples of interest from the consensus call sets.
     sample_ids: set[str] = set()
     if common_only:
-        for key in config.input.keys():
+        for key in config.experimental.keys():
             bed_paths = glob.glob(str(layout.set_dir(key)) + "/consensus*/*/*.bed")
             sample_ids |= {Path(path).name.split(".")[0] for path in bed_paths}
 

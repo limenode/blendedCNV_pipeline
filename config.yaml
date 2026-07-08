@@ -1,5 +1,5 @@
 # Input datasets
-input:
+experimental:
   "Low Coverage":
     cnvpytor: "/path/to/low_cov/cnvpytor/{id}.calls.1000bp.vcf"
     delly: "/path/to/low_cov/delly/{id}.bcf"
@@ -23,7 +23,7 @@ control:
   "SNP Array": "/path/to/array/data.cnv"
 
 # Benchmark datasets [required when using --run-benchmark] (accepts URLs or paths)
-benchmark_map:
+benchmark:
   "1000G": "/path/to/hgsvc2/benchmark.vcf"
   "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
   "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"

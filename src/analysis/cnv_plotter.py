@@ -703,19 +703,19 @@ class CNVPlotter:
         Plot caller overlap counts from TP+FP records in a 1-of-3 consensus input set.
 
         This function expects exactly three caller names under:
-        config.input[input_set_key].keys()
+        config.experimental[input_set_key].keys()
         and uses TP/FP rows from:
         self.data['input_sets'][f"{input_set_key}_consensus_1of3_intersections"]
         """
-        input_cfg = config.input.get(input_set_key)
+        input_cfg = config.experimental.get(input_set_key)
         if input_cfg is None:
-            print(f"Error: input_set_key '{input_set_key}' not found under config.input.")
+            print(f"Error: input_set_key '{input_set_key}' not found under config.experimental.")
             return
 
         caller_names = list(input_cfg.keys())
         if len(caller_names) != 3:
             print(
-                f"Error: Expected exactly 3 callers in config.input['{input_set_key}'], "
+                f"Error: Expected exactly 3 callers in config.experimental['{input_set_key}'], "
                 f"found {len(caller_names)}: {caller_names}"
             )
             return

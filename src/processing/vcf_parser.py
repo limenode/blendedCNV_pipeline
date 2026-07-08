@@ -283,32 +283,32 @@ def _process_single_vcf_to_df(
     return df, statistics
 
 
-def parse_input_map(config: PipelineConfig) -> dict[str, dict[str, dict[str, Path]]]:
-    """Expand every input set's tool patterns into {sample_id: file_path} maps.
+def parse_experimental_map(config: PipelineConfig) -> dict[str, dict[str, dict[str, Path]]]:
+    """Expand every experimental set's tool patterns into {sample_id: file_path} maps.
 
     Returns a nested dict:
-        {input_name: {tool_label: {sample_id: path}}}
+        {experimental_name: {tool_label: {sample_id: path}}}
     """
     return {
-        input_name: {tool: expand_pattern(pattern) for tool, pattern in tools.items()}
-        for input_name, tools in config.input.items()
+        experimental_name: {tool: expand_pattern(pattern) for tool, pattern in tools.items()}
+        for experimental_name, tools in config.experimental.items()
     }
 
 
 def process_vcfs_to_beds(config: PipelineConfig, type: str, common_only: bool = True) -> pd.DataFrame:
-    """Convert all input VCFs to BED format, applying liftover if needed.
-    Returns a DataFrame of liftover statistics for each input set, tool, and sample.
+    """Convert all experimental VCFs to BED format, applying liftover if needed.
+    Returns a DataFrame of liftover statistics for each experimental set, tool, and sample.
     """
 
     layout = config.layout
 
     all_statistics = []
 
-    if type == "input":
-        io_map = parse_input_map(config)        
+    if type == "experimental":
+        experimental_map = parse_experimental_map(config)        
         liftover_map = config.liftover
 
-        for input_name, tools in io_map.items():
+        for experimental_name, tools in experimental_map.items():
             
             common_samples = set()
             
@@ -331,17 +331,17 @@ def process_vcfs_to_beds(config: PipelineConfig, type: str, common_only: bool = 
                 )
 
                 for sample_id, vcf_path in sample_map.items():
-                    layout.bed_tool_dir(input_name, tool).mkdir(parents=True, exist_ok=True)
+                    layout.bed_tool_dir(experimental_name, tool).mkdir(parents=True, exist_ok=True)
                     bed_path_del = (
-                        layout.bed_tool_dir(input_name, tool) / f"{sample_id}.DEL.bed"
+                        layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.DEL.bed"
                     )
                     bed_path_dup = (
-                        layout.bed_tool_dir(input_name, tool) / f"{sample_id}.DUP.bed"
+                        layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.DUP.bed"
                     )
 
                     df, statistics = _process_single_vcf_to_df(vcf_path, lifter)
 
-                    statistics["input_name"] = input_name
+                    statistics["experimental_name"] = experimental_name
                     statistics["sample_id"] = sample_id
                     statistics["tool"] = tool
                     all_statistics.append(statistics)
