@@ -278,46 +278,23 @@ def lift_interval(
     return LiftoverStatus.OK, (new_start, new_end)
 
 def sanitize_svtype(svtype: Optional[str], record_id: str = "") -> str:
-    """
-    Sanitize SVTYPE to unified DEL/DUP classification.
-    Maps all insertion types (INS, LINE1, ALU, SVA) to DUP for consistency.
-    
-    Args:
-        svtype: SVTYPE from INFO field
-        record_id: Record ID (may contain type information for CNV records)
-        
-    Returns:
-        Sanitized type: 'DEL', 'DUP', or 'NA'
-    """
+    """Sanitize SVTYPE to DEL, DUP, or NA."""
     if svtype is None:
         return 'NA'
     
-    svtype_upper = svtype.upper()
+    svtype = svtype.upper()
     
-    # Handle deletions - check if any deletion pattern is in the string
-    if any(pattern in svtype_upper for pattern in {'DEL', 'DELETION'}):
-        return 'DEL'
-    
-    # Handle duplications and insertions - check if any dup/ins pattern is in the string
-    if any(pattern in svtype_upper for pattern in {'DUP', 'DUPLICATION', 'INS', 'INSERTION'}):
-        return 'DUP'
-    
-    # Handle mobile element insertions as duplications
-    if any(pattern in svtype_upper for pattern in {'LINE1', 'ALU', 'SVA'}):
-        return 'DUP'
+    if svtype in {'DEL', 'DELETION'}:
+        return "DEL"
+    elif svtype in {'DUP', 'DUPLICATION', 'INS', 'INSERTION', 'LINE1', 'ALU', 'SVA'}:
+        return "DUP"
     
     # Handle CNV type by checking ID field
-    if 'CNV' in svtype_upper:
+    if 'CNV' in svtype:
         record_id_upper = record_id.upper()
         if 'DEL' in record_id_upper:
             return 'DEL'
         elif 'DUP' in record_id_upper:
             return 'DUP'
     
-    # Explicitly handle known SVTYPEs that we want to ignore (e.g., BND, INV)
-    if any(pattern in svtype_upper for pattern in {'BND', 'INV', 'TRA', 'CTX'}):
-        return 'NA'
-    
-    print(f"Warning: Unrecognized SVTYPE '{svtype}' in record ID '{record_id}'. Skipping.")
-    exit(1)
     return 'NA'

@@ -1,7 +1,5 @@
 import os
-import glob
 from collections import defaultdict
-from pathlib import Path
 from typing import Iterator, List, Tuple
 from cyvcf2 import VCF
 
@@ -14,23 +12,14 @@ from utils import (
     ensure_chr_prefix,
     sanitize_svtype,
 )
+from parsing.parser_utils import discover_samples_of_interest
 
 
 def _merge_intervals(
     records: List[Tuple[str, int, int, str]],
     chromosome_order: List[str] | None = None,
 ) -> Iterator[Tuple[str, int, int, str]]:
-    """Collapse overlapping/book-ended intervals, combining their sources.
-
-    `records` is a list of (chrom, start, end, source) for a single
-    (sample, svtype) group. Mirrors `bedtools merge -c 4 -o distinct`: sort,
-    then sweep, extending the running interval while the next one starts at or
-    before the current end. Yields (chrom, start, end, combined_source) where
-    combined_source is the sorted, de-duplicated set of merged sources.
-
-    `chromosome_order` (the genome-file contig order) sets the output ordering;
-    contigs not in it sort after the known ones in lexicographic order.
-    """
+    """Collapse overlapping intervals, combining their sources."""
     rank = {chrom: i for i, chrom in enumerate(chromosome_order or [])}
     ordered = sorted(
         records, key=lambda r: (rank.get(r[0], len(rank)), r[0], r[1], r[2], r[3])
@@ -54,34 +43,14 @@ def _merge_intervals(
 def process_benchmarks_to_beds(
     config: PipelineConfig, common_only: bool = True
 ) -> dict | None:
-    """Convert gold-standard benchmark VCFs to per-sample DEL/DUP BED files.
-
-    Every benchmark in `benchmark` is read exactly once; its per-sample
-    calls are buffered by (sample_id, svtype) so overlapping intervals from
-    different benchmarks can be merged into one record set (with sources
-    combined) before writing, matching the "merged" benchmark semantics.
-    Returns a per-benchmark summary of records dropped by liftover, or None.
-    """
+    """Convert benchmark VCFs to per-sample DEL/DUP BED files."""
     if not config.benchmark:
         print("No benchmark map found in config. Skipping benchmark parsing.")
         return None
 
     layout = config.layout
 
-    sample_ids: set[str] = set()
-    if common_only:
-        for key in config.experimental.keys():
-            bed_paths = glob.glob(str(layout.set_dir(key)) + "/consensus*/*/*.bed")
-            sample_ids |= {Path(path).name.split(".")[0] for path in bed_paths}
-
-        if not sample_ids:
-            print(
-                "Warning: No samples found in consensus call sets. Skipping benchmark processing."
-            )
-            return None
-        print(f"Found {len(sample_ids)} samples of interest from consensus call sets")
-
-    sample_id_list = list(sample_ids) if common_only else None
+    samples_of_interest = discover_samples_of_interest(config) if common_only else set()
 
     liftover_stats: dict = {}
     # (sample_id, svtype) -> list of (chrom, start, end, source) across all benchmarks
@@ -89,7 +58,7 @@ def process_benchmarks_to_beds(
 
     for bench_name, bench_path in config.benchmark.items():
         print(f"Processing benchmark {bench_name} at {bench_path}")
-        vcf = VCF(bench_path, samples=sample_id_list, threads=2)
+        vcf = VCF(bench_path, samples=samples_of_interest, threads=2)
         source = bench_name.replace(" ", "_").lower()
 
         liftover_dict = config.liftover.get(bench_name)

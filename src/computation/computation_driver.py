@@ -1,18 +1,14 @@
-from computation.benchmark_parser import process_benchmarks_to_beds
-from computation.penncnv_parser import process_penncnv_to_beds
 from computation.computation_functions import run_binary_classification_script
+from computation.consensus_calling import compute_consensus_from_beds
 from utils import PipelineConfig
 
 
 def main(config: PipelineConfig):
-    """Main computation pipeline."""
+    """Computation pipeline."""
     layout = config.layout
 
-    print("\nProcessing control datasets (SNP Array)...")
-    _ = process_penncnv_to_beds(config)
-
-    print("\nParsing all benchmarks to BED format...")
-    _ = process_benchmarks_to_beds(config)
+    print("\nRun consensus calling...")
+    compute_consensus_from_beds(config, weight_threshold=0.5)
 
     print("\nRunning binary classification script...")
     bin_class_sets = []

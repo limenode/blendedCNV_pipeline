@@ -6,15 +6,10 @@ import pandas as pd
 
 from cyvcf2 import VCF
 
-from utils import PipelineConfig, lift_interval, LiftoverStatus
+from utils import PipelineConfig, lift_interval, LiftoverStatus, sanitize_svtype, ensure_chr_prefix
 from liftover import get_lifter, ChainFile
 
-valid_chromosomes = (
-    [i for i in range(1, 23)]
-    + [f"chr{i}" for i in range(1, 23)]
-    + ["X", "Y", "M", "chrX", "chrY", "chrM"]
-)
-
+valid_chromosomes = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY", "chrM"]
 
 def expand_pattern(pattern: str) -> dict[str, Path]:
     """Find every file matching `pattern` and key it by sample id.
@@ -83,20 +78,6 @@ def extract_end_position(record) -> int:
     if end is not None:
         return int(end)
     return record.POS  # If END is not available, use POS as a fallback
-
-
-def sanitize_svtype(svtype: str | None) -> str:
-    """Sanitize SVTYPE to DEL, DUP, or NA."""
-    if svtype is None:
-        return "NA"
-    svtype = svtype.upper()
-    if svtype in {"DEL", "DELETION"}:
-        return "DEL"
-    elif svtype in {"DUP", "DUPLICATION", "INS", "INSERTION"}:
-        return "DUP"
-    else:
-        return "NA"
-
 
 def extract_svtype_from_info(record) -> str:
     """Extract SVTYPE from INFO field."""
@@ -208,7 +189,7 @@ def _process_single_vcf_to_df(
         if not record.ALT or len(record.ALT) == 0:
             continue
 
-        chrom = record.CHROM
+        chrom = ensure_chr_prefix(record.CHROM)
         if chrom not in valid_chromosomes:
             continue
 
@@ -295,63 +276,62 @@ def parse_experimental_map(config: PipelineConfig) -> dict[str, dict[str, dict[s
     }
 
 
-def process_vcfs_to_beds(config: PipelineConfig, type: str, common_only: bool = True) -> pd.DataFrame:
+def process_vcfs_to_beds(config: PipelineConfig, common_only: bool = True) -> list:
     """Convert all experimental VCFs to BED format, applying liftover if needed.
-    Returns a DataFrame of liftover statistics for each experimental set, tool, and sample.
+    Returns a list of liftover statistics for each experimental set, tool, and sample.
     """
 
     layout = config.layout
 
     all_statistics = []
 
-    if type == "experimental":
-        experimental_map = parse_experimental_map(config)        
-        liftover_map = config.liftover
+    experimental_map = parse_experimental_map(config)        
+    liftover_map = config.liftover
 
-        for experimental_name, tools in experimental_map.items():
-            
-            common_samples = set()
-            
-            if common_only:
-                # Check if all tools have a given sample, if not then drop that sample from the other tools
-                for tool, sample_map in tools.items():
-                    if len(common_samples) == 0:
-                        common_samples = set(sample_map.keys())
-                    else:
-                        common_samples = common_samples.intersection(set(sample_map.keys()))
-
+    for experimental_name, tools in experimental_map.items():
+        
+        common_samples = set()
+        
+        if common_only:
+            # Check if all tools have a given sample, if not then drop that sample from the other tools
             for tool, sample_map in tools.items():
-                if common_only:
-                    sample_map = {sample_id: vcf_path for sample_id, vcf_path in sample_map.items() if sample_id in common_samples}
-                liftover_dict = liftover_map.get(tool, None)
-                lifter = (
-                    get_lifter(liftover_dict.get("from"), liftover_dict.get("to"))
-                    if liftover_dict
-                    else None
+                if len(common_samples) == 0:
+                    common_samples = set(sample_map.keys())
+                else:
+                    common_samples = common_samples.intersection(set(sample_map.keys()))
+
+        for tool, sample_map in tools.items():
+            if common_only:
+                sample_map = {sample_id: vcf_path for sample_id, vcf_path in sample_map.items() if sample_id in common_samples}
+            liftover_dict = liftover_map.get(tool, None)
+            lifter = (
+                get_lifter(liftover_dict.get("from"), liftover_dict.get("to"))
+                if liftover_dict
+                else None
+            )
+
+            for sample_id, vcf_path in sample_map.items():
+                layout.bed_tool_dir(experimental_name, tool).mkdir(parents=True, exist_ok=True)
+                bed_path_del = (
+                    layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.DEL.bed"
+                )
+                bed_path_dup = (
+                    layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.DUP.bed"
                 )
 
-                for sample_id, vcf_path in sample_map.items():
-                    layout.bed_tool_dir(experimental_name, tool).mkdir(parents=True, exist_ok=True)
-                    bed_path_del = (
-                        layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.DEL.bed"
-                    )
-                    bed_path_dup = (
-                        layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.DUP.bed"
-                    )
+                df, statistics = _process_single_vcf_to_df(vcf_path, lifter)
 
-                    df, statistics = _process_single_vcf_to_df(vcf_path, lifter)
+                statistics["experimental_name"] = experimental_name
+                statistics["sample_id"] = sample_id
+                statistics["tool"] = tool
+                all_statistics.append(statistics)
 
-                    statistics["experimental_name"] = experimental_name
-                    statistics["sample_id"] = sample_id
-                    statistics["tool"] = tool
-                    all_statistics.append(statistics)
+                df["source"] = f"{tool}"
+                df[df["svtype"] == "DEL"].to_csv(
+                    bed_path_del, sep="\t", index=False, header=False
+                )
+                df[df["svtype"] == "DUP"].to_csv(
+                    bed_path_dup, sep="\t", index=False, header=False
+                )
 
-                    df["source"] = f"{tool}"
-                    df[df["svtype"] == "DEL"].to_csv(
-                        bed_path_del, sep="\t", index=False, header=False
-                    )
-                    df[df["svtype"] == "DUP"].to_csv(
-                        bed_path_dup, sep="\t", index=False, header=False
-                    )
-
-    return pd.DataFrame(all_statistics)
+    return all_statistics
