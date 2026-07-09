@@ -1,10 +1,4 @@
-"""
-BlendedCNV Pipeline - Entry Point
-
-This script orchestrates the complete CNV analysis pipeline:
-1. Computation: VCF conversion, consensus calling, benchmarking
-2. Analysis: Statistical metrics, plots, and visualizations
-"""
+"""BlendedCNV Pipeline - Entry Point"""
 
 from utils import parse_args
 from processing.processing_driver import main as processing_main
@@ -13,10 +7,6 @@ from analysis.analysis_driver import main as analysis_main
 
 
 def main():
-    """
-    Pipeline entry point.
-    """
-    # Parse command-line arguments
     config = parse_args()
 
     print("\n" + "="*80 + "\nBLENDEDCNV PIPELINE\n" + "="*80)

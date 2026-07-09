@@ -1,33 +1,20 @@
-import json
-
 from computation.benchmark_parser import process_benchmarks_to_beds
 from computation.penncnv_parser import process_penncnv_to_beds
-from utils import parse_args, PipelineConfig
 from computation.computation_functions import run_binary_classification_script
+from utils import PipelineConfig
 
 
 def main(config: PipelineConfig):
-    """
-    Main computation pipeline.
-
-    Args:
-        config: Parsed pipeline configuration
-    """
+    """Main computation pipeline."""
     layout = config.layout
 
-    print("\nStep 3: Processing control datasets (SNP Array)...")
+    print("\nProcessing control datasets (SNP Array)...")
     _ = process_penncnv_to_beds(config)
 
-    print("\nStep 4: Parsing all benchmarks to BED format...")
-    benchmark_liftover_results = process_benchmarks_to_beds(config)
+    print("\nParsing all benchmarks to BED format...")
+    _ = process_benchmarks_to_beds(config)
 
-    if benchmark_liftover_results:
-        liftover_log = layout.log("benchmark_liftover_results.json")
-        liftover_log.parent.mkdir(exist_ok=True, parents=True)
-        with open(liftover_log, "w") as f:
-            json.dump(benchmark_liftover_results, f, indent=4)
-
-    print("\nStep 6: Running binary classification script...")
+    print("\nRunning binary classification script...")
     bin_class_sets = []
     for key, tools in config.experimental.items():
         # Add the consensus call sets (intersections, then unions) for classification
@@ -60,9 +47,3 @@ def main(config: PipelineConfig):
         )
 
     run_binary_classification_script(config, bin_class_sets)
-
-
-if __name__ == "__main__":
-    # Allow running standalone for testing
-    config = parse_args()
-    main(config)

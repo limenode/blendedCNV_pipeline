@@ -4,7 +4,7 @@ import yaml
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
-from utils import parse_args, PipelineConfig, f0_5_score, f2_score, precision, recall, f1_score, SVType
+from utils import PipelineConfig, f0_5_score, f2_score, precision, recall, f1_score, SVType
 from analysis.cnv_plotter import CNVPlotter
 from analysis.analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
 
@@ -215,10 +215,4 @@ def main(config: PipelineConfig):
                 print(f"Error in plotting task: {e}")
                 import traceback
                 traceback.print_exc()
-
-
-if __name__ == "__main__":
-    # Allow running standalone for testing
-    config = parse_args()
-
-    main(config)
+    
