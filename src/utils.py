@@ -103,10 +103,10 @@ def build_config(config_path: Path, *, do_processing: bool,
 
         for benchmark_name, benchmark_path in config['benchmark'].items():
             if isinstance(benchmark_path, str) and _is_url(benchmark_path):
-                print(f"Downloading {benchmark_name} from {benchmark_path}...")
+                # print(f"Downloading {benchmark_name} from {benchmark_path}...")
                 local_path = _download_benchmark(benchmark_path, tmp_dir, benchmark_name)
                 config['benchmark'][benchmark_name] = str(local_path)
-                print(f"Saved to: {local_path}")
+                # print(f"Saved to: {local_path}")
 
     # Read genome.txt and store set of valid chromosomes
     # Get first column of genome file as set of valid chromosomes
@@ -117,7 +117,7 @@ def build_config(config_path: Path, *, do_processing: bool,
                 ordered_chromosomes = [line.split()[0] for line in f if line.strip()]
             config['valid_chromosomes'] = set(ordered_chromosomes)
             config['chromosome_order'] = ordered_chromosomes
-            print(f"Loaded {len(ordered_chromosomes)} valid chromosomes from {genome_file}")
+            # print(f"Loaded {len(ordered_chromosomes)} valid chromosomes from {genome_file}")
         else:
             print(f"Warning: Genome file {genome_file} not found. Chromosome validation will be skipped.")
 
@@ -172,7 +172,7 @@ def _download_benchmark(url: str, tmp_dir: Path, benchmark_name: str) -> Path:
     
     # Check if file already exists
     if local_path.exists():
-        print(f"File already exists at {local_path}, skipping download")
+        # print(f"File already exists at {local_path}, skipping download")
         return local_path
     
     # Download the file (use urllib for FTP, requests for HTTP/HTTPS)

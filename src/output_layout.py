@@ -40,7 +40,7 @@ class OutputLayout:
 
     @property
     def benchmark(self) -> Path:
-        """Parsed (merged) gold-standard benchmark BEDs."""
+        """Parsed benchmarks directory."""
         return self.root / "benchmark"
 
     def log(self, filename: str) -> Path:
@@ -110,6 +110,13 @@ class OutputLayout:
 
     def control_classification_dir(self, control_key: str) -> Path:
         return self.control_dir(control_key) / "binary_classification"
+    
+    # ------------------------------------------------------------------ #
+    # Per benchmark
+    # ------------------------------------------------------------------ #
+    def benchmark_dir(self, benchmark_key: str) -> Path:
+        return self.benchmark / _slug(benchmark_key)
+    
 
     # ------------------------------------------------------------------ #
     # Naming conventions (centralized so the contract stays in one file)

@@ -1,75 +1,111 @@
-"""Consensus calling over the experimental-set overlap graph.
-
-Wraps the shared overlap-graph primitives (see `overlap_graph`) with the
-consensus-specific driver that writes 1/2/3-of-3 call sets to the output layout.
-Each consensus level is just `merge_components` with a different `min_nodes`.
-"""
-
 import glob
 from pathlib import Path
+import shutil
 
 from utils import PipelineConfig
 from overlap_graph import build_sample_graphs_from_beds, merge_components
 
 
 def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float = 0.5):
-    """Compute consensus calls from per-caller BED files and write them to the layout.
-
-    Args:
-        config (PipelineConfig): The pipeline configuration.
-        weight_threshold (float, optional): The minimum weight for edges in the overlap graph. Defaults to 0.5.
-    """
+    """Compute consensus calls from per-caller BED files and write them to the output folder."""
 
     layout = config.layout
     experimental_keys = config.experimental.keys()
 
     network_paths = {}
-    for key in experimental_keys:
-        bed_paths = glob.glob(str(layout.bed_dir(key)) + "/*/*.bed")
-        network_paths[key] = [Path(p) for p in bed_paths if Path(p).is_file()]
+    for experimental_key in experimental_keys:
+        bed_paths = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
+        network_paths[experimental_key] = [
+            Path(p) for p in bed_paths if Path(p).is_file()
+        ]
 
     networks = {}
 
-    for key in experimental_keys:
-        networks[key] = build_sample_graphs_from_beds(network_paths[key])
+    for experimental_key in experimental_keys:
+        networks[experimental_key] = build_sample_graphs_from_beds(
+            network_paths[experimental_key]
+        )
 
-    for key, sample_graphs in networks.items():
-        for sample_id, network in sample_graphs.items():
+    for experimental_key, sample_graph_dict in networks.items():
+        for sample_id, graph in sample_graph_dict.items():
             for level in (1, 2, 3):
                 consensus_calls = merge_components(
-                    network,
+                    graph,
                     min_nodes=level,
                     min_weight=weight_threshold,
                     chrom_order=config.chromosome_order,
                 )
-                output_dir = layout.consensus_rep_dir(key, level, "unions")
+                output_dir = layout.consensus_rep_dir(experimental_key, level, "unions")
                 output_dir.mkdir(parents=True, exist_ok=True)
-                output_file = output_dir / f"{sample_id}.bed"
-                output_file_del = output_dir / f"{sample_id}.DEL.union.bed"
-                output_file_dup = output_dir / f"{sample_id}.DUP.union.bed"
 
-                with open(output_file, "w") as f:
-                    for call in consensus_calls:
-                        f.write(f"{call.bed_str()}\n")
-
-                with open(output_file_del, "w") as f:
-                    for call in consensus_calls:
-                        if call.svtype == "DEL":
-                            f.write(f"{call.bed_str()}\n")
-
-                with open(output_file_dup, "w") as f:
-                    for call in consensus_calls:
-                        if call.svtype == "DUP":
-                            f.write(f"{call.bed_str()}\n")
+                # Open the output files for writing
+                all_file = open(output_dir / f"{sample_id}.bed", "w")
+                del_file = open(output_dir / f"{sample_id}.DEL.bed", "w")
+                dup_file = open(output_dir / f"{sample_id}.DUP.bed", "w")
+                
+                for call in consensus_calls:
+                    all_file.write(f"{call.bed_str()}\n")
+                    if call.svtype == "DEL":
+                        del_file.write(f"{call.bed_str()}\n")
+                    elif call.svtype == "DUP":
+                        dup_file.write(f"{call.bed_str()}\n")
+    
+                # Close the output files
+                all_file.close()
+                del_file.close()
+                dup_file.close()
 
                 # Temporarily copy the union files to the "intersection" directory for downstream processing
-                intersection_dir = layout.consensus_rep_dir(key, level, "intersections")
+                intersection_dir = layout.consensus_rep_dir(
+                    experimental_key, level, "intersections"
+                )
                 intersection_dir.mkdir(parents=True, exist_ok=True)
-                intersection_file = intersection_dir / f"{sample_id}.bed"
-                intersection_file_del = intersection_dir / f"{sample_id}.DEL.intersection.bed"
-                intersection_file_dup = intersection_dir / f"{sample_id}.DUP.intersection.bed"
+                shutil.copy(output_dir / f"{sample_id}.bed", intersection_dir / f"{sample_id}.bed")
+                shutil.copy(output_dir / f"{sample_id}.DEL.bed", intersection_dir / f"{sample_id}.DEL.bed")
+                shutil.copy(output_dir / f"{sample_id}.DUP.bed", intersection_dir / f"{sample_id}.DUP.bed")
+                
 
-                import shutil
-                shutil.copy(output_file, intersection_file)
-                shutil.copy(output_file_del, intersection_file_del)
-                shutil.copy(output_file_dup, intersection_file_dup)
+
+def merge_benchmarks(config: PipelineConfig, weight_threshold: float = 0.0):
+    """Merge benchmark calls from per-benchmark BED files and write them to the output folder."""
+
+    layout = config.layout
+    benchmark_keys = config.benchmark.keys()
+
+    network_paths = []
+    for key in benchmark_keys:
+        bed_paths = glob.glob(str(layout.benchmark_dir(key)) + "/*.bed")
+        network_paths.extend([Path(p) for p in bed_paths if Path(p).is_file()])
+
+    network = build_sample_graphs_from_beds(network_paths)
+    
+    
+
+    for sample_id, graph in network.items():
+        merged_calls = merge_components(
+            graph,
+            min_nodes=1,
+            min_weight=weight_threshold,
+            chrom_order=config.chromosome_order,
+        )
+        output_dir = layout.benchmark_dir("merged")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / f"{sample_id}.bed"
+
+        # Open the output files for writing
+        all_file = open(output_file, "w")
+        del_file = open(output_dir / f"{sample_id}.DEL.bed", "w")
+        dup_file = open(output_dir / f"{sample_id}.DUP.bed", "w")
+        
+        for call in merged_calls:
+            all_file.write(f"{call.bed_str()}\n")
+            if call.svtype == "DEL":
+                del_file.write(f"{call.bed_str()}\n")
+            elif call.svtype == "DUP":
+                dup_file.write(f"{call.bed_str()}\n")
+        
+        # Close the output files
+        all_file.close()
+        del_file.close()
+        dup_file.close()
+            

@@ -31,6 +31,10 @@ def main(config: PipelineConfig):
         print("No benchmark map defined in configuration. Skipping benchmark analysis.")
         return
 
+    # Create output directories if they don't exist
+    layout = config.layout
+    layout.logs.mkdir(parents=True, exist_ok=True)
+
     # === Step 1: Prepare Input Set Paths ===
 
     # Create a mapping of input set keys to their corresponding paths

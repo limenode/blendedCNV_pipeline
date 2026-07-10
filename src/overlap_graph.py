@@ -2,13 +2,9 @@
 
 A set of interval calls forms an undirected overlap graph:
     node = one call (chrom, start, end, svtype, source, sample_id)
-    edge = two calls that reciprocally overlap
+    edge = two calls that have overlap, weighted by their reciprocal overlap fraction
 
-Edges never cross the `(sample_id, svtype, chrom)` partition, so calls from
-different samples, SV types, or chromosomes stay in separate sub-graphs even when
-passed in together. The graph is a neutral substrate: merge / consensus /
-classification methodologies each read groups out of it (connected components,
-cliques, ...), so alternatives can be compared on identical inputs.
+Edges never cross the `(sample_id, svtype, chrom)` partition.
 """
 
 from collections import defaultdict
@@ -16,19 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 import networkx as nx
-
-
-@dataclass(frozen=True)
-class Call:
-    """A single interval call, tagged with the source and sample it came from."""
-
-    chrom: str
-    start: int
-    end: int
-    svtype: str
-    source: str
-    sample_id: str
-
+from calls import Call
 
 def read_bed_file(path: Path) -> list[Call]:
     """Read a per-source BED file into `Call`s.

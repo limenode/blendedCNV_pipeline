@@ -1,5 +1,5 @@
 from computation.computation_functions import run_binary_classification_script
-from computation.consensus_calling import compute_consensus_from_beds
+from computation.consensus_calling import compute_consensus_from_beds, merge_benchmarks
 from utils import PipelineConfig
 
 
@@ -10,8 +10,11 @@ def main(config: PipelineConfig):
     print("\nRun consensus calling...")
     compute_consensus_from_beds(config, weight_threshold=0.5)
 
+    print("\nRun benchmark merging...")
+    merge_benchmarks(config, weight_threshold=0.0)
+
     print("\nRunning binary classification script...")
-    bin_class_sets = []
+    bin_class_sets: list[tuple[str, str]] = []
     for key, tools in config.experimental.items():
         # Add the consensus call sets (intersections, then unions) for classification
         for representation in ("intersections", "unions"):

@@ -30,7 +30,7 @@ def run_binary_classification_script(
             "./src/get_binary_classification.sh",
             input_path,
             output_path,
-            str(layout.benchmark),
+            str(layout.benchmark_dir("merged")),
             config.genome_file,
             str(config.matching_reciprocal_threshold)
         ])
