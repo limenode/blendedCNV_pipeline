@@ -6,6 +6,7 @@ pixi.toml
 
 # python cache files
 __pycache__/
+.ruff_cache/
 
 # user directories
 in/
@@ -13,11 +14,16 @@ out/
 tmp/
 test/
 
+# marimo
+__marimo__/
+
 # user-defined config
 internal.config*
 
 # tests
 test.ipynb
+test*ipynb
+test*py
 
 # vscode settings
 .vscode/
