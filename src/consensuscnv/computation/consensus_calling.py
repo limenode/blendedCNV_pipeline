@@ -66,8 +66,18 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
                 
 
 
-def merge_benchmarks(config: PipelineConfig, weight_threshold: float = 0.0):
-    """Merge benchmark calls from per-benchmark BED files and write them to the output folder."""
+def merge_benchmarks(
+    config: PipelineConfig,
+    weight_threshold: float = 0.0,
+    merge_within_set: bool = True,
+):
+    """Merge benchmark calls from per-benchmark BED files and write them to the output folder.
+
+    `merge_within_set` controls whether overlapping calls that share a source
+    (i.e. come from the same benchmark set) are merged together. When False, only
+    calls from *different* benchmark sets are merged -- overlaps within a single
+    set are left intact, which can leave overlapping intervals in the output.
+    """
 
     layout = config.layout
     benchmark_keys = config.benchmark.keys()
@@ -77,7 +87,9 @@ def merge_benchmarks(config: PipelineConfig, weight_threshold: float = 0.0):
         bed_paths = glob.glob(str(layout.benchmark_dir(key)) + "/*.bed")
         network_paths.extend([Path(p) for p in bed_paths if Path(p).is_file()])
 
-    network = build_sample_graphs_from_beds(network_paths)
+    network = build_sample_graphs_from_beds(
+        network_paths, link_same_source=merge_within_set
+    )
     
     
 
