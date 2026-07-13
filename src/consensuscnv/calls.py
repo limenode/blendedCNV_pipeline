@@ -20,4 +20,8 @@ class Call:
     def overlaps(self, other: "Call", padding: int = 0) -> bool:
         """Return True if this call overlaps `other`, with optional padding."""
         return self.chrom == other.chrom and self.start - padding < other.end and other.start - padding < self.end
+
+    def bed_str(self) -> str:
+        """Return a string representation of the call in BED format."""
+        return f"{self.chrom}\t{self.start}\t{self.end}\t{self.svtype}\t{self.source}\t{self.sample_id}"
     
