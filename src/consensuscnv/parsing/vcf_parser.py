@@ -2,12 +2,18 @@ import glob
 import re
 from pathlib import Path
 from typing import Callable
+
 import pandas as pd
-
 from cyvcf2 import VCF
+from liftover import ChainFile, get_lifter
 
-from consensuscnv.utils import PipelineConfig, lift_interval, LiftoverStatus, sanitize_svtype, ensure_chr_prefix
-from liftover import get_lifter, ChainFile
+from consensuscnv.utils import (
+    LiftoverStatus,
+    PipelineConfig,
+    ensure_chr_prefix,
+    lift_interval,
+    sanitize_svtype,
+)
 
 valid_chromosomes = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY", "chrM"]
 

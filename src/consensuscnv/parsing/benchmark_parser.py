@@ -1,17 +1,17 @@
 import os
 from typing import TextIO
-from cyvcf2 import VCF
 
+from cyvcf2 import VCF
 from liftover import get_lifter
 
+from consensuscnv.parsing.parser_utils import discover_samples_of_interest
 from consensuscnv.utils import (
-    PipelineConfig,
     LiftoverStatus,
-    lift_interval,
+    PipelineConfig,
     ensure_chr_prefix,
+    lift_interval,
     sanitize_svtype,
 )
-from consensuscnv.parsing.parser_utils import discover_samples_of_interest
 
 
 def process_benchmarks_to_beds(

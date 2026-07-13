@@ -1,8 +1,8 @@
-from pathlib import Path
-import pandas as pd
-from typing import Dict, List, Optional
 from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List, Optional
 
+import pandas as pd
 
 pred_columns = ['pred_chrom', 'pred_start', 'pred_end', 'svtype', 'sources']
 truth_columns = ['truth_chrom', 'truth_start', 'truth_end', 'benchmark_svtype', 'benchmark_sources']

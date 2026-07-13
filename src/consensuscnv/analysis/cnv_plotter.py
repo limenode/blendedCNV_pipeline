@@ -1,21 +1,23 @@
+import os
 from collections import defaultdict
-from typing import Callable, Tuple, Optional, List, Dict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
 from pathlib import Path
-import pandas as pd
-import numpy as np
+from typing import Callable, Dict, List, Optional, Tuple
+
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
 from matplotlib import colormaps
+from matplotlib.patches import Rectangle
 from matplotlib_venn import venn3, venn3_circles
 from scipy.ndimage import gaussian_filter1d
-from multiprocessing import Pool, cpu_count
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import seaborn as sns
-from matplotlib.patches import Rectangle
-import os
 
 from consensuscnv.analysis.load_analysis_data import filter_by_size
-from consensuscnv.utils import generate_size_intervals, DistributionType, SVType, PipelineConfig
+from consensuscnv.utils import DistributionType, PipelineConfig, SVType, generate_size_intervals
+
 
 # Module-level helper function for multiprocessing
 def _create_record_ids(df: pd.DataFrame, classification: str, svtype: SVType = SVType.ALL) -> set:
@@ -1148,13 +1150,13 @@ class CNVPlotter:
 
         # === Print detailed statistics ===
         print(f"\n{'='*60}")
-        print(f"Venn Diagram Detection Statistics")
+        print("Venn Diagram Detection Statistics")
         print(f"{'='*60}")
         print(f"Total truth benchmark CNVs (TP + FN): {total_truth_cnvs}")
         print(f"Detected by at least one method: {total_unique_cnvs} ({recall_rate:.1f}% of truth)")
         print(f"Not detected by any method (FN): {total_truth_cnvs - total_unique_cnvs}")
         
-        print(f"\nDetection by individual methods:")
+        print("\nDetection by individual methods:")
         for input_set_key in set_keys:
             count = len(tp_sets[input_set_key])
             display_name = self.input_name_mapping.get(input_set_key, input_set_key)
@@ -1162,7 +1164,7 @@ class CNVPlotter:
             pct_detected = (count / total_unique_cnvs) * 100 if total_unique_cnvs > 0 else 0
             print(f"  {display_name}: {count} ({pct_truth:.1f}% of truth, {pct_detected:.1f}% of detected)")
         
-        print(f"\nDetailed Overlap Counts:")
+        print("\nDetailed Overlap Counts:")
         combinations = ['100', '010', '001', '110', '101', '011', '111']
         
         for comb in combinations:
@@ -1646,11 +1648,11 @@ class CNVPlotter:
         entities_combo_sorted = sorted(all_entities_combo, key=sort_key)
         
         # Create color mappings for entities (callers/combinations)
-        colors_raw = matplotlib.colormaps['tab10'](np.linspace(0, 1, max(len(entities_raw_sorted), 1)))
-        colors_combo = matplotlib.colormaps['tab20'](np.linspace(0, 1, max(len(entities_combo_sorted), 1)))
+        # colors_raw = matplotlib.colormaps['tab10'](np.linspace(0, 1, max(len(entities_raw_sorted), 1)))
+        # colors_combo = matplotlib.colormaps['tab20'](np.linspace(0, 1, max(len(entities_combo_sorted), 1)))
         
-        color_map_raw = {entity: colors_raw[i] for i, entity in enumerate(entities_raw_sorted)}
-        color_map_combo = {entity: colors_combo[i] for i, entity in enumerate(entities_combo_sorted)}
+        # color_map_raw = {entity: colors_raw[i] for i, entity in enumerate(entities_raw_sorted)}
+        # color_map_combo = {entity: colors_combo[i] for i, entity in enumerate(entities_combo_sorted)}
         
         # Create color mapping for input sets (different patterns/shades)
         input_set_colors = matplotlib.colormaps['Set2'](np.linspace(0, 1, num_input_sets))
@@ -1662,17 +1664,17 @@ class CNVPlotter:
             subset = df[(df["svtype"] == svtype) & (df["metric"] == metric)]
             
             if subset.empty:
-                ax.text(0.5, 0.5, f'No data', ha='center', va='center', transform=ax.transAxes)
+                ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
                 ax.set_title(f"{svtype} {metric_label}", fontsize=12, fontweight='bold')
                 continue
             
             # Get sorted entities for this subplot
             if metric == "raw_count":
                 entities = [e for e in entities_raw_sorted if e in subset["caller_or_combination"].values]
-                entity_color_map = color_map_raw
+                # entity_color_map = color_map_raw
             else:
                 entities = [e for e in entities_combo_sorted if e in subset["caller_or_combination"].values]
-                entity_color_map = color_map_combo
+                # entity_color_map = color_map_combo
             
             # Calculate positions for grouped box plots
             box_width = 0.8 / num_input_sets

@@ -1,14 +1,16 @@
-from pathlib import Path
-import pandas as pd
-from typing import List, Tuple, Dict, Optional
 import json
 import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 from consensuscnv.analysis.load_analysis_data import build_analysis_data_structure, filter_by_size
 from consensuscnv.utils import PipelineConfig
+
 
 def load_data_for_all_input_sets(
         input_sets_paths: Dict[str, Path], 
@@ -402,7 +404,7 @@ def plot_excluded_regions_violin_plots(df: pd.DataFrame, output_path: Path) -> N
                 subset_df = df[(df['svtype'] == svtype) & (df['input_set'] == input_set)]
                 
                 if subset_df.empty:
-                    ax.text(0.5, 0.5, f'No data', ha='center', va='center', 
+                    ax.text(0.5, 0.5, 'No data', ha='center', va='center', 
                            transform=ax.transAxes)
                     ax.set_title(f'{svtype} - {input_set}')
                     continue

@@ -541,7 +541,7 @@ packages:
 - pypi: ./
   name: consensuscnv
   version: 0.1.0
-  sha256: d60a8123d287fe4f1d6955bc36db31b36bd763dd04b792266dedb847db085f04
+  sha256: b19dd61c0d18891695add3fa6f8e8de974b2732319caa68fea6278b5765c9a09
   requires_dist:
   - cyvcf2>=0.34.0,<0.35
   - liftover>=1.4.0,<2

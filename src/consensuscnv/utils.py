@@ -1,18 +1,19 @@
 import argparse
+import os
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import List, Tuple, Optional
-import numpy as np
 from enum import Enum
-import yaml
-import requests
+from pathlib import Path
+from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
-import os
 
+import numpy as np
+import requests
+import yaml
 from liftover import ChainFile
 
 from consensuscnv.output_layout import OutputLayout
+
 
 class DistributionType(Enum):
     DENSITY = "density"

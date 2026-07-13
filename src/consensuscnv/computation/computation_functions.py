@@ -1,7 +1,7 @@
 import subprocess
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import List, Tuple
-from concurrent.futures import ProcessPoolExecutor
 
 from consensuscnv.utils import PipelineConfig
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-
 CONSENSUS_LEVELS = (1, 2, 3)
 REPRESENTATIONS = ("intersections", "unions")
 

@@ -1,12 +1,26 @@
-from pathlib import Path
 import json
-import yaml
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
+from pathlib import Path
 
-from consensuscnv.utils import PipelineConfig, f0_5_score, f2_score, precision, recall, f1_score, SVType
+import yaml
+
+from consensuscnv.analysis.analysis_functions import (
+    analyze_logs,
+    get_counts_from_config,
+    get_samples_from_data,
+    load_data_for_all_input_sets,
+)
 from consensuscnv.analysis.cnv_plotter import CNVPlotter
-from consensuscnv.analysis.analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
+from consensuscnv.utils import (
+    PipelineConfig,
+    SVType,
+    f0_5_score,
+    f1_score,
+    f2_score,
+    precision,
+    recall,
+)
 
 
 def _load_plots_config(config: PipelineConfig) -> dict:

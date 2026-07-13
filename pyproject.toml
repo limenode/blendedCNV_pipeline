@@ -100,3 +100,10 @@ include = ["consensuscnv*"]
 src = ["src"]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+# Default rules (pyflakes + a subset of pycodestyle) plus import sorting (isort).
+extend-select = ["I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["consensuscnv"]

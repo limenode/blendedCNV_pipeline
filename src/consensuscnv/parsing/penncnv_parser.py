@@ -1,10 +1,10 @@
 import os
-from typing import Iterator, Tuple, TextIO
+from typing import Iterator, TextIO, Tuple
 
 from liftover import get_lifter
 
-from consensuscnv.utils import PipelineConfig, lift_interval, LiftoverStatus
 from consensuscnv.parsing.parser_utils import discover_samples_of_interest
+from consensuscnv.utils import LiftoverStatus, PipelineConfig, lift_interval
 
 
 def iter_penncnv_records(penncnv_file: str) -> Iterator[Tuple[str, int, int, str, str]]:
