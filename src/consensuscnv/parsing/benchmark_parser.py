@@ -4,14 +4,14 @@ from cyvcf2 import VCF
 
 from liftover import get_lifter
 
-from utils import (
+from consensuscnv.utils import (
     PipelineConfig,
     LiftoverStatus,
     lift_interval,
     ensure_chr_prefix,
     sanitize_svtype,
 )
-from parsing.parser_utils import discover_samples_of_interest
+from consensuscnv.parsing.parser_utils import discover_samples_of_interest
 
 
 def process_benchmarks_to_beds(

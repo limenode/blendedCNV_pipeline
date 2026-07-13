@@ -6,7 +6,7 @@ import pandas as pd
 
 from cyvcf2 import VCF
 
-from utils import PipelineConfig, lift_interval, LiftoverStatus, sanitize_svtype, ensure_chr_prefix
+from consensuscnv.utils import PipelineConfig, lift_interval, LiftoverStatus, sanitize_svtype, ensure_chr_prefix
 from liftover import get_lifter, ChainFile
 
 valid_chromosomes = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY", "chrM"]

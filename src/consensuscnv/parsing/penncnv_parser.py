@@ -3,8 +3,8 @@ from typing import Iterator, Tuple, TextIO
 
 from liftover import get_lifter
 
-from utils import PipelineConfig, lift_interval, LiftoverStatus
-from parsing.parser_utils import discover_samples_of_interest
+from consensuscnv.utils import PipelineConfig, lift_interval, LiftoverStatus
+from consensuscnv.parsing.parser_utils import discover_samples_of_interest
 
 
 def iter_penncnv_records(penncnv_file: str) -> Iterator[Tuple[str, int, int, str, str]]:

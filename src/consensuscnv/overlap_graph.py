@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 import networkx as nx
-from calls import Call
+from consensuscnv.calls import Call
 
 def read_bed_file(path: Path) -> list[Call]:
     """Read a per-source BED file into `Call`s.

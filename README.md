@@ -174,7 +174,7 @@ matching_reciprocal_threshold: 0.5
 Run the consensus calling on your input sets using the following command:
 
 ```bash
-python src/main.py config.yaml
+python -m consensuscnv.main config.yaml
 ```
 
 This will execute VCF conversion of evaluated call sets, consensus calling, and liftover if specified
@@ -185,7 +185,7 @@ Run the complete benchmarking pipeline using the following command:
 
 ```bash
 # Run the full benchmark pipeline
-python src/main.py config.yaml --run-benchmark
+python -m consensuscnv.main config.yaml --run-benchmark
 ```
 
 This will execute the following:
@@ -195,10 +195,10 @@ This will execute the following:
 If you would like to only run one of the two parts of the benchmark pipeline, you can add the following arguments:
 ```bash
 # Only run the computation sub-pipeline
-python src/main.py config.yaml --run-benchmark --only-compute
+python -m consensuscnv.main config.yaml --run-benchmark --only-compute
 
 # Only run the analysis sub-pipeline
-python src/main.py config.yaml --run-benchmark --only-analyze
+python -m consensuscnv.main config.yaml --run-benchmark --only-analyze
 ```
 
 ## Output Structure

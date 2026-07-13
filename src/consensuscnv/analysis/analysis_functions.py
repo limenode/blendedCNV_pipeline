@@ -7,9 +7,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from analysis.load_analysis_data import build_analysis_data_structure, filter_by_size
-from utils import PipelineConfig
-    
+from consensuscnv.analysis.load_analysis_data import build_analysis_data_structure, filter_by_size
+from consensuscnv.utils import PipelineConfig
+
 def load_data_for_all_input_sets(
         input_sets_paths: Dict[str, Path], 
         shared_samples_only: bool = True, 
@@ -225,7 +225,7 @@ def get_counts_from_config(config: PipelineConfig,
     if config.benchmark:
         sets_to_process['Benchmark'] = layout.benchmark
 
-    script_path = Path("./src/get_bed_counts.sh")
+    script_path = Path(__file__).parent / "get_bed_counts.sh"
 
     # Process each input set
     for set_name, directory in sets_to_process.items():
@@ -612,4 +612,15 @@ def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] =
     #     plot_liftover_results(liftover_results_dict, figures_dir / "liftover_results")
     # else:
     #     print(f"Warning: Liftover results file not found: {liftover_results_file}")
+    pass
+
+def discover_distances_between_benchmark_cnvs(
+    config: PipelineConfig,
+):
+    
+    # Retrieve merged benchmark CNVs per sample
+    merged_benchmark_dir = config.layout.benchmark_dir("merged")
+            
+    print(merged_benchmark_dir)
+    
     pass

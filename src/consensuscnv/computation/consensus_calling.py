@@ -2,8 +2,8 @@ import glob
 from pathlib import Path
 import shutil
 
-from utils import PipelineConfig
-from overlap_graph import build_sample_graphs_from_beds, merge_components
+from consensuscnv.utils import PipelineConfig
+from consensuscnv.overlap_graph import build_sample_graphs_from_beds, merge_components
 
 
 def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float = 0.5):

@@ -1,6 +1,6 @@
-from computation.computation_functions import run_binary_classification_script
-from computation.consensus_calling import compute_consensus_from_beds, merge_benchmarks
-from utils import PipelineConfig
+from consensuscnv.computation.computation_functions import run_binary_classification_script
+from consensuscnv.computation.consensus_calling import compute_consensus_from_beds, merge_benchmarks
+from consensuscnv.utils import PipelineConfig
 
 
 def main(config: PipelineConfig):

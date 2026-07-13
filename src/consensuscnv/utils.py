@@ -12,7 +12,7 @@ import os
 
 from liftover import ChainFile
 
-from output_layout import OutputLayout
+from consensuscnv.output_layout import OutputLayout
 
 class DistributionType(Enum):
     DENSITY = "density"

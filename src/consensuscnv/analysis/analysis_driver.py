@@ -4,9 +4,9 @@ import yaml
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
-from utils import PipelineConfig, f0_5_score, f2_score, precision, recall, f1_score, SVType
-from analysis.cnv_plotter import CNVPlotter
-from analysis.analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
+from consensuscnv.utils import PipelineConfig, f0_5_score, f2_score, precision, recall, f1_score, SVType
+from consensuscnv.analysis.cnv_plotter import CNVPlotter
+from consensuscnv.analysis.analysis_functions import load_data_for_all_input_sets, get_samples_from_data, analyze_logs, get_counts_from_config
 
 
 def _load_plots_config(config: PipelineConfig) -> dict:
@@ -125,7 +125,9 @@ def main(config: PipelineConfig):
     statistical_distribution_input_sets = plots_config.get('statistical_distributions', {})
     size_distribution_input_sets = plots_config.get('size_distributions', {})
     statistical_distribution_split_by_svtype_sets = plots_config.get('statistical_distributions_split_by_svtype_sets', {})
-    
+
+    # Retrieve distribution of caller distances from benchmark calls.
+
 
     caller_source_sets = plots_config.get('caller_source_distribution', {}).get('sets', [])
     count_venn_input_names = plots_config.get('count_venn_diagrams', [])

@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "consensuscnv"
+version = "0.1.0"
+description = "Graph-based consensus copy-number-variant calling from low-pass (Blended Genome-Exome) WGS, with optional benchmarking against gold-standard call sets."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Lionel Sequeira", email = "lionelsequeira@gmail.com" },
+]
+keywords = [
+    "CNV",
+    "copy-number-variant",
+    "consensus-calling",
+    "structural-variant",
+    "bioinformatics",
+    "WGS",
+    "blended-genome-exome",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+# Core: everything the ingest -> overlap-graph -> consensus -> BED path needs.
+# These are imported by utils.py, parsing/vcf_parser.py and overlap_graph.py,
+# so the consensus tool cannot run without them. Bounds mirror pixi.toml for
+# reproducibility.
+dependencies = [
+    "cyvcf2>=0.34.0,<0.35",
+    "liftover>=1.4.0,<2",
+    "networkx>=3.6.1,<4",
+    "numpy>=2.5.1,<3",
+    "pandas>=3.0.3,<4",
+    "PyYAML>=6.0.3,<7",
+    "requests>=2.34.2,<3",
+]
+
+[project.optional-dependencies]
+# Benchmarking / reporting: the analysis phase (metrics + plots) is the only
+# place these are imported (analysis/analysis_functions.py, analysis/cnv_plotter.py),
+# so it installs cleanly behind an extra. This is the "user-requested" path:
+#   pip install "consensuscnv[benchmark]"
+benchmark = [
+    "matplotlib>=3.11.0,<4",
+    "matplotlib-venn>=1.1.2,<2",
+    "scipy>=1.18.0,<2",
+    "seaborn>=0.13.2,<0.14",
+]
+
+# Development + the marimo notebook (src/test_network.py) and editor LSP tooling.
+dev = [
+    "ruff>=0.15.20,<0.16",
+    "marimo>=0.23.13,<0.24",
+    "vegafusion>=2.0.3,<3",
+    "vl-convert-python>=2.0.0rc1,<3",
+    "python-lsp-server>=1.14.0,<2",
+    "python-lsp-ruff>=2.3.1,<3",
+    "websockets>=16.0,<17",
+]
+
+[project.urls]
+Repository = "https://github.com/limenode/blendedCNV_pipeline"
+Issues = "https://github.com/limenode/blendedCNV_pipeline/issues"
+
+[project.scripts]
+consensuscnv = "consensuscnv.main:main"
+
+# --- Packaging -------------------------------------------------------------
+# All sources live under a single package, src/consensuscnv/, and import each
+# other by absolute path (e.g. `from consensuscnv.utils import ...`).
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["consensuscnv*"]
+
+# Ship the bedtools helper scripts that the computation/analysis phases shell
+# out to, so they resolve next to their modules in an installed copy.
+[tool.setuptools.package-data]
+"consensuscnv.computation" = ["*.sh"]
+"consensuscnv.analysis" = ["*.sh"]
+
+# --- Ruff ------------------------------------------------------------------
+[tool.ruff]
+src = ["src"]
+line-length = 100
+target-version = "py310"

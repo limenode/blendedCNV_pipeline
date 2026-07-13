@@ -201,6 +201,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ujson-5.13.0-py314h42812f9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/unicodedata2-17.0.1-py314h5bd0f2a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/urllib3-2.7.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/uv-0.11.28-h26efc2c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/uvicorn-0.51.0-pyhc90fa1f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/vegafusion-2.0.3-py314h4a7bec1_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/vl-convert-python-2.0.0rc1-py314h4531c49_0.conda
@@ -240,6 +241,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/2a/36/de3b767ec1e3904d91860e73640711704f85a01c0ff17740b039af466cc2/cyvcf2-0.34.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/f0/0f/310fb31e39e2d734ccaa2c0fb981ee41f7bd5056ce9bc29b2248bd569169/humanfriendly-10.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/81/23/33cc4bc548dc6d6ba1a3718333dcea1613cb2c4bc6ccb3df97f24d4e6059/liftover-1.4.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+      - pypi: ./
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
@@ -536,6 +538,31 @@ packages:
   - humanfriendly>=9.1
   - capturer>=2.4 ; extra == 'cron'
   requires_python: '>=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*'
+- pypi: ./
+  name: consensuscnv
+  version: 0.1.0
+  sha256: d60a8123d287fe4f1d6955bc36db31b36bd763dd04b792266dedb847db085f04
+  requires_dist:
+  - cyvcf2>=0.34.0,<0.35
+  - liftover>=1.4.0,<2
+  - networkx>=3.6.1,<4
+  - numpy>=2.5.1,<3
+  - pandas>=3.0.3,<4
+  - pyyaml>=6.0.3,<7
+  - requests>=2.34.2,<3
+  - matplotlib>=3.11.0,<4 ; extra == 'benchmark'
+  - matplotlib-venn>=1.1.2,<2 ; extra == 'benchmark'
+  - scipy>=1.18.0,<2 ; extra == 'benchmark'
+  - seaborn>=0.13.2,<0.14 ; extra == 'benchmark'
+  - ruff>=0.15.20,<0.16 ; extra == 'dev'
+  - marimo>=0.23.13,<0.24 ; extra == 'dev'
+  - vegafusion>=2.0.3,<3 ; extra == 'dev'
+  - vl-convert-python>=2.0.0rc1,<3 ; extra == 'dev'
+  - python-lsp-server>=1.14.0,<2 ; extra == 'dev'
+  - python-lsp-ruff>=2.3.1,<3 ; extra == 'dev'
+  - websockets>=16.0,<17 ; extra == 'dev'
+  requires_python: '>=3.10'
+  editable: true
 - conda: https://conda.anaconda.org/conda-forge/linux-64/contourpy-1.3.3-py314h97ea11e_4.conda
   sha256: b0314a7f1fb4a294b1a8bcf5481d4a8d9412a9fee23b7e3f93fb10e4d504f2cc
   md5: 95bede9cdb7a30a4b611223d52a01aa4
@@ -2968,6 +2995,19 @@ packages:
   - pkg:pypi/urllib3?source=hash-mapping
   size: 103560
   timestamp: 1778188657149
+- conda: https://conda.anaconda.org/conda-forge/linux-64/uv-0.11.28-h26efc2c_0.conda
+  sha256: 13dc75d46bf59f3fc05534c3bb81d3acfb6c52694cc8f99f79d1b15f09152136
+  md5: 569949343e8ca45163cf5b82aaaeafdb
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - libstdcxx >=14
+  constrains:
+  - __glibc >=2.17
+  license: Apache-2.0 OR MIT
+  purls: []
+  size: 20945039
+  timestamp: 1783474585911
 - conda: https://conda.anaconda.org/conda-forge/noarch/uvicorn-0.51.0-pyhc90fa1f_0.conda
   sha256: e9ca2188416b40eb79e50031649ec669dfbceea5cc5895c6f94f342612159974
   md5: fa008b61010236d744eae4ef867c63ce

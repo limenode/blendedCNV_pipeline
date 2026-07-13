@@ -1,6 +1,6 @@
 import glob
 from pathlib import Path
-from utils import PipelineConfig
+from consensuscnv.utils import PipelineConfig
 
 def discover_samples_of_interest(config: PipelineConfig) -> set[str]:
     layout = config.layout

@@ -14,8 +14,8 @@ import seaborn as sns
 from matplotlib.patches import Rectangle
 import os
 
-from analysis.load_analysis_data import filter_by_size
-from utils import generate_size_intervals, DistributionType, SVType, PipelineConfig
+from consensuscnv.analysis.load_analysis_data import filter_by_size
+from consensuscnv.utils import generate_size_intervals, DistributionType, SVType, PipelineConfig
 
 # Module-level helper function for multiprocessing
 def _create_record_ids(df: pd.DataFrame, classification: str, svtype: SVType = SVType.ALL) -> set:

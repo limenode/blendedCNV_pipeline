@@ -3,7 +3,9 @@ from pathlib import Path
 from typing import List, Tuple
 from concurrent.futures import ProcessPoolExecutor
 
-from utils import PipelineConfig
+from consensuscnv.utils import PipelineConfig
+
+_CLASSIFICATION_SCRIPT = Path(__file__).parent / "get_binary_classification.sh"
 
 def _run_subprocess_with_command(command: List[str]) -> None:
     subprocess.run(command, check=True)
@@ -27,7 +29,7 @@ def run_binary_classification_script(
             continue
 
         commands.append([
-            "./src/get_binary_classification.sh",
+            str(_CLASSIFICATION_SCRIPT),
             input_path,
             output_path,
             str(layout.benchmark_dir("merged")),
