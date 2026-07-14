@@ -44,12 +44,6 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
                 )
                 intersection_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy(output_dir / f"{sample_id}.bed", intersection_dir / f"{sample_id}.bed")
-                shutil.copy(
-                    output_dir / f"{sample_id}.DEL.bed", intersection_dir / f"{sample_id}.DEL.bed"
-                )
-                shutil.copy(
-                    output_dir / f"{sample_id}.DUP.bed", intersection_dir / f"{sample_id}.DUP.bed"
-                )
 
 
 def merge_benchmarks(
