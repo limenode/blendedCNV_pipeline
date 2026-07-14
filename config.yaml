@@ -40,6 +40,10 @@ consensus_reciprocal_threshold: 0.5
 # Reciprocal overlap threshold for matching calls to benchmarks [optional] (default: 0.5)
 matching_reciprocal_threshold: 0.5
 
+# Gap (in bases) within which benchmark calls are merged, equivalent to
+# `bedtools merge -d` [optional] (default: 0)
+benchmark_merge_padding: 500
+
 # Analysis plots configuration file [optional, used with --run-benchmark]
 # Defines plot groupings, Venn diagram specs, and samples of interest for the analysis phase.
 # If omitted, the analysis phase will skip all plot generation.

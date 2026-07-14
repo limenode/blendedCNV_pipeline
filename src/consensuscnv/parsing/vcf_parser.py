@@ -171,7 +171,7 @@ def _process_single_vcf_to_df(
     """
 
     records = []
-    vcf = VCF(vcf_path)
+    vcf = VCF(vcf_path, threads=2)
     svtype_method: Callable | None = None
 
     total_call_count = 0

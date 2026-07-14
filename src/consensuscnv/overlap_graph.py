@@ -55,6 +55,7 @@ def build_graph(
     *,
     link_same_source: bool = False,
     min_edge_overlap: float = 0.0,
+    padding: int = 0,
 ) -> nx.Graph:
     """Build the overlap graph from interval calls.
 
@@ -65,9 +66,18 @@ def build_graph(
     filters edges by `weight` -- so one graph serves every threshold. Same-source
     pairs are skipped unless `link_same_source` is set.
 
+    `padding` widens the reach for creating edges by that many bases, matching
+    `bedtools merge -d <padding>` exactly: two calls are joined when the gap
+    between them is `<= padding` (so `padding=0` also links book-ended calls,
+    those touching end-to-start). Padded edges over a non-overlapping gap have
+    `weight == 0.0`, so they only survive `merge_components(min_weight=0.0)` --
+    use padding for gap-tolerant merging (e.g. benchmarks), not for reciprocal-
+    overlap consensus, where any positive threshold filters them back out.
+
     `min_edge_overlap` is only a construction floor to keep the graph sparse on
     very large cohorts; leave it at 0.0 (keep every overlap) unless edge count
-    becomes a problem, and keep it well below any threshold you sweep.
+    becomes a problem, and keep it well below any threshold you sweep. It gates
+    padded zero-overlap edges too, so keep it at 0.0 when using `padding`.
 
     Edges never cross `(sample_id, svtype, chrom)`, so calls from different
     samples stay in separate sub-graphs even when passed in together.
@@ -88,8 +98,8 @@ def build_graph(
             a = calls[a_id]
             for b_id in node_ids[i + 1 :]:
                 b = calls[b_id]
-                if b.start >= a.end:
-                    break  # sorted by start: no later call can overlap `a`
+                if b.start > a.end + padding:
+                    break  # sorted by start: nothing later is within padding of `a`
                 if not link_same_source and a.source == b.source:
                     continue
                 overlap = reciprocal_overlap(a, b)

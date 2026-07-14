@@ -54,6 +54,9 @@ class PipelineConfig:
     consensus_reciprocal_threshold: float = 0.5
     matching_reciprocal_threshold: float = 0.5
 
+    # --- Benchmark merging ---
+    benchmark_merge_padding: int = 0  # bases; merges benchmark calls within this gap (bedtools -d)
+
     # --- Phase gating (resolved from CLI flags in parse_args) ---
     do_processing: bool = True
     do_computation: bool = False
@@ -77,6 +80,7 @@ class PipelineConfig:
             analysis_plots_config=raw.get('analysis_plots_config'),
             consensus_reciprocal_threshold=raw.get('consensus_reciprocal_threshold', 0.5),
             matching_reciprocal_threshold=raw.get('matching_reciprocal_threshold', 0.5),
+            benchmark_merge_padding=raw.get('benchmark_merge_padding', 0),
             do_processing=do_processing,
             do_computation=do_computation,
             do_analysis=do_analysis,

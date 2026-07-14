@@ -11,7 +11,7 @@ def main(config: PipelineConfig):
     compute_consensus_from_beds(config, weight_threshold=0.5)
 
     print("\nRun benchmark merging...")
-    merge_benchmarks(config, weight_threshold=0.0)
+    merge_benchmarks(config, weight_threshold=0.0, padding=config.benchmark_merge_padding)
 
     print("\nRunning binary classification script...")
     bin_class_sets: list[tuple[str, str]] = []
