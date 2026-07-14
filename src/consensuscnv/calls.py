@@ -11,7 +11,8 @@ class Call:
     svtype: str
     sources: frozenset[str]
     sample_id: str
-    members: tuple[int, ...] = ()
+    membership: str
+    parent_calls: tuple[int, ...] = ()
 
     def sort_key(self, chromosome_order: list[str] | None = None) -> tuple:
         """Return a key suitable for sorting calls by chromosome, start, end"""
@@ -30,9 +31,9 @@ class Call:
         """Return a string representation of the call in BED format."""
         return f"{self.chrom}\t{self.start}\t{self.end}\t{self.svtype}\t{'|'.join(sorted(self.sources))}\t{self.sample_id}"
 
-    def get_members(self) -> tuple[int, ...]:
-        """Return the members of the call, or an empty tuple if none."""
-        return self.members
+    def get_parent_calls(self) -> tuple[int, ...]:
+        """Return the parent calls of the call, or an empty tuple if none."""
+        return self.parent_calls
 
     @property
     def size(self) -> int:
@@ -50,5 +51,6 @@ class Call:
             "sources": sorted(self.sources),
             "n_sources": len(self.sources),
             "sample_id": self.sample_id,
+            "membership": self.membership,
             **extra,
         }

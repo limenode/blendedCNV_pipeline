@@ -4,7 +4,7 @@ from consensuscnv.parsing.vcf_parser import process_vcfs_to_beds
 from consensuscnv.utils import PipelineConfig
 
 
-def parse_input_files(config: PipelineConfig):
+def parse_input_files(config: PipelineConfig) -> None:
     """Parsing pipeline."""
     
     print("\nProcessing experimental datasets (VCF)...")

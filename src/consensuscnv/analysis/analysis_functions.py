@@ -644,12 +644,12 @@ def discover_distances_between_benchmark_cnvs(
     sample_calls_dict: defaultdict[str, defaultdict[str, list[Call]]] = defaultdict(lambda: defaultdict(list))
     for path in del_paths:
         sample_name = Path(path).stem.split(".")[0]
-        calls = read_bed_file(path)
+        calls = read_bed_file(path, membership="merged")
         sample_calls_dict[sample_name]["DEL"] = calls
 
     for path in dup_paths:
         sample_name = Path(path).stem.split(".")[0]
-        calls = read_bed_file(path)
+        calls = read_bed_file(path, membership="merged")
         sample_calls_dict[sample_name]["DUP"] = calls
 
     sample_distances_dict: defaultdict[str, defaultdict[str, list[int]]] = defaultdict(lambda: defaultdict(list))

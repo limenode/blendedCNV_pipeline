@@ -16,11 +16,12 @@ import networkx as nx
 from consensuscnv.calls import Call
 
 
-def read_bed_file(path: Path) -> list[Call]:
+def read_bed_file(path: Path, membership: str = "") -> list[Call]:
     """Read a per-source BED file into `Call`s.
 
     Expects the pipeline's 5-column layout (chrom, start, end, svtype, source).
-    The sample id is the filename text before the first dot.
+    The sample id is the filename text before the first dot. `membership` records
+    the originating set (e.g. the experimental or benchmark key).
     """
     sample_id = path.name.split(".")[0]
     calls: list[Call] = []
@@ -30,7 +31,7 @@ def read_bed_file(path: Path) -> list[Call]:
             if not line or line.startswith("#"):
                 continue
             chrom, start, end, svtype, source = line.split("\t")[:5]
-            calls.append(Call(chrom, int(start), int(end), svtype, source, sample_id))
+            calls.append(Call(chrom, int(start), int(end), svtype, source, sample_id, membership))
     return calls
 
 
@@ -123,9 +124,17 @@ def build_sample_graphs(calls: list[Call], **kwargs) -> dict[str, nx.Graph[int]]
     }
 
 
-def build_sample_graphs_from_beds(bed_paths: Iterable[Path], **kwargs) -> dict[str, nx.Graph[int]]:
-    """Build one overlap graph per sample, keyed by `sample_id`."""
-    calls = [call for path in bed_paths for call in read_bed_file(path)]
+def build_sample_graphs_from_beds(
+    bed_paths: Iterable[Path], membership: str, **kwargs
+) -> dict[str, nx.Graph[int]]:
+    """Build one overlap graph per sample, keyed by `sample_id`.
+
+    Every call read from `bed_paths` is stamped with `membership`; use this only
+    when all paths share one originating set (e.g. a single experimental key). For
+    paths spanning several sets, read per set with `read_bed_file` and pass the
+    combined calls to `build_sample_graphs`.
+    """
+    calls = [call for path in bed_paths for call in read_bed_file(path, membership)]
     return build_sample_graphs(calls, **kwargs)
 
 
@@ -179,5 +188,6 @@ def _merge_component(graph: nx.Graph[int], component: set[int]) -> Call:
         svtype=calls[0].svtype,  # uniform within a component by construction
         sources=frozenset(call.sources for call in calls),
         sample_id=calls[0].sample_id,  # uniform within a component by construction
-        members=tuple(sorted(component)),
+        membership="|".join(sorted({call.membership for call in calls if call.membership})),
+        parent_calls=tuple(sorted(component)),
     )

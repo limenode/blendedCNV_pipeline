@@ -4,11 +4,17 @@ from pathlib import Path
 
 import networkx as nx
 
-from consensuscnv.overlap_graph import build_sample_graphs_from_beds, merge_components
+from consensuscnv.calls import Call
+from consensuscnv.overlap_graph import (
+    build_sample_graphs,
+    build_sample_graphs_from_beds,
+    merge_components,
+    read_bed_file,
+)
 from consensuscnv.utils import PipelineConfig
 
 
-def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float = 0.5):
+def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float = 0.5) -> list[Call]:
     """Compute consensus calls from per-caller BED files and write them to the output folder."""
 
     layout = config.layout
@@ -18,8 +24,11 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
     for experimental_key in experimental_keys:
         bed_paths: list[str] = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
         networks[experimental_key] = build_sample_graphs_from_beds(
-            Path(p) for p in bed_paths if Path(p).is_file()
+            (Path(p) for p in bed_paths if Path(p).is_file()),
+            membership=experimental_key,
         )
+
+    all_consensus_calls: list[Call] = []
 
     for experimental_key, sample_graph_dict in networks.items():
         for sample_id, graph in sample_graph_dict.items():
@@ -33,10 +42,10 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
                 output_dir = layout.consensus_rep_dir(experimental_key, level, "unions")
                 output_dir.mkdir(parents=True, exist_ok=True)
 
-
                 with open(output_dir / f"{sample_id}.bed", "w") as bed_file:
                     for call in consensus_calls:
                         bed_file.write(f"{call.bed_str()}\n")
+                        all_consensus_calls.append(call)
 
                 # Temporarily copy the union files to the "intersection" directory for downstream processing
                 intersection_dir = layout.consensus_rep_dir(
@@ -45,13 +54,15 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
                 intersection_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy(output_dir / f"{sample_id}.bed", intersection_dir / f"{sample_id}.bed")
 
+    return all_consensus_calls
+
 
 def merge_benchmarks(
     config: PipelineConfig,
     weight_threshold: float = 0.0,
     merge_within_set: bool = True,
     padding: int = 0,
-):
+) -> list[Call]:
     """Merge benchmark calls from per-benchmark BED files and write them to the output folder.
 
     `merge_within_set` controls whether overlapping calls that share a source
@@ -67,14 +78,20 @@ def merge_benchmarks(
     layout = config.layout
     benchmark_keys = config.benchmark.keys()
 
-    network_paths = []
+    # Read each benchmark set separately so every call carries its originating
+    # benchmark key, then merge across sets in a single per-sample graph.
+    calls = []
     for key in benchmark_keys:
         bed_paths = glob.glob(str(layout.benchmark_dir(key)) + "/*.bed")
-        network_paths.extend([Path(p) for p in bed_paths if Path(p).is_file()])
+        for path in bed_paths:
+            if Path(path).is_file():
+                calls.extend(read_bed_file(Path(path), membership=key))
 
-    network: dict[str, nx.Graph[int]] = build_sample_graphs_from_beds(
-        network_paths, link_same_source=merge_within_set, padding=padding
+    network: dict[str, nx.Graph[int]] = build_sample_graphs(
+        calls, link_same_source=merge_within_set, padding=padding
     )
+
+    all_consensus_calls: list[Call] = []
 
     for sample_id, graph in network.items():
         merged_calls = merge_components(
@@ -91,4 +108,7 @@ def merge_benchmarks(
         with open(output_file, "w") as bed_file:
             for call in merged_calls:
                 bed_file.write(f"{call.bed_str()}\n")
+                all_consensus_calls.append(call)
+        
 
+    return all_consensus_calls
