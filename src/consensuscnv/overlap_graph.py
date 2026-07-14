@@ -81,26 +81,30 @@ def build_graph(
     Edges never cross `(sample_id, svtype, chrom)`, so calls from different
     samples stay in separate sub-graphs even when passed in together.
     """
+
+
     graph: nx.Graph[int] = nx.Graph()
-    for node_id, call in enumerate(calls):
-        graph.add_node(node_id, call=call)
 
     # Two calls can only match within the same sample, svtype, and chrom;
-    # partitioning on that key enforces it and prunes the pairwise comparison.
     partitions: dict[tuple[str, str, str], list[int]] = defaultdict(list)
+
     for node_id, call in enumerate(calls):
+        graph.add_node(node_id, call=call)
         partitions[(call.sample_id, call.svtype, call.chrom)].append(node_id)
 
     for node_ids in partitions.values():
         node_ids.sort(key=lambda n: calls[n].start)
-        for i, a_id in enumerate(node_ids):
+
+        for index, a_id in enumerate(node_ids):
             a: Call = calls[a_id]
-            for b_id in node_ids[i + 1 :]:
+            for b_id in node_ids[index + 1:]:
                 b: Call = calls[b_id]
+
                 if b.start > a.end + padding:
-                    break  # sorted by start: nothing later is within padding of `a`
+                    break
                 if not link_same_source and a.sources == b.sources:
                     continue
+
                 overlap = reciprocal_overlap(a, b)
                 if overlap >= min_edge_overlap:
                     graph.add_edge(a_id, b_id, weight=overlap)
