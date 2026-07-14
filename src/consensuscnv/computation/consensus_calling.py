@@ -2,6 +2,8 @@ import glob
 import shutil
 from pathlib import Path
 
+import networkx as nx
+
 from consensuscnv.overlap_graph import build_sample_graphs_from_beds, merge_components
 from consensuscnv.utils import PipelineConfig
 
@@ -12,18 +14,11 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
     layout = config.layout
     experimental_keys = config.experimental.keys()
 
-    network_paths = {}
+    networks: dict[str, dict[str, nx.Graph]] = {}
     for experimental_key in experimental_keys:
-        bed_paths = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
-        network_paths[experimental_key] = [
-            Path(p) for p in bed_paths if Path(p).is_file()
-        ]
-
-    networks = {}
-
-    for experimental_key in experimental_keys:
+        bed_paths: list[str] = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
         networks[experimental_key] = build_sample_graphs_from_beds(
-            network_paths[experimental_key]
+            Path(p) for p in bed_paths if Path(p).is_file()
         )
 
     for experimental_key, sample_graph_dict in networks.items():
@@ -38,22 +33,10 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
                 output_dir = layout.consensus_rep_dir(experimental_key, level, "unions")
                 output_dir.mkdir(parents=True, exist_ok=True)
 
-                # Open the output files for writing
-                all_file = open(output_dir / f"{sample_id}.bed", "w")
-                del_file = open(output_dir / f"{sample_id}.DEL.bed", "w")
-                dup_file = open(output_dir / f"{sample_id}.DUP.bed", "w")
-                
-                for call in consensus_calls:
-                    all_file.write(f"{call.bed_str()}\n")
-                    if call.svtype == "DEL":
-                        del_file.write(f"{call.bed_str()}\n")
-                    elif call.svtype == "DUP":
-                        dup_file.write(f"{call.bed_str()}\n")
-    
-                # Close the output files
-                all_file.close()
-                del_file.close()
-                dup_file.close()
+
+                with open(output_dir / f"{sample_id}.bed", "w") as bed_file:
+                    for call in consensus_calls:
+                        bed_file.write(f"{call.bed_str()}\n")
 
                 # Temporarily copy the union files to the "intersection" directory for downstream processing
                 intersection_dir = layout.consensus_rep_dir(
@@ -61,9 +44,12 @@ def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float 
                 )
                 intersection_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy(output_dir / f"{sample_id}.bed", intersection_dir / f"{sample_id}.bed")
-                shutil.copy(output_dir / f"{sample_id}.DEL.bed", intersection_dir / f"{sample_id}.DEL.bed")
-                shutil.copy(output_dir / f"{sample_id}.DUP.bed", intersection_dir / f"{sample_id}.DUP.bed")
-                
+                shutil.copy(
+                    output_dir / f"{sample_id}.DEL.bed", intersection_dir / f"{sample_id}.DEL.bed"
+                )
+                shutil.copy(
+                    output_dir / f"{sample_id}.DUP.bed", intersection_dir / f"{sample_id}.DUP.bed"
+                )
 
 
 def merge_benchmarks(
@@ -92,7 +78,7 @@ def merge_benchmarks(
         bed_paths = glob.glob(str(layout.benchmark_dir(key)) + "/*.bed")
         network_paths.extend([Path(p) for p in bed_paths if Path(p).is_file()])
 
-    network = build_sample_graphs_from_beds(
+    network: dict[str, nx.Graph[int]] = build_sample_graphs_from_beds(
         network_paths, link_same_source=merge_within_set, padding=padding
     )
 
@@ -108,19 +94,7 @@ def merge_benchmarks(
         output_file = output_dir / f"{sample_id}.bed"
 
         # Open the output files for writing
-        all_file = open(output_file, "w")
-        del_file = open(output_dir / f"{sample_id}.DEL.bed", "w")
-        dup_file = open(output_dir / f"{sample_id}.DUP.bed", "w")
-        
-        for call in merged_calls:
-            all_file.write(f"{call.bed_str()}\n")
-            if call.svtype == "DEL":
-                del_file.write(f"{call.bed_str()}\n")
-            elif call.svtype == "DUP":
-                dup_file.write(f"{call.bed_str()}\n")
-        
-        # Close the output files
-        all_file.close()
-        del_file.close()
-        dup_file.close()
-            
+        with open(output_file, "w") as bed_file:
+            for call in merged_calls:
+                bed_file.write(f"{call.bed_str()}\n")
+
