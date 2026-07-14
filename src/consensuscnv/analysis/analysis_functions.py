@@ -1,6 +1,6 @@
-from collections import defaultdict
 import json
 import subprocess
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 

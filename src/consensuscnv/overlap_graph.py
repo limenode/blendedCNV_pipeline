@@ -8,7 +8,6 @@ Edges never cross the `(sample_id, svtype, chrom)` partition.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
@@ -56,7 +55,7 @@ def build_graph(
     link_same_source: bool = False,
     min_edge_overlap: float = 0.0,
     padding: int = 0,
-) -> nx.Graph:
+) -> nx.Graph[int]:
     """Build the overlap graph from interval calls.
 
     Every call becomes a node (id = its index in `calls`, `call` attribute set),
@@ -82,7 +81,7 @@ def build_graph(
     Edges never cross `(sample_id, svtype, chrom)`, so calls from different
     samples stay in separate sub-graphs even when passed in together.
     """
-    graph = nx.Graph()
+    graph: nx.Graph[int] = nx.Graph()
     for node_id, call in enumerate(calls):
         graph.add_node(node_id, call=call)
 
@@ -95,12 +94,12 @@ def build_graph(
     for node_ids in partitions.values():
         node_ids.sort(key=lambda n: calls[n].start)
         for i, a_id in enumerate(node_ids):
-            a = calls[a_id]
+            a: Call = calls[a_id]
             for b_id in node_ids[i + 1 :]:
-                b = calls[b_id]
+                b: Call = calls[b_id]
                 if b.start > a.end + padding:
                     break  # sorted by start: nothing later is within padding of `a`
-                if not link_same_source and a.source == b.source:
+                if not link_same_source and a.sources == b.sources:
                     continue
                 overlap = reciprocal_overlap(a, b)
                 if overlap >= min_edge_overlap:
@@ -109,7 +108,7 @@ def build_graph(
     return graph
 
 
-def build_sample_graphs(calls: list[Call], **kwargs) -> dict[str, nx.Graph]:
+def build_sample_graphs(calls: list[Call], **kwargs) -> dict[str, nx.Graph[int]]:
     """Build one overlap graph per sample, keyed by `sample_id`."""
     by_sample: dict[str, list[Call]] = defaultdict(list)
     for call in calls:
@@ -120,46 +119,24 @@ def build_sample_graphs(calls: list[Call], **kwargs) -> dict[str, nx.Graph]:
     }
 
 
-def build_sample_graphs_from_beds(
-    bed_paths: Iterable[Path], **kwargs
-) -> dict[str, nx.Graph]:
+def build_sample_graphs_from_beds(bed_paths: Iterable[Path], **kwargs) -> dict[str, nx.Graph[int]]:
     """Build one overlap graph per sample, keyed by `sample_id`."""
     calls = [call for path in bed_paths for call in read_bed_file(path)]
     return build_sample_graphs(calls, **kwargs)
 
 
-@dataclass(frozen=True)
-class MergedInterval:
-    """An interval merged from one connected component of the graph.
-
-    `sources` is the set of distinct sources backing it (e.g. its consensus level
-    when sources are callers = `len(sources)`); `members` are the node ids it was
-    merged from, kept for provenance back to the original calls.
-    """
-
-    chrom: str
-    start: int
-    end: int
-    svtype: str
-    sources: frozenset[str]
-    members: tuple[int, ...]
-
-    def bed_str(self) -> str:
-        return f"{self.chrom}\t{self.start}\t{self.end}\t{self.svtype}\t{'|'.join(sorted(self.sources))}"
-
-
 def merge_components(
-    graph: nx.Graph,
+    graph: nx.Graph[int],
     *,
     min_nodes: int = 1,
     min_weight: float = 0.0,
     chrom_order: list[str] | None = None,
-) -> list[MergedInterval]:
+) -> list[Call]:
     """Merge connected components of the overlap graph into intervals.
 
     Edges below `min_weight` are dropped first (isolated nodes are kept), then
     every remaining connected component of at least `min_nodes` calls is merged
-    into one `MergedInterval`.
+    into one `Call`.
 
     `min_nodes=1, min_weight=0.0` returns all calls merged (the union set).
 
@@ -167,33 +144,36 @@ def merge_components(
     ordering; contigs not in it sort after the known ones. When omitted, chroms
     sort lexicographically (`chr1, chr10, chr11, ... chr2`).
     """
-    filtered = nx.Graph()
+    filtered: nx.Graph[int] = nx.Graph()
     filtered.add_nodes_from(graph.nodes(data=True))
     filtered.add_edges_from(
-        (u, v, data)
-        for u, v, data in graph.edges(data=True)
-        if data["weight"] >= min_weight
+        (u, v, data) for u, v, data in graph.edges(data=True) if data["weight"] >= min_weight
     )
 
-    merged: list[MergedInterval] = []
+    merged: list[Call] = []
     for component in nx.connected_components(filtered):
         if len(component) >= min_nodes:
             merged.append(_merge_component(graph, component))
 
     # Sort by genomic coordinate; unknown contigs sort after the known ones.
-    rank = {chrom: i for i, chrom in enumerate(chrom_order or [])}
+    rank: dict[str, int] = {chrom: i for i, chrom in enumerate(chrom_order or [])}
     merged.sort(key=lambda c: (rank.get(c.chrom, len(rank)), c.chrom, c.start, c.end))
     return merged
 
 
-def _merge_component(graph: nx.Graph, component: set[int]) -> MergedInterval:
-    """Merge one component's calls into a single union-span `MergedInterval`."""
-    calls = [graph.nodes[node_id]["call"] for node_id in component]
-    return MergedInterval(
+def _merge_component(graph: nx.Graph[int], component: set[int]) -> Call:
+    """Merge one component's calls into a single union-span `Call`."""
+    calls: list[Call] = [
+        graph.nodes[node_id]["call"]
+        for node_id in component
+        if type(graph.nodes[node_id]["call"]) is Call
+    ]
+    return Call(
         chrom=calls[0].chrom,  # uniform within a component by construction
         start=min(call.start for call in calls),
         end=max(call.end for call in calls),
         svtype=calls[0].svtype,  # uniform within a component by construction
-        sources=frozenset(call.source for call in calls),
+        sources=frozenset(call.sources for call in calls),
+        sample_id=calls[0].sample_id,  # uniform within a component by construction
         members=tuple(sorted(component)),
     )

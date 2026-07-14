@@ -9,8 +9,9 @@ class Call:
     start: int
     end: int
     svtype: str
-    source: str
+    sources: frozenset[str]
     sample_id: str
+    members: tuple[int, ...] = ()
 
     def sort_key(self, chromosome_order: list[str] | None = None) -> tuple:
         """Return a key suitable for sorting calls by chromosome, start, end"""
@@ -19,9 +20,16 @@ class Call:
 
     def overlaps(self, other: "Call", padding: int = 0) -> bool:
         """Return True if this call overlaps `other`, with optional padding."""
-        return self.chrom == other.chrom and self.start - padding < other.end and other.start - padding < self.end
+        return (
+            self.chrom == other.chrom
+            and self.start - padding < other.end
+            and other.start - padding < self.end
+        )
 
     def bed_str(self) -> str:
         """Return a string representation of the call in BED format."""
-        return f"{self.chrom}\t{self.start}\t{self.end}\t{self.svtype}\t{self.source}\t{self.sample_id}"
-    
+        return f"{self.chrom}\t{self.start}\t{self.end}\t{self.svtype}\t{'|'.join(sorted(self.sources))}\t{self.sample_id}"
+
+    def get_members(self) -> tuple[int, ...]:
+        """Return the members of the call, or an empty tuple if none."""
+        return self.members
