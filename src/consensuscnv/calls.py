@@ -33,3 +33,22 @@ class Call:
     def get_members(self) -> tuple[int, ...]:
         """Return the members of the call, or an empty tuple if none."""
         return self.members
+
+    @property
+    def size(self) -> int:
+        """Return the size of the call (end - start)."""
+        return self.end - self.start
+    
+    def to_record(self, **extra) -> dict:
+        """Return a dictionary representation of the call, including any extra fields."""
+        return {
+            "chrom": self.chrom,
+            "start": self.start,
+            "end": self.end,
+            "size": self.size,
+            "svtype": self.svtype,
+            "sources": sorted(self.sources),
+            "n_sources": len(self.sources),
+            "sample_id": self.sample_id,
+            **extra,
+        }
