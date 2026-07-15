@@ -42,9 +42,9 @@ class PipelineConfig:
     layout: OutputLayout              # derived from output_dir
 
     # --- Optional sections (empty/None if absent) ---
-    control: dict = field(default_factory=dict)
-    benchmark: dict = field(default_factory=dict)
-    liftover: dict = field(default_factory=dict)
+    control: dict[str, str] = field(default_factory=dict)
+    benchmark: dict[str, str] = field(default_factory=dict)
+    liftover: dict[str, str] = field(default_factory=dict)
     valid_chromosomes: set = field(default_factory=set)
     chromosome_order: List[str] = field(default_factory=list)
     excluded_regions_file: Optional[str] = None

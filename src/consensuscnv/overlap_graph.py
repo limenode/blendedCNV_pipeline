@@ -6,7 +6,6 @@ A set of interval calls forms an undirected overlap graph:
 
 Edges never cross the `(sample_id, svtype, chrom)` partition.
 """
-
 from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
@@ -30,8 +29,9 @@ def read_bed_file(path: Path, membership: str = "") -> list[Call]:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            chrom, start, end, svtype, source = line.split("\t")[:5]
-            calls.append(Call(chrom, int(start), int(end), svtype, source, sample_id, membership))
+            chrom, start, end, svtype, sources = line.split("\t")[:5]
+            sources = frozenset(sources.split("|"))
+            calls.append(Call(chrom, int(start), int(end), svtype, sources, sample_id, membership))
     return calls
 
 
@@ -83,7 +83,6 @@ def build_graph(
     samples stay in separate sub-graphs even when passed in together.
     """
 
-
     graph: nx.Graph[int] = nx.Graph()
 
     # Two calls can only match within the same sample, svtype, and chrom;
@@ -98,7 +97,7 @@ def build_graph(
 
         for index, a_id in enumerate(node_ids):
             a: Call = calls[a_id]
-            for b_id in node_ids[index + 1:]:
+            for b_id in node_ids[index + 1 :]:
                 b: Call = calls[b_id]
 
                 if b.start > a.end + padding:
@@ -186,8 +185,116 @@ def _merge_component(graph: nx.Graph[int], component: set[int]) -> Call:
         start=min(call.start for call in calls),
         end=max(call.end for call in calls),
         svtype=calls[0].svtype,  # uniform within a component by construction
-        sources=frozenset(call.sources for call in calls),
+        sources=frozenset().union(*(call.sources for call in calls)),
         sample_id=calls[0].sample_id,  # uniform within a component by construction
         membership="|".join(sorted({call.membership for call in calls if call.membership})),
         parent_calls=tuple(sorted(component)),
     )
+
+
+def generate_graph_from_calls(
+    calls: list[Call],
+) -> nx.Graph:
+
+    graph: nx.Graph[int] = nx.Graph()
+
+    # Two calls can only match within the same sample, svtype, and chrom;
+    partitions: dict[tuple[str, str, str], list[int]] = defaultdict(list)
+
+    for node_id, call in enumerate(calls):
+        graph.add_node(node_id, call=call)
+        partitions[(call.sample_id, call.svtype, call.chrom)].append(node_id)
+
+    for node_ids in partitions.values():
+        node_ids.sort(key=lambda n: calls[n].start)
+
+        for index, a_id in enumerate(node_ids):
+            a: Call = calls[a_id]
+            for b_id in node_ids[index + 1 :]:
+                b: Call = calls[b_id]
+
+                if b.start > a.end:
+                    graph.add_edge(a_id, b_id, weight=0.0, distance=b.start - a.end)
+                    break
+                graph.add_edge(a_id, b_id, weight=reciprocal_overlap(a, b), distance=0)
+
+    return graph
+
+def resolve_graph(
+    graph: nx.Graph,
+    min_nodes: int = 1,
+    min_weight: float = 0.0,
+    padding: int = 0,
+    link_same_source: bool = False,
+) -> nx.Graph:
+    """Resolve the graph into a subgraph of connected components that criteria."""
+
+    if min_weight > 0 and padding > 0:
+        raise ValueError("Cannot use both min_weight and padding at the same time.")
+
+    def keep_edge(u: int, v: int, data: dict) -> bool:
+        if data.get("weight", 0) < min_weight or data.get("distance", 0) > padding:
+            return False
+        if not link_same_source:
+            return graph.nodes[u]["call"].sources != graph.nodes[v]["call"].sources
+        return True
+
+    filtered: nx.Graph[int] = nx.Graph()
+    filtered.add_nodes_from(graph.nodes(data=True))
+    filtered.add_edges_from(
+        (u, v, data) for u, v, data in graph.edges(data=True) if keep_edge(u, v, data)
+    )
+
+    if min_nodes <= 1:
+        return filtered
+
+    keep_nodes = {
+        node
+        for component in nx.connected_components(filtered)
+        if len(component) >= min_nodes
+        for node in component
+    }
+
+    return filtered.subgraph(keep_nodes)
+
+
+def resolve_components(
+    graph: nx.Graph[int],
+    min_nodes: int = 1,
+    min_weight: float = 0.0,
+    padding: int = 0,
+    link_same_source: bool = False,
+) -> list[set[int]]:
+    """Group nodes into connected components under the given edge criteria."""
+    if min_weight > 0 and padding > 0:
+        raise ValueError("Cannot use both min_weight and padding at the same time.")
+
+    union_find = nx.utils.UnionFind(graph.nodes)
+    for u, v, data in graph.edges(data=True):
+        if data.get("weight", 0) < min_weight or data.get("distance", 0) > padding:
+            continue
+        if not link_same_source and graph.nodes[u]["call"].sources == graph.nodes[v]["call"].sources:
+            continue
+        union_find.union(u, v)
+
+    return [component for component in union_find.to_sets() if len(component) >= min_nodes]
+
+
+def merge_graph_components(
+    graph: nx.Graph,
+    min_nodes: int = 1,
+    min_weight: float = 0.0,
+) -> list[Call]:
+    """Merge connected components of the overlap graph into intervals."""
+    filtered: nx.Graph[int] = nx.Graph()
+    filtered.add_nodes_from(graph.nodes(data=True))
+    filtered.add_edges_from(
+        (u, v, data) for u, v, data in graph.edges(data=True) if data["weight"] >= min_weight
+    )
+
+    merged: list[Call] = []
+    for component in nx.connected_components(filtered):
+        if len(component) >= min_nodes:
+            merged.append(_merge_component(graph, component))
+
+    return merged
