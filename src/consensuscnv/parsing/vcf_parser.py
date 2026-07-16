@@ -311,8 +311,8 @@ def process_vcfs_to_beds(config: PipelineConfig, common_only: bool = True) -> li
                 sample_map = {sample_id: vcf_path for sample_id, vcf_path in sample_map.items() if sample_id in common_samples}
             liftover_dict = liftover_map.get(tool, None)
             lifter = (
-                get_lifter(liftover_dict.get("from"), liftover_dict.get("to"))
-                if liftover_dict
+                get_lifter(liftover_dict["from"], liftover_dict["to"])
+                if liftover_dict and liftover_dict.get("from") and liftover_dict.get("to")
                 else None
             )
 

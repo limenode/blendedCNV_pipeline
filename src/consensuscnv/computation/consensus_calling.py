@@ -1,58 +1,50 @@
 import glob
-import shutil
 from pathlib import Path
 
 import networkx as nx
 
 from consensuscnv.calls import Call
 from consensuscnv.overlap_graph import (
-    build_sample_graphs,
-    build_sample_graphs_from_beds,
-    merge_components,
+    generate_graph_from_calls,
+    merge_component,
+    merge_graph_components,
     read_bed_file,
+    split_calls_by_svtype,
+    sort_calls,
+    dump_calls_to_bed,
 )
 from consensuscnv.utils import PipelineConfig
 
 
-def compute_consensus_from_beds(config: PipelineConfig, weight_threshold: float = 0.5) -> list[Call]:
+def compute_consensus_from_beds(
+    config: PipelineConfig, 
+    weight_threshold: float = 0.5
+) -> list[Call]:
     """Compute consensus calls from per-caller BED files and write them to the output folder."""
 
     layout = config.layout
     experimental_keys = config.experimental.keys()
 
-    networks: dict[str, dict[str, nx.Graph]] = {}
-    for experimental_key in experimental_keys:
-        bed_paths: list[str] = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
-        networks[experimental_key] = build_sample_graphs_from_beds(
-            (Path(p) for p in bed_paths if Path(p).is_file()),
-            membership=experimental_key,
-        )
-
     all_consensus_calls: list[Call] = []
-
-    for experimental_key, sample_graph_dict in networks.items():
-        for sample_id, graph in sample_graph_dict.items():
-            for level in (1, 2, 3):
-                consensus_calls = merge_components(
-                    graph,
-                    min_nodes=level,
-                    min_weight=weight_threshold,
-                    chrom_order=config.chromosome_order,
-                )
-                output_dir = layout.consensus_rep_dir(experimental_key, level, "unions")
-                output_dir.mkdir(parents=True, exist_ok=True)
-
-                with open(output_dir / f"{sample_id}.bed", "w") as bed_file:
-                    for call in consensus_calls:
-                        bed_file.write(f"{call.bed_str()}\n")
-                        all_consensus_calls.append(call)
-
-                # Temporarily copy the union files to the "intersection" directory for downstream processing
-                intersection_dir = layout.consensus_rep_dir(
-                    experimental_key, level, "intersections"
-                )
-                intersection_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy(output_dir / f"{sample_id}.bed", intersection_dir / f"{sample_id}.bed")
+    
+    for experimental_key in experimental_keys:
+        bed_paths_str: list[str] = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
+        bed_paths = [Path(p) for p in bed_paths_str if Path(p).is_file()]
+        calls = []
+        for path in bed_paths:
+            calls.extend(read_bed_file(path, membership=experimental_key))
+        graph = generate_graph_from_calls(calls)
+        for level in [1, 2, 3]:
+            merged_calls = merge_graph_components(
+                graph,
+                min_nodes=level,
+                min_weight=weight_threshold,
+            )
+            dump_calls_to_bed(
+                merged_calls,
+                dir_path=Path(layout.consensus_rep_dir(experimental_key, level, "intersections")),
+                chrom_order=config.chromosome_order
+            )
 
     return all_consensus_calls
 
@@ -63,52 +55,33 @@ def merge_benchmarks(
     merge_within_set: bool = True,
     padding: int = 0,
 ) -> list[Call]:
-    """Merge benchmark calls from per-benchmark BED files and write them to the output folder.
-
-    `merge_within_set` controls whether overlapping calls that share a source
-    (i.e. come from the same benchmark set) are merged together. When False, only
-    calls from *different* benchmark sets are merged -- overlaps within a single
-    set are left intact, which can leave overlapping intervals in the output.
-
-    `padding` merges calls separated by a gap of up to `padding` bases, equivalent
-    to `bedtools merge -d <padding>`. It only takes effect while `weight_threshold`
-    is 0.0, since padded edges over a gap carry zero reciprocal overlap.
-    """
+    """Merge benchmark calls from per-benchmark BED files and write them to the output folder."""
 
     layout = config.layout
     benchmark_keys = config.benchmark.keys()
 
-    # Read each benchmark set separately so every call carries its originating
-    # benchmark key, then merge across sets in a single per-sample graph.
-    calls = []
-    for key in benchmark_keys:
-        bed_paths = glob.glob(str(layout.benchmark_dir(key)) + "/*.bed")
-        for path in bed_paths:
-            if Path(path).is_file():
-                calls.extend(read_bed_file(Path(path), membership=key))
+    benchmark_calls = []
+    for _key in benchmark_keys:
+        bed_paths_test = glob.glob(str(layout.benchmark_dir(_key)) + "/*.bed")
+        for _path in bed_paths_test:
+            if Path(_path).is_file():
+                benchmark_calls.extend(read_bed_file(Path(_path), membership=_key))
 
-    network: dict[str, nx.Graph[int]] = build_sample_graphs(
-        calls, link_same_source=merge_within_set, padding=padding
+    benchmark_graph = generate_graph_from_calls(benchmark_calls)
+    
+    merged_calls = merge_graph_components(
+        benchmark_graph,
+        min_nodes=1,
+        min_weight=0.0,
+        padding=0,
+        link_same_source=True
     )
-
-    all_consensus_calls: list[Call] = []
-
-    for sample_id, graph in network.items():
-        merged_calls = merge_components(
-            graph,
-            min_nodes=1,
-            min_weight=weight_threshold,
-            chrom_order=config.chromosome_order,
-        )
-        output_dir = layout.benchmark_dir("merged")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f"{sample_id}.bed"
-
-        # Open the output files for writing
-        with open(output_file, "w") as bed_file:
-            for call in merged_calls:
-                bed_file.write(f"{call.bed_str()}\n")
-                all_consensus_calls.append(call)
-        
-
-    return all_consensus_calls
+    
+    dump_calls_to_bed(
+        merged_calls,
+        dir_path=layout.benchmark_dir("merged"),
+        chrom_order=config.chromosome_order,
+        separate_by_sample=True,
+    )
+    
+    return merged_calls

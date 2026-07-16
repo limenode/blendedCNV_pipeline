@@ -44,7 +44,7 @@ class PipelineConfig:
     # --- Optional sections (empty/None if absent) ---
     control: dict[str, str] = field(default_factory=dict)
     benchmark: dict[str, str] = field(default_factory=dict)
-    liftover: dict[str, str] = field(default_factory=dict)
+    liftover: dict[str, dict[str, str]] = field(default_factory=dict)
     valid_chromosomes: set = field(default_factory=set)
     chromosome_order: List[str] = field(default_factory=list)
     excluded_regions_file: Optional[str] = None
