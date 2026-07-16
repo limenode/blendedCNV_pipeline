@@ -56,7 +56,7 @@ def build_graph(
     link_same_source: bool = False,
     min_edge_overlap: float = 0.0,
     padding: int = 0,
-) -> nx.Graph[int]:
+) -> nx.Graph:
     """Build the overlap graph from interval calls.
 
     Every call becomes a node (id = its index in `calls`, `call` attribute set),
@@ -165,7 +165,7 @@ def merge_components(
     merged: list[Call] = []
     for component in nx.connected_components(filtered):
         if len(component) >= min_nodes:
-            merged.append(_merge_component(graph, component))
+            merged.append(merge_component(graph, component))
 
     # Sort by genomic coordinate; unknown contigs sort after the known ones.
     rank: dict[str, int] = {chrom: i for i, chrom in enumerate(chrom_order or [])}
@@ -173,7 +173,7 @@ def merge_components(
     return merged
 
 
-def _merge_component(graph: nx.Graph[int], component: set[int]) -> Call:
+def merge_component(graph: nx.Graph, component: set[int]) -> Call:
     """Merge one component's calls into a single union-span `Call`."""
     calls: list[Call] = [
         graph.nodes[node_id]["call"]
@@ -295,6 +295,6 @@ def merge_graph_components(
     merged: list[Call] = []
     for component in nx.connected_components(filtered):
         if len(component) >= min_nodes:
-            merged.append(_merge_component(graph, component))
+            merged.append(merge_component(graph, component))
 
     return merged
