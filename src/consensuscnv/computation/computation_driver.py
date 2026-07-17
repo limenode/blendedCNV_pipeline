@@ -3,7 +3,7 @@ from consensuscnv.computation.consensus_calling import compute_consensus_from_be
 from consensuscnv.utils import PipelineConfig
 
 
-def main(config: PipelineConfig):
+def run_computation(config: PipelineConfig):
     """Computation pipeline."""
     layout = config.layout
 

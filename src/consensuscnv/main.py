@@ -1,7 +1,7 @@
 """BlendedCNV Pipeline - Entry Point"""
 
 from consensuscnv.analysis.analysis_driver import main as analysis_main
-from consensuscnv.computation.computation_driver import main as computation_main
+from consensuscnv.computation.computation_driver import run_computation
 from consensuscnv.parsing.parsing_driver import parse_input_files
 from consensuscnv.utils import parse_args
 
@@ -15,7 +15,7 @@ def main():
     parse_input_files(config)
 
     print("\n" + "="*80 + "\nPHASE 2: COMPUTATION PIPELINE\n" + "="*80)
-    computation_main(config)
+    run_computation(config)
 
     print("\n" + "="*80 + "\nPHASE 3: ANALYSIS PIPELINE\n" + "="*80)
     analysis_main(config)

@@ -19,13 +19,11 @@ from consensuscnv.utils import PipelineConfig
 def compute_consensus_from_beds(
     config: PipelineConfig, 
     weight_threshold: float = 0.5
-) -> list[Call]:
+) -> None:
     """Compute consensus calls from per-caller BED files and write them to the output folder."""
 
     layout = config.layout
     experimental_keys = config.experimental.keys()
-
-    all_consensus_calls: list[Call] = []
     
     for experimental_key in experimental_keys:
         bed_paths_str: list[str] = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
@@ -46,15 +44,14 @@ def compute_consensus_from_beds(
                 chrom_order=config.chromosome_order
             )
 
-    return all_consensus_calls
-
 
 def merge_benchmarks(
     config: PipelineConfig,
+    min_nodes: int = 1,
     weight_threshold: float = 0.0,
     merge_within_set: bool = True,
     padding: int = 0,
-) -> list[Call]:
+) -> None:
     """Merge benchmark calls from per-benchmark BED files and write them to the output folder."""
 
     layout = config.layout
@@ -71,10 +68,10 @@ def merge_benchmarks(
     
     merged_calls = merge_graph_components(
         benchmark_graph,
-        min_nodes=1,
-        min_weight=0.0,
-        padding=0,
-        link_same_source=True
+        min_nodes=min_nodes,
+        min_weight=weight_threshold,
+        padding=padding,
+        link_same_source=merge_within_set
     )
     
     dump_calls_to_bed(
@@ -84,4 +81,3 @@ def merge_benchmarks(
         separate_by_sample=True,
     )
     
-    return merged_calls
