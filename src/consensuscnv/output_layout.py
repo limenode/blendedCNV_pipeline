@@ -84,19 +84,19 @@ class OutputLayout:
         return self.set_dir(set_key) / "bed" / tool
 
     def consensus_dir(self, set_key: str, level: int) -> Path:
-        """``consensus_<level>of3`` — the directory handed to the consensus scripts."""
-        return self.set_dir(set_key) / f"consensus_{level}of3"
+        """``consensus_<level>`` — the directory handed to the consensus scripts."""
+        return self.set_dir(set_key) / f"consensus_{level}"
 
     def consensus_rep_dir(self, set_key: str, level: int, representation: str) -> Path:
         """``intersections/`` or ``unions/`` subdir created by the consensus scripts."""
         return self.consensus_dir(set_key, level) / representation
 
-    def classification_root(self, set_key: str) -> Path:
-        return self.set_dir(set_key) / "binary_classification"
+    def classification_root(self, benchmark_subset: str) -> Path:
+        return self.root / "binary_classification" / _slug(benchmark_subset)
 
-    def classification_dir(self, set_key: str, call_set: str) -> Path:
-        """``binary_classification/<call_set>`` for one call set (a tool or a consensus set)."""
-        return self.classification_root(set_key) / call_set
+    def classification_dir(self, benchmark_subset: str, input_set_key: str, call_set: str) -> Path:
+        """``binary_classification/<benchmark_subset>/<input_set_key>/<call_set>``"""
+        return self.classification_root(benchmark_subset) / _slug(input_set_key) / _slug(call_set)
 
     # ------------------------------------------------------------------ #
     # Per control set (e.g. 'SNP Array')

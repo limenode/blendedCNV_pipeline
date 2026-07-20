@@ -140,10 +140,10 @@ def _classify_set(
     result = classify_calls(tested_calls, truth_calls, reciprocal_threshold)
     _write_classification(result, output_dir, chrom_order)
 
-
 def run_binary_classification_script(
     config: PipelineConfig,
-    sets_for_classification: List[Tuple[str, str]],
+    sets_for_classification: List[Tuple[str, str] | Tuple[str, str, str]],
+    default_truth_dir: Path | None = None,
 ):
     """Classify each tested call set against the merged benchmark.
 
@@ -152,11 +152,25 @@ def run_binary_classification_script(
         sets_for_classification: ``(input_dir, output_dir)`` pairs, where
             ``input_dir`` holds the tested call set's per-sample BEDs.
     """
-    layout = config.layout
-    truth_dir = layout.benchmark_dir("merged")
 
-    tasks: List[Tuple[Path, Path, Path, float, List[str]]] = []
-    for input_path, output_path in sets_for_classification:
+    tasks: List[Tuple[Path, Path, Path, float, List[str]]] = []    
+    
+    for items in sets_for_classification:
+        # Resolve input/output/truth paths from the tuple
+        if len(items) == 2:
+            input_path, output_path = items
+            if default_truth_dir is None:
+                raise ValueError(
+                    "A default truth directory must be provided when sets are 2-tuples."
+                )
+            truth_dir = default_truth_dir
+        elif len(items) == 3:
+            input_path, output_path, truth_dir = items
+        else:
+            raise ValueError(
+                f"Each set for classification must be a 2-tuple or 3-tuple, got {items}"
+            )
+        
         if not Path(input_path).exists():
             print(
                 f"Input path {input_path} does not exist. Skipping binary classification for this set."
@@ -166,7 +180,7 @@ def run_binary_classification_script(
             (
                 Path(input_path),
                 Path(output_path),
-                truth_dir,
+                Path(truth_dir),
                 config.matching_reciprocal_threshold,
                 config.chromosome_order,
             )

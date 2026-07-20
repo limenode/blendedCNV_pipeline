@@ -8,41 +8,41 @@ def run_computation(config: PipelineConfig):
     layout = config.layout
 
     print("\nRun consensus calling...")
-    compute_consensus_from_beds(config, weight_threshold=0.5)
+    consensus_bed_paths = compute_consensus_from_beds(config, weight_threshold=0.5)
 
     print("\nRun benchmark merging...")
-    merge_benchmarks(config, weight_threshold=0.0, padding=config.benchmark_merge_padding)
+    benchmark_bed_path_p0 = merge_benchmarks(config, weight_threshold=0.0, padding=config.benchmark_merge_padding)
 
-    print("\nRunning binary classification script...")
-    bin_class_sets: list[tuple[str, str]] = []
-    for key, tools in config.experimental.items():
-        # Add the consensus call sets (intersections, then unions) for classification
-        for representation in ("intersections", "unions"):
-            for level in (1, 2, 3):
-                call_set = layout.consensus_call_set(level, representation)
-                bin_class_sets.append(
-                    (
-                        str(layout.consensus_rep_dir(key, level, representation)),
-                        str(layout.classification_dir(key, call_set)),
-                    )
-                )
+    binary_classification_io_sets: list[tuple[str, str] | tuple[str, str, str]] = []
+    for experimental_key_path_str, experimental_key_path_dict in consensus_bed_paths.items():
+        for consensus_level, consensus_bed_path in experimental_key_path_dict.items():
+            
+            binary_classification_io_sets.append((
+                str(consensus_bed_path),
+                str(layout.classification_dir("padding0",experimental_key_path_str, consensus_level)),
+                str(benchmark_bed_path_p0)
+            ))
 
-        # Add individual tool results to the sets for classification
-        for tool in tools.keys():
-            bin_class_sets.append(
-                (
-                    str(layout.bed_tool_dir(key, tool)),
-                    str(layout.classification_dir(key, tool)),
-                )
-            )
+    for exp_key, tools in config.experimental.items():
+        for tool in tools:
+            binary_classification_io_sets.append((
+                str(layout.bed_tool_dir(exp_key, tool)),
+                str(layout.classification_dir("padding0", exp_key, tool))
+            ))
 
-    # Add control datasets to the sets for classification
-    for key in config.control.keys():
-        bin_class_sets.append(
+    for ctrl_key in config.control.keys():
+        binary_classification_io_sets.append(
             (
-                str(layout.control_bed_dir(key)),
-                str(layout.control_classification_dir(key)),
+                str(layout.control_bed_dir(ctrl_key)),
+                str(layout.classification_dir("padding0", ctrl_key, "calls")),
             )
         )
 
-    run_binary_classification_script(config, bin_class_sets)
+    print("Binary classification I/O sets:")
+    for input_path, output_path, *truth_dir in binary_classification_io_sets:
+        if truth_dir:
+            print(f"Input: {input_path}, Output: {output_path}, Truth: {truth_dir[0]}")
+        else:
+            print(f"Input: {input_path}, Output: {output_path}, Truth: None")
+
+    run_binary_classification_script(config, binary_classification_io_sets, benchmark_bed_path_p0)

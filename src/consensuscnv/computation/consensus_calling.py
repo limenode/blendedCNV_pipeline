@@ -1,3 +1,4 @@
+from collections import defaultdict
 import glob
 from pathlib import Path
 
@@ -19,11 +20,12 @@ from consensuscnv.utils import PipelineConfig
 def compute_consensus_from_beds(
     config: PipelineConfig, 
     weight_threshold: float = 0.5
-) -> None:
+) -> dict[str, dict[str, Path]]:
     """Compute consensus calls from per-caller BED files and write them to the output folder."""
-
+    
     layout = config.layout
     experimental_keys = config.experimental.keys()
+    call_set_path_dict: dict[str, dict[str, Path]] = defaultdict(lambda: defaultdict(Path))
     
     for experimental_key in experimental_keys:
         bed_paths_str: list[str] = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
@@ -38,11 +40,15 @@ def compute_consensus_from_beds(
                 min_nodes=level,
                 min_weight=weight_threshold,
             )
+            output_path = Path(layout.consensus_dir(experimental_key, level))
             dump_calls_to_bed(
                 merged_calls,
-                dir_path=Path(layout.consensus_rep_dir(experimental_key, level, "intersections")),
+                dir_path=output_path,
                 chrom_order=config.chromosome_order
             )
+            call_set_path_dict[experimental_key][f"consensus_{level}"] = output_path
+
+    return call_set_path_dict
 
 
 def merge_benchmarks(
@@ -51,7 +57,7 @@ def merge_benchmarks(
     weight_threshold: float = 0.0,
     merge_within_set: bool = True,
     padding: int = 0,
-) -> None:
+) -> Path:
     """Merge benchmark calls from per-benchmark BED files and write them to the output folder."""
 
     layout = config.layout
@@ -74,10 +80,13 @@ def merge_benchmarks(
         link_same_source=merge_within_set
     )
     
+    output_path = Path(layout.benchmark_dir("merged") / f"padding{padding}_min_nodes{min_nodes}_weight{weight_threshold}")
+    
     dump_calls_to_bed(
         merged_calls,
-        dir_path=layout.benchmark_dir("merged"),
+        dir_path=output_path,
         chrom_order=config.chromosome_order,
         separate_by_sample=True,
     )
     
+    return output_path
