@@ -39,21 +39,18 @@ def _concat(frames):
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 def load_call_set(call_set_dir):
-    """Load per-sample SampleClassification objects from a call-set directory.
-
-    Pools each sample's svtypes (DEL, DUP) into one DataFrame per label.
-    """
+    """Load per-sample SampleClassification objects from a call-set directory."""
     samples = sorted({p.name.split(".")[0] for p in call_set_dir.glob("*.bed")})
     result = []
     for sample in samples:
         tp = _concat(
-            [read_query_truth_bed(p) for p in sorted(call_set_dir.glob(f"{sample}.*.TP.bed"))]
+            [read_query_truth_bed(p) for p in sorted(call_set_dir.glob(f"{sample}.TP.bed"))]
         )
         fp = _concat(
-            [read_interval_bed(p) for p in sorted(call_set_dir.glob(f"{sample}.*.FP.bed"))]
+            [read_interval_bed(p) for p in sorted(call_set_dir.glob(f"{sample}.FP.bed"))]
         )
         fn = _concat(
-            [read_interval_bed(p) for p in sorted(call_set_dir.glob(f"{sample}.*.FN.bed"))]
+            [read_interval_bed(p) for p in sorted(call_set_dir.glob(f"{sample}.FN.bed"))]
         )
         result.append(SampleClassification(sample, tp, fp, fn))
     return result
