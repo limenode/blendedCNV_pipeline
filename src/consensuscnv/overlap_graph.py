@@ -66,9 +66,10 @@ def generate_graph_from_calls(
         node_ids.sort(key=lambda n: calls[n].start)
 
         for index, a_id in enumerate(node_ids):
-            a: Call = calls[a_id]
-            for b_id in node_ids[index + 1 :]:
-                b: Call = calls[b_id]
+            a = calls[a_id]
+            for j in range(index + 1, len(node_ids)):
+                b_id = node_ids[j]
+                b = calls[b_id]
 
                 if b.start > a.end:
                     graph.add_edge(a_id, b_id, weight=0.0, distance=b.start - a.end)
@@ -137,26 +138,60 @@ def resolve_components(
         ):
             continue
         union_find.union(u, v)
+    
+    if min_nodes <= 1:
+        return list(union_find.to_sets())
 
     return [component for component in union_find.to_sets() if len(component) >= min_nodes]
 
 
 def merge_component(graph: nx.Graph, component: set[int]) -> Call:
     """Merge one component's calls into a single union-span `Call`."""
-    calls: list[Call] = [
-        graph.nodes[node_id]["call"]
-        for node_id in component
-        if type(graph.nodes[node_id]["call"]) is Call
-    ]
+    if len(component) == 0:
+        raise ValueError("Cannot merge an empty component.")
+
+    if len(component) == 1:
+        node_id = next(iter(component))
+        return graph.nodes[node_id]["call"]
+    
+    # If there are multiple calls in the component, we need to merge them.
+    
+    # Get first call to check uniformity of chrom, svtype, and sample_id
+    first_call = graph.nodes[next(iter(component))]["call"]
+    start = first_call.start
+    end = first_call.end
+    sources = set(first_call.sources)
+    memberships = set([first_call.membership]) if first_call.membership else set()
+    
+    for node_id in component:
+        current_call = graph.nodes[node_id]["call"]
+        
+        if type(current_call) is not Call:
+            raise ValueError(f"Node {node_id} does not contain a Call object.")
+        
+        if current_call.chrom != first_call.chrom:
+            raise ValueError(f"Component contains calls with different chromosomes: {first_call.chrom} and {current_call.chrom}.")
+        
+        if current_call.svtype != first_call.svtype:
+            raise ValueError(f"Component contains calls with different svtypes: {first_call.svtype} and {current_call.svtype}.")
+    
+        if current_call.sample_id != first_call.sample_id:
+            raise ValueError(f"Component contains calls with different sample_ids: {first_call.sample_id} and {current_call.sample_id}.")
+        
+        start = min(start, current_call.start)
+        end = max(end, current_call.end)
+        sources.update(current_call.sources)
+        if current_call.membership:
+            memberships.add(current_call.membership)
+        
     return Call(
-        chrom=calls[0].chrom,  # uniform within a component by construction
-        start=min(call.start for call in calls),
-        end=max(call.end for call in calls),
-        svtype=calls[0].svtype,  # uniform within a component by construction
-        sources=frozenset().union(*(call.sources for call in calls)),
-        sample_id=calls[0].sample_id,  # uniform within a component by construction
-        membership="|".join(sorted({call.membership for call in calls if call.membership})),
-        parent_calls=tuple(sorted(component)),
+        chrom=first_call.chrom,
+        start=start,
+        end=end,
+        svtype=first_call.svtype,
+        sources=frozenset(sources),
+        sample_id=first_call.sample_id,
+        membership="|".join(sorted(memberships)) if memberships else "",
     )
 
 
