@@ -28,9 +28,6 @@ __marimo__/
 internal.config*
 
 # tests
-test.ipynb
-test*ipynb
-test*py
 
 # vscode settings
 .vscode/
