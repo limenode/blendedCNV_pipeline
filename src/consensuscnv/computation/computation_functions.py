@@ -93,25 +93,25 @@ def _write_classification(
     output_dir: Path,
     chrom_order: List[str],
 ) -> None:
-    """Write TP/FP/FN BEDs, one file per ``(sample, svtype)``."""
+    """Write TP/FP/FN BEDs, one file per ``(sample, label)``."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     def coord_key(call: Call):
         return call.sort_key(chrom_order)
 
-    buckets: dict[Tuple[str, str, str], List[str]] = defaultdict(list)
+    buckets: dict[Tuple[str, str], List[str]] = defaultdict(list)
 
     for pred, truth in sorted(
         result.true_positives, key=lambda pair: (coord_key(pair[0]), coord_key(pair[1]))
     ):
-        buckets[(pred.sample_id, pred.svtype, "TP")].append(f"{_bed5(pred)}\t{_bed5(truth)}")
+        buckets[(pred.sample_id, "TP")].append(f"{_bed5(pred)}\t{_bed5(truth)}")
     for call in sorted(result.false_positives, key=coord_key):
-        buckets[(call.sample_id, call.svtype, "FP")].append(_bed5(call))
+        buckets[(call.sample_id, "FP")].append(_bed5(call))
     for call in sorted(result.false_negatives, key=coord_key):
-        buckets[(call.sample_id, call.svtype, "FN")].append(_bed5(call))
+        buckets[(call.sample_id, "FN")].append(_bed5(call))
 
-    for (sample, svtype, label), rows in buckets.items():
-        out_path = output_dir / OutputLayout.classification_bed(sample, svtype, label)
+    for (sample, label), rows in buckets.items():
+        out_path = output_dir / OutputLayout.classification_bed(sample, None, label)
         with open(out_path, "w") as f:
             f.write("\n".join(rows) + "\n")
 
@@ -137,13 +137,14 @@ def _classify_set(
         if call.sample_id in tested_samples
     ]
 
-    result = classify_calls(tested_calls, truth_calls, reciprocal_threshold)
+    result = classify_calls(tested_calls, truth_calls, reciprocal_threshold=reciprocal_threshold)
     _write_classification(result, output_dir, chrom_order)
 
 def run_binary_classification_script(
     config: PipelineConfig,
     sets_for_classification: List[Tuple[str, str] | Tuple[str, str, str]],
     default_truth_dir: Path | None = None,
+    reciprocal_threshold: float | None = None,
 ):
     """Classify each tested call set against the merged benchmark.
 
@@ -181,7 +182,7 @@ def run_binary_classification_script(
                 Path(input_path),
                 Path(output_path),
                 Path(truth_dir),
-                config.matching_reciprocal_threshold,
+                reciprocal_threshold or config.matching_reciprocal_threshold,
                 config.chromosome_order,
             )
         )

@@ -4,29 +4,34 @@ from pathlib import Path
 
 import networkx as nx
 
-from consensuscnv.calls import Call
 from consensuscnv.overlap_graph import (
     generate_graph_from_calls,
-    merge_component,
     merge_graph_components,
     read_bed_file,
-    split_calls_by_svtype,
-    sort_calls,
     dump_calls_to_bed,
+)
+from consensuscnv.output_layout import (
+    BenchmarkMergeParams,
+    ConsensusParams,
+    OutputLayout,
 )
 from consensuscnv.utils import PipelineConfig
 
 
 def compute_consensus_from_beds(
-    config: PipelineConfig, 
-    weight_threshold: float = 0.5
+    config: PipelineConfig,
+    params: ConsensusParams = ConsensusParams(),
 ) -> dict[str, dict[str, Path]]:
-    """Compute consensus calls from per-caller BED files and write them to the output folder."""
-    
+    """Compute consensus calls from per-caller BED files and write them to the output folder.
+
+    Returns ``{input_set_key: {call_set_slug: consensus_dir}}`` where ``call_set_slug``
+    is e.g. ``'consensus_2of3_w0.5'`` — usable directly as the ``call_set`` leaf of
+    ``layout.classification_dir``."""
+
     layout = config.layout
     experimental_keys = config.experimental.keys()
     call_set_path_dict: dict[str, dict[str, Path]] = defaultdict(lambda: defaultdict(Path))
-    
+
     for experimental_key in experimental_keys:
         bed_paths_str: list[str] = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
         bed_paths = [Path(p) for p in bed_paths_str if Path(p).is_file()]
@@ -38,55 +43,65 @@ def compute_consensus_from_beds(
             merged_calls = merge_graph_components(
                 graph,
                 min_nodes=level,
-                min_weight=weight_threshold,
+                min_weight=params.min_weight,
             )
-            output_path = Path(layout.consensus_dir(experimental_key, level))
+            output_path = Path(layout.consensus_dir(experimental_key, level, params))
             dump_calls_to_bed(
                 merged_calls,
                 dir_path=output_path,
                 chrom_order=config.chromosome_order
             )
-            call_set_path_dict[experimental_key][f"consensus_{level}"] = output_path
+            call_set_slug = OutputLayout.consensus_call_set_slug(level, params)
+            call_set_path_dict[experimental_key][call_set_slug] = output_path
 
     return call_set_path_dict
 
 
+def load_benchmark_graph(config: PipelineConfig) -> nx.Graph:
+    """Build the overlap graph over all parsed benchmark calls.
+
+    The graph is threshold-agnostic, so build it once and reuse it across every
+    ``BenchmarkMergeParams`` (padding/weight/etc.) instead of rebuilding it — the
+    build is the expensive step."""
+    layout = config.layout
+    benchmark_calls = []
+    for key in config.benchmark.keys():
+        for path_str in glob.glob(str(layout.benchmark_dir(key)) + "/*.bed"):
+            path = Path(path_str)
+            if path.is_file():
+                benchmark_calls.extend(read_bed_file(path, membership=key))
+    return generate_graph_from_calls(benchmark_calls)
+
+
 def merge_benchmarks(
     config: PipelineConfig,
-    min_nodes: int = 1,
-    weight_threshold: float = 0.0,
-    merge_within_set: bool = True,
-    padding: int = 0,
+    params: BenchmarkMergeParams = BenchmarkMergeParams(),
+    benchmark_graph: nx.Graph | None = None,
 ) -> Path:
-    """Merge benchmark calls from per-benchmark BED files and write them to the output folder."""
+    """Merge benchmark calls under ``params`` and write them to the output folder.
+
+    Pass a prebuilt ``benchmark_graph`` (from :func:`load_benchmark_graph`) to reuse
+    it across parameter sweeps; otherwise it is built on demand. Returns the merged
+    output directory (``benchmark/merged/<bench slug>``)."""
 
     layout = config.layout
-    benchmark_keys = config.benchmark.keys()
+    graph = benchmark_graph if benchmark_graph is not None else load_benchmark_graph(config)
 
-    benchmark_calls = []
-    for _key in benchmark_keys:
-        bed_paths_test = glob.glob(str(layout.benchmark_dir(_key)) + "/*.bed")
-        for _path in bed_paths_test:
-            if Path(_path).is_file():
-                benchmark_calls.extend(read_bed_file(Path(_path), membership=_key))
-
-    benchmark_graph = generate_graph_from_calls(benchmark_calls)
-    
     merged_calls = merge_graph_components(
-        benchmark_graph,
-        min_nodes=min_nodes,
-        min_weight=weight_threshold,
-        padding=padding,
-        link_same_source=merge_within_set
+        graph,
+        min_nodes=params.min_nodes,
+        min_weight=params.min_weight,
+        padding=params.padding,
+        link_same_source=params.link_same_source,
     )
-    
-    output_path = Path(layout.benchmark_dir("merged") / f"padding{padding}_min_nodes{min_nodes}_weight{weight_threshold}")
-    
+
+    output_path = layout.benchmark_merge_dir(params)
+
     dump_calls_to_bed(
         merged_calls,
         dir_path=output_path,
         chrom_order=config.chromosome_order,
         separate_by_sample=True,
     )
-    
+
     return output_path
