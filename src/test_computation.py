@@ -225,7 +225,7 @@ def _(BenchmarkMergeParams, config, load_benchmark_graph):
 @app.cell
 def _(ClassificationParams):
     classification_param_sweep = [
-        ClassificationParams(reciprocal_threshold=t) for t in [0.3, 0.5, 0.7]
+        ClassificationParams(reciprocal_threshold=t) for t in [0.0, 0.3, 0.5, 0.7]
     ]
     return (classification_param_sweep,)
 

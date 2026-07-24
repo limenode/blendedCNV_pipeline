@@ -146,9 +146,9 @@ def _(summary):
 
 
 @app.function
-def padding_bp(setting):
-    """Numeric padding (bp) parsed from a 'padding<N>' setting name."""
-    return int("".join(ch for ch in setting if ch.isdigit()) or 0)
+def padding_bp(setting: str) -> int:
+    """Numeric padding (bp) parsed from a 'pad<N>' setting name."""
+    return int(setting.split("_")[1].removeprefix("pad") or 0)
 
 
 @app.cell
@@ -180,27 +180,68 @@ def _(padding_metrics):
 
 
 @app.cell
-def _(plt, sns):
-    def plot_metric_vs_padding(df, metric) -> plt.Figure:
-        """One metric vs padding, one line per (input_set, call_set) tuple.
+def select_rows(pd):
+    def select_rows(
+        df,
+        input_set: str | list | None = None,
+        classification_setting: str | list | None = None,
+        call_set: str | list | None = None,
+    ) -> pd.DataFrame:
+        """Filter a padding_metrics-style DataFrame by the three sweep dimensions.
 
-        Colour encodes input_set, line/marker style encodes call_set.
+        Each argument is a single value, a list of values, or None (keep all). E.g.
+        select_rows(padding_metrics, input_set="30x_Coverage", classification_setting="classify_recip0.5")
+        keeps 30x @ recip0.5 across every padding and call set.
         """
-        fig, ax = plt.subplots(figsize=(9, 6))
-        colors = sns.color_palette("tab10", n_colors=df["input_set"].nunique())
+        wanted = {
+            "input_set": input_set,
+            "classification_setting": classification_setting,
+            "call_set": call_set,
+        }
+        mask = df["padding"].notna()  # all-True seed
+        for column, value in wanted.items():
+            if value is None:
+                continue
+            allowed = [value] if isinstance(value, str) else list(value)
+            mask &= df[column].isin(allowed)
+        return df[mask]
 
+    return (select_rows,)
+
+
+@app.cell
+def _(plt, sns):
+    def plot_metric_vs_padding(df, metric, hue=None, style=None) -> plt.Figure:
+        """One metric vs padding; colour/dash encode whichever dims still vary.
+
+        `hue` and `style` may name any sweep dimension. When left None they are
+        auto-assigned to the *free* dimensions — those with more than one value
+        left in `df` — so after select_rows() pins a dimension it stops cluttering
+        the legend. Filter first, then hand the slice here.
+        """
+        sweep_dims = ["input_set", "call_set", "classification_setting"]
+        free = [d for d in sweep_dims if df[d].nunique() > 1]
+        if hue is None:
+            hue = free[0] if free else sweep_dims[0]
+        if style is None:
+            rest = [d for d in free if d != hue]
+            style = rest[0] if rest else None
+
+        fig, ax = plt.subplots(figsize=(9, 6))
+        colors = sns.color_palette("tab10", n_colors=max(df[hue].nunique(), 1))
         sns.lineplot(
             data=df,
             x="padding",
             y=metric,
-            hue="input_set",
-            style="call_set",
+            hue=hue,
+            style=style,
             markers=True,
             dashes=True,
             ax=ax,
-            palette=colors
+            palette=colors,
         )
-        ax.set_title(f"{metric} vs benchmark padding")
+        style_note = f", dash={style}" if style else ""
+        ax.set_title(f"{metric} vs benchmark padding (colour={hue}{style_note})")
         ax.set_xlabel("padding (bp)")
         ax.set_ylabel(metric)
         ax.set_xticks(sorted(df["padding"].unique()))
@@ -211,18 +252,142 @@ def _(plt, sns):
     return (plot_metric_vs_padding,)
 
 
+@app.function
+def recip_value(setting: str) -> float:
+    """Numeric reciprocal threshold parsed from a 'classify_recip<x>' setting name."""
+    digits = "".join(ch for ch in setting if (ch.isdigit() or ch == "."))
+    return float(digits) if digits else 0.0
+
+
 @app.cell
-def _(Path, padding_metrics, plot_metric_vs_padding):
+def _(padding_metrics, plot_metric_vs_padding):
     padding_figures = {
         metric: plot_metric_vs_padding(padding_metrics, metric)
         for metric in ("TP", "FP", "FN", "precision", "recall", "f1")
     }
+    return (padding_figures,)
 
+
+@app.cell
+def _(Path, os, padding_figures):
     # output to figures directory
     figures_dir = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/figures")
     for _metric, _fig in padding_figures.items():
-        fig_path = figures_dir / f"{_metric}_vs_padding.png"
-        _fig.savefig(fig_path)
+        _fig_path = figures_dir / "vs_padding" / f"{_metric}_vs_padding.png"
+        os.makedirs(_fig_path.parent, exist_ok=True)
+        _fig.savefig(_fig_path)
+    return (figures_dir,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### flexible slices: metric vs padding
+
+    `select_rows(padding_metrics, input_set=..., classification_setting=..., call_set=...)`
+    pins any of the three sweep dimensions (single value, list, or None=all). Whatever
+    is still varying gets auto-encoded as colour (hue) then dash (style) by
+    `plot_metric_vs_padding`; padding stays on the x-axis.
+    """)
+    return
+
+
+@app.cell
+def _(padding_metrics, plot_metric_vs_padding, select_rows):
+    # Scenario 1: one input set + one classification setting, ALL call sets.
+    _slice = select_rows(
+        padding_metrics,
+        input_set="30x_Coverage",
+        classification_setting="classify_recip0.5",
+    )
+    # Only call_set is free -> it becomes the colour.
+    plot_metric_vs_padding(_slice, "f1")
+    return
+
+
+@app.cell
+def _(padding_metrics, plot_metric_vs_padding, select_rows):
+    # Scenario 2: one input set + a few call sets, ALL classification settings.
+    _slice = select_rows(
+        padding_metrics,
+        input_set="30x_Coverage",
+        call_set=["consensus_2of3_w0.5", "calls"],
+    )
+    # call_set and classification_setting are free -> colour + dash.
+    plot_metric_vs_padding(_slice, "f1", hue="call_set", style="classification_setting")
+    return
+
+
+@app.cell
+def _(padding_metrics, plot_metric_vs_padding, select_rows):
+    # Scenario 3: one classification setting + a few call sets, ALL input sets.
+    _slice = select_rows(
+        padding_metrics,
+        classification_setting="classify_recip0.5",
+        call_set=["consensus_2of3_w0.5", "calls"],
+    )
+    plot_metric_vs_padding(_slice, "f1", hue="input_set", style="call_set")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### interactive 3D: padding × reciprocal threshold × metric
+    """)
+    return
+
+
+@app.cell
+def _(padding_metrics, select_rows):
+    def plot_metric_3d(df, metric):
+        """3D lines over the (padding, reciprocal-threshold) grid.
+
+        One Scatter3d trace per (input_set, call_set, classification_setting) — each
+        line holds its reciprocal threshold fixed (constant y) and walks padding, so
+        the threshold levels read as separate parallel curves instead of one line
+        zig-zagging through them all. Returns a plotly Figure; marimo renders it live.
+        """
+        import plotly.graph_objects as go
+
+        df = df.copy()
+        df["recip"] = df["classification_setting"].map(recip_value)
+        fig = go.Figure()
+        group_cols = ["input_set", "call_set", "classification_setting"]
+        for (input_set, call_set, _setting), group in df.groupby(group_cols):
+            group = group.sort_values("padding")
+            recip = group["recip"].iloc[0]
+            fig.add_trace(
+                go.Scatter3d(
+                    x=group["padding"],
+                    y=group["recip"],
+                    z=group[metric],
+                    mode="lines+markers",
+                    marker={"size": 3},
+                    line={"width": 3},
+                    name=f"{input_set} / {call_set} @ recip{recip:g}",
+                )
+            )
+        fig.update_layout(
+            title=f"{metric}: padding × reciprocal threshold",
+            scene={
+                "xaxis": {"title": "padding (bp)"},
+                "yaxis": {"title": "reciprocal threshold"},
+                "zaxis": {"title": metric},
+            },
+            height=700,
+            width=1000,
+            legend={"font": {"size": 9}},
+        )
+        return fig
+
+    # A few sets keep the 3D view readable.
+    _slice = select_rows(
+        padding_metrics,
+        input_set=["30x_Coverage", "6x_Coverage", "4x_Coverage", "2x_Coverage"],
+        call_set=["consensus_2of3_w0.5", "calls"],
+    )
+    plot_metric_3d(_slice, "f1")
     return
 
 
@@ -336,7 +501,13 @@ def _(f1_score, np, precision, recall):
 
 @app.cell
 def _(classification_tree, pool_sizes, sweep_size_thresholds):
-    _sizes = pool_sizes(classification_tree["padding0"]["30x_Coverage"]["consensus_2"])
+    # Walk the 4-level tree (bench -> classify -> input_set -> call_set) to one
+    # representative leaf without hardcoding slug names.
+    _bench = next(iter(classification_tree))
+    _classify = next(iter(classification_tree[_bench]))
+    _input_set = next(iter(classification_tree[_bench][_classify]))
+    _call_set = next(iter(classification_tree[_bench][_classify][_input_set]))
+    _sizes = pool_sizes(classification_tree[_bench][_classify][_input_set][_call_set])
     _distributions = sweep_size_thresholds(_sizes)
     precision_list = _distributions["precision"]
     recall_list = _distributions["recall"]
@@ -355,54 +526,30 @@ def _(f1_list, precision_list, recall_list):
 @app.cell
 def _(classification_tree, pool_sizes, sweep_size_thresholds):
     metrics_dict = {}
-    for benchmark_setting, input_set_dict in classification_tree.items():
-        for input_set_name, call_set_dict in input_set_dict.items():
-            for call_set_name, samples in call_set_dict.items():
-                _sizes = pool_sizes(samples)
-                distributions = sweep_size_thresholds(_sizes)
-                metrics_dict[(benchmark_setting, input_set_name, call_set_name)] = distributions
+    for benchmark_setting, classify_dict in classification_tree.items():
+        for classification_setting, input_set_dict in classify_dict.items():
+            for input_set_name, call_set_dict in input_set_dict.items():
+                for call_set_name, samples in call_set_dict.items():
+                    _sizes = pool_sizes(samples)
+                    distributions = sweep_size_thresholds(_sizes)
+                    key = (benchmark_setting, classification_setting, input_set_name, call_set_name)
+                    metrics_dict[key] = distributions
     return (metrics_dict,)
-
-
-@app.cell
-def _(precision_list, sns):
-    # Plot size vs. precision
-    precision_line_plot = sns.lineplot(x=[x[0] for x in precision_list], y=[x[1] for x in precision_list])
-    precision_line_plot.set(xscale='log')
-    precision_line_plot
-    return
-
-
-@app.cell
-def _(recall_list, sns):
-    # Plot size vs. recall
-    recall_line_plot = sns.lineplot(x=[x[0] for x in recall_list], y=[x[1] for x in recall_list])
-    recall_line_plot.set(xscale='log')
-    recall_line_plot
-    return
-
-
-@app.cell
-def _(f1_list, sns):
-    # Plot size vs. f1
-    f1_line_plot = sns.lineplot(x=[x[0] for x in f1_list], y=[x[1] for x in f1_list])
-    f1_line_plot.set(xscale='log')
-    f1_line_plot
-    return
 
 
 @app.function
 def select_metrics(
-    metrics_by_combo: dict, 
-    benchmark_setting: str | list | None = None, 
-    input_set: str | list | None = None, 
-    call_set: str | list | None = None
+    metrics_by_combo: dict,
+    benchmark_setting: str | list | None = None,
+    classification_setting: str | list | None = None,
+    input_set: str | list | None = None,
+    call_set: str | list | None = None,
 ) -> dict:
-    """Slice the (benchmark_setting, input_set, call_set) -> distributions dict.
+    """Slice the (benchmark_setting, classification_setting, input_set, call_set) -> distributions dict.
 
     Each filter is a single value, a list of values, or None (keep all). E.g.
     select_metrics(metrics_dict, input_set="30x_Coverage") keeps only 30x across
-    every padding and call set.
+    every padding, classification setting, and call set.
     """
     def keep(value, wanted):
         if wanted is None:
@@ -413,40 +560,108 @@ def select_metrics(
         key: distributions
         for key, distributions in metrics_by_combo.items()
         if keep(key[0], benchmark_setting)
-        and keep(key[1], input_set)
-        and keep(key[2], call_set)
+        and keep(key[1], classification_setting)
+        and keep(key[2], input_set)
+        and keep(key[3], call_set)
     }
 
 
 @app.cell
-def _(metrics_dict, plt):
-    def plot_size_vs_metric(metrics_by_combo: dict, hue="input_set", style="call_set", title="") -> plt.Figure:
-        """Size vs. precision/recall/F1, one line per combination on one figure.
+def _(plt):
+    def plot_size_vs_metric(
+        metrics_by_combo: dict, hue="input_set", style="call_set", marker=None, title=""
+    ) -> dict:
+        """Size vs. precision/recall/F1, each metric on its OWN figure.
 
-        `hue` (colour) and `style` (dash) each name a key dimension to encode:
-        'benchmark_setting', 'input_set', or 'call_set'. Any dimension not mapped
-        is left overlaid. Pre-filter the dict with select_metrics to thin the lines.
+        Returns ``{metric: Figure}`` (keys 'precision', 'recall', 'f1'). Up to three
+        key dimensions can be encoded: `hue` -> colour, `style` -> dash pattern,
+        `marker` -> point symbol (optional). Each names one of 'benchmark_setting',
+        'classification_setting', 'input_set', or 'call_set'. Any dimension not
+        mapped is left overlaid. Pre-filter the dict with select_metrics to thin
+        the lines.
+
+        Layout is handed to matplotlib's constrained layout with figure-level
+        "outside right" legends, so the axes shrink to fit the legends and
+        nothing clips regardless of how long the setting slugs are.
         """
         from matplotlib.lines import Line2D
 
-        dimension_index = {"benchmark_setting": 0, "input_set": 1, "call_set": 2}
+        dimension_index = {
+            "benchmark_setting": 0,
+            "classification_setting": 1,
+            "input_set": 2,
+            "call_set": 3,
+        }
         hue_i, style_i = dimension_index[hue], dimension_index[style]
+        marker_i = dimension_index[marker] if marker else None
 
         def natural_key(value):
             # Order 'padding0 < padding500 < ...' and '2x < 4x < 30x' numerically.
             digits = "".join(ch for ch in value if ch.isdigit())
             return (int(digits) if digits else 0, value)
 
-        keys = list(metrics_by_combo)
-        hue_values = sorted({key[hue_i] for key in keys}, key=natural_key)
-        style_values = sorted({key[style_i] for key in keys}, key=natural_key)
+        def sorted_values(index):
+            return sorted({key[index] for key in metrics_by_combo}, key=natural_key)
+
+        def short_labels(values):
+            """Drop the '_'-delimited tokens every value in a dimension shares.
+
+            'bench_pad0_mn1_mw0_lssT' / 'bench_pad500_mn1_mw0_lssT' -> 'pad0' /
+            'pad500'; '2x_Coverage' / '30x_Coverage' -> '2x' / '30x'. Values with
+            nothing in common are left alone. The legend title already names the
+            dimension, so the shared tokens are pure noise.
+            """
+            parts = [v.split("_") for v in values]
+            if len(parts) < 2:
+                return dict(zip(values, values))
+            lead = 0
+            while lead < min(len(p) for p in parts) - 1 and len({p[lead] for p in parts}) == 1:
+                lead += 1
+            trail = 0
+            while (
+                trail < min(len(p) for p in parts) - lead - 1
+                and len({p[-1 - trail] for p in parts}) == 1
+            ):
+                trail += 1
+            kept = [p[lead : len(p) - trail] for p in parts]
+            return {v: "_".join(k) for v, k in zip(values, kept)}
+
+        hue_values = sorted_values(hue_i)
+        style_values = sorted_values(style_i)
         colors = dict(zip(hue_values, plt.cm.tab10.colors))
         dash_styles = ["-", "--", "-.", ":", (0, (5, 1)), (0, (3, 1, 1, 1)), (0, (1, 1))]
         dashes = dict(zip(style_values, dash_styles))
 
-        metric_names = ["precision", "recall", "f1"]
-        fig, axes = plt.subplots(1, len(metric_names), figsize=(24, 6))
-        for ax, metric in zip(axes, metric_names):
+        marker_symbols = ["o", "s", "^", "D", "v", "P", "X", "*"]
+        marker_values = sorted_values(marker_i) if marker_i is not None else []
+        markers = dict(zip(marker_values, marker_symbols))
+
+        hue_labels = short_labels(hue_values)
+        style_labels = short_labels(style_values)
+        marker_labels = short_labels(marker_values)
+
+        color_handles = [
+            Line2D([], [], color=colors[v], label=hue_labels[v]) for v in hue_values
+        ]
+        dash_handles = [
+            Line2D([], [], color="0.35", linestyle=dashes[v], label=style_labels[v])
+            for v in style_values
+        ]
+        marker_handles = [
+            Line2D([], [], color="0.35", linestyle="none", marker=markers[v], label=marker_labels[v])
+            for v in marker_values
+        ]
+
+        # (handles, title, loc) for each legend, stacked down the right of the figure.
+        # Constrained layout reserves the space these need.
+        legend_specs = [(color_handles, hue, "outside right upper")]
+        if marker_handles:
+            legend_specs.append((marker_handles, marker, "outside right center"))
+        legend_specs.append((dash_handles, style, "outside right lower"))
+
+        figures = {}
+        for metric in ["precision", "recall", "f1"]:
+            fig, ax = plt.subplots(figsize=(10, 6), layout="constrained")
             for key, distributions in metrics_by_combo.items():
                 pairs = distributions[metric]
                 if not pairs:
@@ -457,34 +672,49 @@ def _(metrics_dict, plt):
                     [value for _, value in pairs],
                     color=colors[key[hue_i]],
                     linestyle=dashes[key[style_i]],
+                    marker=markers[key[marker_i]] if marker_i is not None else None,
+                    markersize=5,
+                    markevery=0.12,
                     linewidth=1.0,
                     alpha=0.6,
                 )
             ax.set_xscale("log")
-            ax.set_title(metric)
+            ax.set_title(f"{title} — {metric}" if title else metric)
             ax.set_xlabel("CNV size (bp, log scale)")
             ax.set_ylabel(metric)
 
-        color_handles = [Line2D([], [], color=colors[v], label=v) for v in hue_values]
-        dash_handles = [Line2D([], [], color="0.35", linestyle=dashes[v], label=v) for v in style_values]
-        color_legend = fig.legend(
-            handles=color_handles, title=hue, loc="upper left", bbox_to_anchor=(0.91, 0.95)
-        )
-        fig.legend(
-            handles=dash_handles, title=style, loc="lower left", bbox_to_anchor=(0.91, 0.05)
-        )
-        fig.add_artist(color_legend)
-        fig.suptitle(title)
-        fig.tight_layout(rect=(0, 0, 0.9, 1))
-        return fig
+            # Figure-level legends accumulate, so no add_artist bookkeeping is needed.
+            for handles, ttl, loc in legend_specs:
+                fig.legend(handles=handles, title=ttl, loc=loc, fontsize=9)
 
-    # Example slice: 30x coverage only, comparing padding values (colour) per caller (dash).
-    plot_size_vs_metric(
-        select_metrics(metrics_dict, input_set=["30x_Coverage", "2x_Coverage", "SNP_Array"], call_set=["consensus_1", "calls"]),
+            figures[metric] = fig
+        return figures
+
+    return (plot_size_vs_metric,)
+
+
+@app.cell
+def _(figures_dir, metrics_dict, mo, os, plot_size_vs_metric):
+    # Example slice: padding (colour), input set (dash), reciprocal threshold (marker).
+    size_figures = plot_size_vs_metric(
+        select_metrics(
+            metrics_dict,
+            benchmark_setting=["bench_pad0_mn1_mw0_lssT", "bench_pad500_mn1_mw0_lssT"],
+            input_set=["30x_Coverage", "2x_Coverage"],
+            call_set=["consensus_2of3_w0.5", "calls"],
+            classification_setting=["classify_recip0.5", "classify_recip0.3", "classify_recip0.7", "classify_recip0"],),
         hue="benchmark_setting",
         style="input_set",
+        marker="classification_setting",
         title="size vs. metric across padding values",
     )
+    mo.vstack(list(size_figures.values()))
+
+    # Output to figures directory
+    for _metric, _fig in size_figures.items():
+        _fig_path = figures_dir / "size_vs_metric" / f"{_metric}_vs_size.png"
+        os.makedirs(_fig_path.parent, exist_ok=True)
+        _fig.savefig(_fig_path)
     return
 
 

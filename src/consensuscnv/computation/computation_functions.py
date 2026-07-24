@@ -19,6 +19,15 @@ class ClassificationResult:
     false_negatives: List[Call]
 
 
+def _qualifies(weight: float, reciprocal_threshold: float) -> bool:
+    """Whether an overlap-graph edge weight clears the matching threshold.
+    
+        Graph edges are weighted by reciprocal overlap. Checks for non-zero
+        overlap and that the weight is >= the threshold.
+    """
+    return weight > 0.0 and weight >= reciprocal_threshold
+
+
 def classify_calls(
     tested_calls: List[Call],
     truth_calls: List[Call],
@@ -33,8 +42,10 @@ def classify_calls(
     - a tested call with no qualifying truth overlap is a false positive;
     - a truth call with no qualifying tested overlap is a false negative.
 
-    An overlap "qualifies" when its reciprocal overlap (the graph edge weight)
-    is >= ``reciprocal_threshold``, equivalent to ``bedtools intersect -f t -r``.
+    An overlap "qualifies" when the calls share at least 1bp *and* their
+    reciprocal overlap (the graph edge weight) is >= ``reciprocal_threshold``,
+    equivalent to ``bedtools intersect -f t -r``. Passing ``0.0`` therefore means
+    "any non-zero overlap" rather than "everything" — see `_qualifies`.
 
     The graph partitions by ``(sample_id, svtype, chrom)``, so calls only ever
     match within the same sample, SV type, and chromosome.
@@ -59,7 +70,7 @@ def classify_calls(
             for neighbor in graph.neighbors(node_id)
             # Only edges that cross the tested/truth boundary and clear the threshold.
             if (neighbor in tested_ids) != is_tested
-            and graph.edges[node_id, neighbor].get("weight", 0.0) >= reciprocal_threshold
+            and _qualifies(graph.edges[node_id, neighbor].get("weight", 0.0), reciprocal_threshold)
         ]
 
         if is_tested:
@@ -182,7 +193,11 @@ def run_binary_classification_script(
                 Path(input_path),
                 Path(output_path),
                 Path(truth_dir),
-                reciprocal_threshold or config.matching_reciprocal_threshold,
+                (
+                    config.matching_reciprocal_threshold
+                    if reciprocal_threshold is None
+                    else reciprocal_threshold
+                ),
                 config.chromosome_order,
             )
         )
