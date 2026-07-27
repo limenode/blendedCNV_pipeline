@@ -3,7 +3,7 @@
 # Reference this file from config.yaml via:
 #   analysis_plots_config: "/path/to/analysis_plots.yaml"
 #
-# Input set keys used here are derived automatically from your config.yaml `input` section.
+# Query keys used here are derived automatically from your config.yaml `input` section.
 # The pattern is: <input_key_spaces_replaced_with_underscores>_<caller_or_consensus>
 # e.g. "6x Coverage" + "cnvpytor" -> "6x_Coverage_cnvpytor"
 #      "6x Coverage" + "consensus_2of3_intersections" -> "6x_Coverage_consensus_2of3_intersections"
@@ -76,7 +76,7 @@ venn_diagrams:
     title: "Venn Diagram of Unions with 2x Coverage"
     output_filename: "venn_diagram_2x_unions.png"
 
-# Count Venn diagram input set keys (one diagram generated per entry)
+# Count Venn diagram query keys (one diagram generated per entry)
 # Must match keys in the config.yaml `input` section exactly (spaces preserved).
 # output_filename is auto-derived as: count_venn_diagram_<key_with_underscores>.png
 count_venn_diagrams:
@@ -423,7 +423,7 @@ size_distributions:
       - SNP_Array
     title: "Size Distributions for DELLY Call Sets"
 
-# Caller source distribution input sets
+# Caller source distribution queries
 # output placed at <output_dir>/figures/caller_source_distribution/caller_source_distribution.png
 caller_source_distribution:
   sets:

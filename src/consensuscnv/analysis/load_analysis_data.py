@@ -148,7 +148,7 @@ def build_analysis_data_structure(binary_classification_dir: Path, samples_to_in
     Build the complete data structure for analysis.
     
     Args:
-        binary_classification_dir: Path to the directory containing TP/FP/FN files for the input set.
+        binary_classification_dir: Path to the directory containing TP/FP/FN files for the query.
         samples_to_include: Optional list of sample names to include in the analysis. If None, all samples are included.
     
     Returns:

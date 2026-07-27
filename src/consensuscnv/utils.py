@@ -36,7 +36,7 @@ class PipelineConfig:
     """Parsed, validated pipeline configuration. Built once in ``parse_args()``."""
 
     # --- Required ---
-    experimental: dict                # set_key -> {tool_label: glob_pattern}
+    experimental: dict                # call_set -> {tool_label: glob_pattern}
     output_dir: Path
     genome_file: str                  # passed to shell scripts as a path string
     layout: OutputLayout              # derived from output_dir

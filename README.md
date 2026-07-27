@@ -118,7 +118,7 @@ Create a YAML configuration file (see `config.yaml` example):
 
 ```yaml
 # Input datasets
-# Each input set must define exactly three tools. Tool names (e.g. "cnvpytor", "gatk", "delly")
+# Each experimental call set must define exactly three tools. Tool names (e.g. "cnvpytor", "gatk", "delly")
 # are user-defined labels and can be any string. Each path must resolve to one VCF per sample,
 # and glob patterns are supported.
 input:
@@ -151,7 +151,7 @@ benchmark_map:
   "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
 
 # Liftover specifications [optional]
-# Keys must match the name of an input set, control, or benchmark source
+# Keys must match the name of an experimental, control, or benchmark call set
 liftover:
   "SNP Array":
     "from": "hg18"
@@ -171,13 +171,13 @@ matching_reciprocal_threshold: 0.5
 
 #### Consensus Calling
 
-Run the consensus calling on your input sets using the following command:
+Run the consensus calling on your experimental call sets using the following command:
 
 ```bash
 python -m consensuscnv.main config.yaml
 ```
 
-This will execute VCF conversion of evaluated call sets, consensus calling, and liftover if specified
+This will execute VCF conversion of the experimental call sets, consensus calling, and liftover if specified
 
 #### Benchmarking
 
@@ -189,7 +189,7 @@ python -m consensuscnv.main config.yaml --run-benchmark
 ```
 
 This will execute the following:
-1. **Computation Pipeline**: VCF conversion of benchmarks, binary classification of evaluated call sets
+1. **Computation Pipeline**: VCF conversion of benchmarks, binary classification of the query call sets against truth
 2. **Analysis Pipeline**: Generate statistical metrics tables, plots, and Venn diagrams
 
 If you would like to only run one of the two parts of the benchmark pipeline, you can add the following arguments:
@@ -205,33 +205,33 @@ python -m consensuscnv.main config.yaml --run-benchmark --only-analyze
 
 ```
 output_dir/
-├── {input 1}/
-│   ├── bed/    
-│   ├── binary_classification/    # Contains binary classification outputs per each call set (single callers + consensus calls)
-│   │   └── {call set 1}/         # TP/FP/FN classifications
-│   │   └── {call set 2...}/                   # Per-caller BED files for CNV calls
+├── {experimental call set 1}/
+│   ├── bed/                      # Per-caller BED files for CNV calls
 │   ├── consensus_1of3/           # Consensus calls, requires 1/3 caller agreement
 │   ├── consensus_2of3/           # Consensus calls, requires 2/3 caller agreement
-│   ├── consensus_3of3/           # Consensus calls, requires 3/3 caller agreement     
-├── {input 2...}/
+│   ├── consensus_3of3/           # Consensus calls, requires 3/3 caller agreement
+├── {experimental call set 2...}/
 │   └── [same structure as above]
-├── {control 1}/
-│   ├── bed/                      # BED files for Array-based CNV calls 
-│   └── binary_classification/    # TP/FP/FN classifications
-├── {control 2...}/
+├── {control call set 1}/
+│   └── bed/                      # BED files for array-based CNV calls
+├── {control call set 2...}/
 │   └── [same structure as above]
-├── benchmark_parsing/
-│   └── merged/                   # BED files with CNV calls of all benchmarks merged together
+├── benchmark/
+│   ├── {benchmark call set}/     # Parsed benchmark BEDs
+│   └── merged/                   # Truth set: all benchmarks merged together
+├── binary_classification/        # Hive-partitioned parquet dataset of TP/FP/FN
+│   └── bench={..}/classify={..}/query={..}/source={..}/part-0.parquet
+├── binary_classification_summary.parquet   # Per-sample TP/FP/FN counts
 ├── figures/                      # Plots
 └── logs/                         # Logs and tables
 ```
 
 ## Key Metrics for Benchmarking
 
-- **True Positive**: A CNV in a call set with reciprocal overlap with at least one CNV in the benchmark call set that exceeds the threshold defined by `matching_reciprocal_threshold` in the configuration file (defaults to 0.50).
-- **False Positive**: A CNV in a call set with insufficient reciprocal overlap with any of the CNVs in the benchmark call set.
-- **False Negative**: A CNV in the benchmark call set that does not have any associated match in a call set. Any False Negative CNVs that are not detected by any of the call sets are deemed as "undiscoverable" and deducted from the total False Negative call set.
-  - This behavior does not change absolute difference in FN between call sets but does change relative difference. This change allows for 1) the amplification of trend differences between call sets, 2) more comparable value ranges between precision and recall, and 3) prevents the F-score graph trends from being dominated by those of the recall graph due to extremely high FN values.
+- **True Positive**: A CNV in a query call set with reciprocal overlap with at least one CNV in the truth set that exceeds the threshold defined by `matching_reciprocal_threshold` in the configuration file (defaults to 0.50).
+- **False Positive**: A CNV in a query call set with insufficient reciprocal overlap with any of the CNVs in the truth set.
+- **False Negative**: A CNV in the truth set that does not have any associated match in a query call set. Any False Negative CNVs that are not detected by any of the query call sets are deemed as "undiscoverable" and deducted from the total False Negative count.
+  - This behavior does not change absolute difference in FN between query call sets but does change relative difference. This change allows for 1) the amplification of trend differences between query call sets, 2) more comparable value ranges between precision and recall, and 3) prevents the F-score graph trends from being dominated by those of the recall graph due to extremely high FN values.
 
 The pipeline computes:
 - **Precision**: TP / (TP + FP)

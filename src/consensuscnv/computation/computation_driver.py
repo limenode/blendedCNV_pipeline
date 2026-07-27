@@ -1,4 +1,3 @@
-from consensuscnv.computation.computation_functions import run_binary_classification_script
 from consensuscnv.computation.consensus_calling import compute_consensus_from_beds, merge_benchmarks
 from consensuscnv.output_layout import (
     BenchmarkMergeParams,
@@ -27,11 +26,11 @@ def run_computation(config: PipelineConfig):
     print("\nRun benchmark merging...")
     benchmark_bed_path = merge_benchmarks(config, benchmark_params)
 
-    def classification_out(input_set_key: str, call_set: str) -> str:
+    def classification_out(query: str, source: str) -> str:
         return str(
             layout.classification_dir(
-                input_set_key,
-                call_set,
+                query,
+                source,
                 benchmark_params=benchmark_params,
                 classification_params=classification_params,
             )
@@ -39,10 +38,10 @@ def run_computation(config: PipelineConfig):
 
     binary_classification_io_sets: list[tuple[str, str] | tuple[str, str, str]] = []
     for experimental_key_path_str, experimental_key_path_dict in consensus_bed_paths.items():
-        for call_set_slug, consensus_bed_path in experimental_key_path_dict.items():
+        for source_slug, consensus_bed_path in experimental_key_path_dict.items():
             binary_classification_io_sets.append((
                 str(consensus_bed_path),
-                classification_out(experimental_key_path_str, call_set_slug),
+                classification_out(experimental_key_path_str, source_slug),
                 str(benchmark_bed_path),
             ))
 
@@ -62,15 +61,15 @@ def run_computation(config: PipelineConfig):
         ))
 
     print("Binary classification I/O sets:")
-    for input_path, output_path, *truth_dir in binary_classification_io_sets:
+    for query_path, output_path, *truth_dir in binary_classification_io_sets:
         if truth_dir:
-            print(f"Input: {input_path}, Output: {output_path}, Truth: {truth_dir[0]}")
+            print(f"Query: {query_path}, Output: {output_path}, Truth: {truth_dir[0]}")
         else:
-            print(f"Input: {input_path}, Output: {output_path}, Truth: None")
+            print(f"Query: {query_path}, Output: {output_path}, Truth: None")
 
-    run_binary_classification_script(
-        config,
-        binary_classification_io_sets,
-        benchmark_bed_path,
-        reciprocal_threshold=classification_params.reciprocal_threshold,
-    )
+    # run_binary_classification_script(
+    #     config,
+    #     binary_classification_io_sets,
+    #     benchmark_bed_path,
+    #     reciprocal_threshold=classification_params.reciprocal_threshold,
+    # )

@@ -9,7 +9,7 @@ def discover_samples_of_interest(config: PipelineConfig) -> set[str]:
     
     sample_ids: set[str] = set()
     for key in config.experimental.keys():
-        bed_paths = glob.glob(str(layout.set_dir(key)) + "/bed/*/*.bed")
+        bed_paths = glob.glob(str(layout.call_set_dir(key)) + "/*/*.bed")
         sample_ids |= {Path(path).name.split(".")[0] for path in bed_paths}
 
     if not sample_ids:

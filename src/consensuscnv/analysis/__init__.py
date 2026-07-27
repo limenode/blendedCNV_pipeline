@@ -7,7 +7,7 @@ from consensuscnv.analysis.analysis_functions import (
     get_bed_counts,
     get_counts_from_config,
     get_samples_from_data,
-    load_data_for_all_input_sets,
+    load_data_for_all_queries,
     plot_excluded_regions_violin_plots,
     plot_liftover_results,
 )
@@ -33,7 +33,7 @@ __all__ = [
     "get_counts_from_config",
     "get_samples_from_data",
     "identify_undiscoverable_cnvs",
-    "load_data_for_all_input_sets",
+    "load_data_for_all_queries",
     "load_fn_file",
     "load_fp_file",
     "load_sample_data",

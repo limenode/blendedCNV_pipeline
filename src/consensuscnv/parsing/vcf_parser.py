@@ -318,11 +318,8 @@ def process_vcfs_to_beds(config: PipelineConfig, common_only: bool = True) -> li
 
             for sample_id, vcf_path in sample_map.items():
                 layout.bed_tool_dir(experimental_name, tool).mkdir(parents=True, exist_ok=True)
-                bed_path_del = (
-                    layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.DEL.bed"
-                )
-                bed_path_dup = (
-                    layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.DUP.bed"
+                bed_path = (
+                    layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.bed"
                 )
 
                 df, statistics = _process_single_vcf_to_df(vcf_path, lifter)
@@ -333,11 +330,6 @@ def process_vcfs_to_beds(config: PipelineConfig, common_only: bool = True) -> li
                 all_statistics.append(statistics)
 
                 df["source"] = f"{tool}"
-                df[df["svtype"] == "DEL"].to_csv(
-                    bed_path_del, sep="\t", index=False, header=False
-                )
-                df[df["svtype"] == "DUP"].to_csv(
-                    bed_path_dup, sep="\t", index=False, header=False
-                )
+                df.to_csv(bed_path, sep="\t", index=False, header=False)
 
     return all_statistics

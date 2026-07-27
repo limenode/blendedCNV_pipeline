@@ -42,8 +42,7 @@ class ParamSet:
     ``_prefix``. ``slug()`` walks the fields in declaration order and joins
     ``<label><value>`` tokens with underscores, e.g. ``bench_pad500_mn1_mw0_lssT``.
     Give a field a ``metadata={"label": "..."}`` to control its token name;
-    otherwise the field name is used. Because rendering is derived purely from
-    the fields, two equal param objects always map to the same path.
+    otherwise the field name is used.
     """
 
     _prefix: ClassVar[str] = ""
@@ -84,7 +83,6 @@ class ClassificationParams(ParamSet):
     _prefix: ClassVar[str] = "classify"
 
     reciprocal_threshold: float = field(default=0.5, metadata={"label": "recip"})
-
 
 @dataclass(frozen=True)
 class OutputLayout:
@@ -138,74 +136,103 @@ class OutputLayout:
         return self.figure_group("statistical_distributions_split_by_svtype")
 
     # ------------------------------------------------------------------ #
-    # Per input set (e.g. '30x Coverage')
+    # Per experimental call set (e.g. '30x Coverage')
     # ------------------------------------------------------------------ #
-    def set_dir(self, set_key: str) -> Path:
-        return self.root / _slug(set_key)
+    def call_set_dir(self, call_set: str) -> Path:
+        return self.root / _slug(call_set)
 
-    def bed_dir(self, set_key: str) -> Path:
-        return self.set_dir(set_key) / "bed"
-
-    def bed_tool_dir(self, set_key: str, tool: str) -> Path:
-        return self.set_dir(set_key) / "bed" / tool
+    def bed_tool_dir(self, call_set: str, tool: str) -> Path:
+        return self.call_set_dir(call_set) / tool
 
     def consensus_dir(
-        self, set_key: str, level: int, params: ConsensusParams | None = None
+        self, call_set: str, level: int, params: ConsensusParams | None = None
     ) -> Path:
         """``consensus_<level>`` — the directory the consensus BEDs are written to.
 
         When ``params`` is given, its slug is appended so runs with different
         consensus tunables land in sibling directories instead of overwriting
         each other (e.g. ``consensus_2/w0.5``)."""
-        base = self.set_dir(set_key) / f"consensus_{level}"
+        base = self.call_set_dir(call_set) / f"consensus_{level}"
         return base / params.slug() if params is not None else base
 
-    def consensus_rep_dir(self, set_key: str, level: int, representation: str) -> Path:
+    def consensus_rep_dir(self, call_set: str, level: int, representation: str) -> Path:
         """``intersections/`` or ``unions/`` subdir created by the consensus scripts."""
-        return self.consensus_dir(set_key, level) / representation
+        return self.consensus_dir(call_set, level) / representation
 
-    def classification_root(self, benchmark_subset: str) -> Path:
+    def classification_root(self, query: str) -> Path:
         """Legacy single-level root, still used by ``analysis_driver``.
 
         Superseded by :meth:`classification_setting_dir` for the parameterized
         4-level tree; kept until the analysis reader migrates."""
-        return self.root / "binary_classification" / _slug(benchmark_subset)
+        return self.root / "binary_classification" / _slug(query)
+
+    @property
+    def classification_dataset(self) -> Path:
+        """Root of the hive-partitioned classification parquet dataset."""
+        return self.root / "binary_classification"
+
+    @property
+    def classification_summary(self) -> Path:
+        """Sweep-level counts table (per partition / sample / TP-FP-FN)."""
+        return self.root / "binary_classification_summary.parquet"
 
     def classification_setting_dir(
         self,
         benchmark_params: BenchmarkMergeParams,
         classification_params: ClassificationParams,
     ) -> Path:
-        """``binary_classification/<bench slug>/<classify slug>`` — the subtree
-        holding every input set classified under one benchmark+matching setting."""
+        """``binary_classification/bench=<slug>/classify=<slug>`` — the subtree
+        holding every query classified under one benchmark+matching setting."""
         return (
-            self.root
-            / "binary_classification"
-            / benchmark_params.slug()
-            / classification_params.slug()
+            self.classification_dataset
+            / f"bench={benchmark_params.slug()}"
+            / f"classify={classification_params.slug()}"
         )
 
     def classification_dir(
         self,
-        input_set_key: str,
-        call_set: str,
+        query: str,
+        source: str,
         *,
         benchmark_params: BenchmarkMergeParams,
         classification_params: ClassificationParams,
     ) -> Path:
-        """``binary_classification/<bench>/<classify>/<input_set>/<call_set>``.
+        """One leaf of the classification dataset.
+
+        ``binary_classification/bench=<..>/classify=<..>/query=<..>/source=<..>``.
 
         The four levels are: benchmark-merge params, classification params, the
-        input set (e.g. ``30x_Coverage``), and the call set (e.g. a caller name
-        or ``consensus_2of3_w0.5``)."""
+        query call set (e.g. ``30x_Coverage``), and the source that produced the
+        calls (a caller name or ``consensus_2of3_w0.5``). They are written as
+        ``key=value`` so ``find_parts`` recovers them as columns and prunes
+        partitions on filtered reads."""
         return (
             self.classification_setting_dir(benchmark_params, classification_params)
-            / _slug(input_set_key)
-            / _slug(call_set)
+            / f"query={_slug(query)}"
+            / f"source={_slug(source)}"
+        )
+
+    def classification_parquet(
+        self,
+        query: str,
+        source: str,
+        *,
+        benchmark_params: BenchmarkMergeParams,
+        classification_params: ClassificationParams,
+    ) -> Path:
+        """The parquet part file inside a :meth:`classification_dir` leaf."""
+        return (
+            self.classification_dir(
+                query,
+                source,
+                benchmark_params=benchmark_params,
+                classification_params=classification_params,
+            )
+            / "part-0.parquet"
         )
 
     # ------------------------------------------------------------------ #
-    # Per control set (e.g. 'SNP Array')
+    # Per control call set (e.g. 'SNP Array')
     # ------------------------------------------------------------------ #
     def control_dir(self, control_key: str) -> Path:
         return self.root / _slug(control_key)
@@ -231,18 +258,18 @@ class OutputLayout:
     # Naming conventions (centralized so the contract stays in one file)
     # ------------------------------------------------------------------ #
     @staticmethod
-    def consensus_call_set(level: int, representation: str) -> str:
-        """Name of a consensus call set, e.g. ``'consensus_2of3_intersections'``.
+    def consensus_source(level: int, representation: str) -> str:
+        """Name of a consensus source, e.g. ``'consensus_2of3_intersections'``.
 
         Used both as a ``binary_classification`` subdirectory and as an analysis key.
         """
         return f"consensus_{level}of3_{representation}"
 
     @staticmethod
-    def consensus_call_set_slug(level: int, params: ConsensusParams) -> str:
-        """Call-set name for a consensus level under given params.
+    def consensus_source_slug(level: int, params: ConsensusParams) -> str:
+        """Source name for a consensus level under given params.
 
-        Used as the ``call_set`` leaf of :meth:`classification_dir`, e.g.
+        Used as the ``source`` leaf of :meth:`classification_dir`, e.g.
         ``'consensus_2of3_w0.5'``."""
         return f"consensus_{level}of3_{params.slug()}"
 

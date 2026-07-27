@@ -55,17 +55,17 @@ def _create_record_ids(df: pd.DataFrame, classification: str, svtype: SVType = S
 
 def _process_input_sv_combination_worker(args):
     """
-    Worker function to process a single (input_set_name, svtype) combination.
+    Worker function to process a single (query_name, svtype) combination.
     Designed to be called from multiprocessing pool.
     
     Args:
-        args: Tuple of (input_set_name, svtype, analysis_data, intervals, undiscoverable_fns)
+        args: Tuple of (query_name, svtype, analysis_data, intervals, undiscoverable_fns)
     
     Returns:
-        Tuple of (key, result_dict) where key is (input_set_name, svtype)
+        Tuple of (key, result_dict) where key is (query_name, svtype)
         and result_dict contains data for all three distribution types
     """
-    input_set_name, svtype, analysis_data, intervals, undiscoverable_fns = args
+    query_name, svtype, analysis_data, intervals, undiscoverable_fns = args
     
     # Store record IDs for each interval and classification
     interval_data = []
@@ -158,7 +158,7 @@ def _process_input_sv_combination_worker(args):
         complementary_cumulative_data['fn_count'].insert(0, len(fn_set_comp))
     
     # Convert to numpy arrays and return
-    key = (input_set_name, svtype)
+    key = (query_name, svtype)
     result = {
         DistributionType.DENSITY: {
             'x': np.array(density_data['x']),
@@ -189,8 +189,8 @@ def _plot_single_metric_distribution_worker(
     data_by_combination: dict, 
     color_map: dict, 
     linestyle_map: dict, 
-    input_name_mapping: dict, 
-    input_set_order: List[str],
+    query_name_mapping: dict, 
+    query_order: List[str],
     svtypes: list, 
     figsize: tuple, 
     smoothing_sigma: float, 
@@ -208,9 +208,9 @@ def _plot_single_metric_distribution_worker(
         fig, ax = plt.subplots(figsize=figsize)
         
         # Plot each combination in explicit order so legend order is deterministic.
-        for input_set_name in input_set_order:
+        for query_name in query_order:
             for svtype in svtypes:
-                data = data_by_combination.get((input_set_name, svtype))
+                data = data_by_combination.get((query_name, svtype))
                 if data is None or len(data['x']) == 0:
                     continue
             
@@ -232,11 +232,11 @@ def _plot_single_metric_distribution_worker(
                     y_smoothed = y_sorted
             
                 # Get color and line style
-                color = color_map.get(input_set_name, 'black')
+                color = color_map.get(query_name, 'black')
                 linestyle = linestyle_map.get(svtype, '-')
             
                 # Create label with display name
-                display_name = input_name_mapping.get(input_set_name, input_set_name)
+                display_name = query_name_mapping.get(query_name, query_name)
                 label = f"{display_name} - {svtype.value if hasattr(svtype, 'value') else svtype}"
             
                 # Adjust alpha and linewidth based on svtype prominence
@@ -318,12 +318,12 @@ def identify_undiscoverable_cnvs(
         data: dict, 
 ) -> set:
 
-    input_sets = data.get('input_sets', {})
+    queries = data.get('queries', {})
 
     # Retrieve all FN dataframes, filter, and add to list for concatenation
     fn_id_sets = []
 
-    for input_set_name, analysis_data in input_sets.items():
+    for query_name, analysis_data in queries.items():
 
         if 'FN' not in analysis_data:
             continue
@@ -335,15 +335,15 @@ def identify_undiscoverable_cnvs(
 
         fn_id_sets.append(fn_id_set)
     
-    print(f"Collected FN ID sets from {len(fn_id_sets)} input sets for undiscoverable CNV analysis")
+    print(f"Collected FN ID sets from {len(fn_id_sets)} queries for undiscoverable CNV analysis")
     
     # Find intersection of all FN ID sets to identify undiscoverable CNVs
     if fn_id_sets:
         undiscoverable_cnvs = set.intersection(*fn_id_sets)
-        print(f"Identified {len(undiscoverable_cnvs)} undiscoverable CNVs present as FNs in all input sets")
+        print(f"Identified {len(undiscoverable_cnvs)} undiscoverable CNVs present as FNs in all queries")
     else:
         undiscoverable_cnvs = set()
-        print("No FN data found across input sets to identify undiscoverable CNVs")
+        print("No FN data found across queries to identify undiscoverable CNVs")
 
     return undiscoverable_cnvs
 
@@ -375,14 +375,14 @@ def _filter_svtype(df: pd.DataFrame, svtype: SVType) -> pd.DataFrame:
     return df
 
 class CNVPlotter:
-    def __init__(self, data: dict, config: PipelineConfig, input_name_mapping: dict):
+    def __init__(self, data: dict, config: PipelineConfig, query_name_mapping: dict):
         self.data = data
         self.config = config
-        self.input_name_mapping = input_name_mapping
+        self.query_name_mapping = query_name_mapping
 
     def _build_tp_and_truth_sets(
         self,
-        set_keys: List[str],
+        queries: List[str],
         data: Dict[str, dict],
         svtype: SVType,
     ) -> Tuple[Dict[str, set], set, int, Dict[str, set], set, int, Dict[str, int]]:
@@ -400,7 +400,7 @@ class CNVPlotter:
                 truth_set_sizes
         """
         tp_sets: Dict[str, set] = {}
-        for key in set_keys:
+        for key in queries:
             tp_df = data[key].get('TP', pd.DataFrame())
             tp_sets[key] = _create_record_ids(tp_df, 'TP', svtype=svtype)
 
@@ -408,7 +408,7 @@ class CNVPlotter:
         total_detected = len(detected_ids)
 
         truth_ids_by_method: Dict[str, set] = {}
-        for key in set_keys:
+        for key in queries:
             fn_df = data[key].get('FN', pd.DataFrame())
             fn_ids = _create_record_ids(fn_df, 'FN', svtype=svtype)
             truth_ids_by_method[key] = tp_sets[key].union(fn_ids)
@@ -429,7 +429,7 @@ class CNVPlotter:
     
     def get_distribution_data(
         self,
-        unique_input_sets: set,
+        unique_queries: set,
         bounds: tuple[float, float],
         n_points: int = 50,
         svtypes: List[SVType] = [SVType.ALL, SVType.DEL, SVType.DUP],
@@ -439,7 +439,7 @@ class CNVPlotter:
         Compute distribution data with raw TP/FP/FN counts across size ranges.
         
         Args:
-            unique_input_sets: Set of input set keys to include in the distribution data
+            unique_queries: Set of query keys to include in the distribution data
             bounds: Tuple of (start, end) size range in bp
             n_points: Number of intervals to generate
             svtypes: List of SVType values to include
@@ -447,7 +447,7 @@ class CNVPlotter:
             exclude_undiscoverable_fn: If True, exclude FNs present in all datasets (undiscoverable)
         
         Returns:
-            Dictionary mapping distribution_type -> {(input_set, svtype): data_dict}
+            Dictionary mapping distribution_type -> {(query, svtype): data_dict}
             where data_dict contains 'x', 'tp_count', 'fp_count', 'fn_count' arrays
         """
 
@@ -466,12 +466,12 @@ class CNVPlotter:
         
         print(len(undiscoverable_cnvs))
 
-        # Prepare tasks for all (input_set, svtype) combinations
-        # Only iterate over input_sets
-        input_sets = self.data.get('input_sets', {})
+        # Prepare tasks for all (query, svtype) combinations
+        # Only iterate over queries
+        queries = self.data.get('queries', {})
         tasks = [
-            (input_set_name, svtype, analysis_data, intervals, undiscoverable_cnvs)
-            for input_set_name, analysis_data in input_sets.items() if input_set_name in unique_input_sets
+            (query_name, svtype, analysis_data, intervals, undiscoverable_cnvs)
+            for query_name, analysis_data in queries.items() if query_name in unique_queries
             for svtype in svtypes
         ]
         
@@ -516,7 +516,7 @@ class CNVPlotter:
         # Build and optionally save summary metrics from the final cumulative interval.
         cumulative_summary_rows = []
         cumulative_data = distribution_data.get(DistributionType.CUMULATIVE, {})
-        for (input_set_name, svtype), data in cumulative_data.items():
+        for (query_name, svtype), data in cumulative_data.items():
             if len(data.get('x', [])) == 0:
                 continue
 
@@ -525,8 +525,8 @@ class CNVPlotter:
             fn_final = int(data['fn_count'][-1])
 
             row = {
-                'input_set': input_set_name,
-                'input_set_display': self.input_name_mapping.get(input_set_name, input_set_name),
+                'query': query_name,
+                'query_display': self.query_name_mapping.get(query_name, query_name),
                 'svtype': svtype.value if hasattr(svtype, 'value') else str(svtype),
                 'analysis_window_end': float(data['x'][-1]),
                 'tp_count': tp_final,
@@ -574,11 +574,11 @@ class CNVPlotter:
         Generate and plot statistical distributions of CNV performance metrics across size ranges.
         
         Creates three separate plots per metric (one for each distribution type: density, 
-        cumulative, complementary_cumulative), each containing curves for all input_set/svtype 
+        cumulative, complementary_cumulative), each containing curves for all query/svtype 
         combinations.
         
         Args:
-            plot_config: Dictionary mapping plot group names to dicts with 'sets' key listing input set keys to include in that plot group.
+            plot_config: Dictionary mapping plot group names to dicts with 'sets' key listing query keys to include in that plot group.
             metrics: List of (metric_function, metric_name) tuples where metric_function 
                      computes metric from (TP, FP, FN) counts
             bounds: Tuple of (start, end) size range in bp
@@ -591,14 +591,14 @@ class CNVPlotter:
             show_raw_points: Whether to show raw data points beneath smoothed curves
         """
 
-        # Get unique items from input_sets_to_plot for validation
-        unique_input_sets = set()
-        for input_set_list in plot_config.values():
-            unique_input_sets.update(input_set_list.get('sets', []))
+        # Get unique items from queries_to_plot for validation
+        unique_queries = set()
+        for query_list in plot_config.values():
+            unique_queries.update(query_list.get('sets', []))
 
         # Get distribution data for all types (raw counts)
         distribution_data = self.get_distribution_data(
-            unique_input_sets=unique_input_sets,
+            unique_queries=unique_queries,
             bounds=bounds,
             n_points=n_points,
             svtypes=svtypes,
@@ -629,7 +629,7 @@ class CNVPlotter:
         # Prepare plotting tasks for parallel execution
         plotting_tasks = []
         for plot_group_name, plot_group_config in plot_config.items():
-            plot_group_input_sets = set(plot_group_config.get('sets', []))
+            plot_group_queries = set(plot_group_config.get('sets', []))
 
             # Keep output files separated by plot group name (create directory if it doesn't exist).
             plot_group_name_clean = str(plot_group_name).lower().replace(' ', '_').replace('/', '_')
@@ -637,14 +637,14 @@ class CNVPlotter:
 
             for metric_function, metric_name in metrics:
                 for dist_type, data_by_combination in distribution_data.items():
-                    # Filter data_by_combination to only include input sets relevant to this plot group.
+                    # Filter data_by_combination to only include queries relevant to this plot group.
                     filtered_data_by_combination = {
                         key: data
                         for key, data in data_by_combination.items()
-                        if key[0] in plot_group_input_sets
+                        if key[0] in plot_group_queries
                     }
 
-                    color_map = {input_set: cmap(i) for i, input_set in enumerate(plot_group_input_sets)}
+                    color_map = {query: cmap(i) for i, query in enumerate(plot_group_queries)}
 
                     task_args = (
                         metric_function,
@@ -653,8 +653,8 @@ class CNVPlotter:
                         filtered_data_by_combination,
                         color_map,
                         linestyle_map,
-                        self.input_name_mapping,
-                        plot_group_input_sets,
+                        self.query_name_mapping,
+                        plot_group_queries,
                         svtypes,
                         figsize,
                         smoothing_sigma,
@@ -695,37 +695,37 @@ class CNVPlotter:
     def plot_count_venn_diagram(
         self,
         config: PipelineConfig,
-        input_set_key: str,
+        query: str,
         bounds: Optional[Tuple[float, float]] = None,
         svtype: SVType = SVType.ALL,
         figsize: Tuple[int, int] = (10, 8),
         output_path: Optional[str | Path] = None,
     ):
         """
-        Plot caller overlap counts from TP+FP records in a 1-of-3 consensus input set.
+        Plot caller overlap counts from TP+FP records in a 1-of-3 consensus query.
 
         This function expects exactly three caller names under:
-        config.experimental[input_set_key].keys()
+        config.experimental[query].keys()
         and uses TP/FP rows from:
-        self.data['input_sets'][f"{input_set_key}_consensus_1of3_intersections"]
+        self.data['queries'][f"{query}_consensus_1of3_intersections"]
         """
-        input_cfg = config.experimental.get(input_set_key)
+        input_cfg = config.experimental.get(query)
         if input_cfg is None:
-            print(f"Error: input_set_key '{input_set_key}' not found under config.experimental.")
+            print(f"Error: query '{query}' not found under config.experimental.")
             return
 
         caller_names = list(input_cfg.keys())
         if len(caller_names) != 3:
             print(
-                f"Error: Expected exactly 3 callers in config.experimental['{input_set_key}'], "
+                f"Error: Expected exactly 3 callers in config.experimental['{query}'], "
                 f"found {len(caller_names)}: {caller_names}"
             )
             return
 
-        intersection_key = f"{input_set_key.replace(' ', '_')}_consensus_1of3_intersections"
-        intersection_data = self.data.get('input_sets', {}).get(intersection_key)
+        intersection_key = f"{query.replace(' ', '_')}_consensus_1of3_intersections"
+        intersection_data = self.data.get('queries', {}).get(intersection_key)
         if intersection_data is None:
-            print(f"Error: Input set '{intersection_key}' not found in self.data['input_sets'].")
+            print(f"Error: Query '{intersection_key}' not found in self.data['queries'].")
             return
 
         if output_path:
@@ -856,7 +856,7 @@ class CNVPlotter:
             circle.set_linestyle('--')
 
         svtype_str = f" ({svtype.value})" if svtype != SVType.ALL else ""
-        title = f"Caller Source Overlap (TP+FP){svtype_str}\n{input_set_key}"
+        title = f"Caller Source Overlap (TP+FP){svtype_str}\n{query}"
         ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
 
         skipped_text = ""
@@ -884,7 +884,7 @@ class CNVPlotter:
         print(f"\n{'=' * 60}")
         print("Count Venn Diagram Statistics (TP + FP Sources)")
         print(f"{'=' * 60}")
-        print(f"Input set: {input_set_key}")
+        print(f"Query: {query}")
         print(f"Consensus source set: {intersection_key}")
         print(f"Callers from config: {caller_names}")
         print(f"Total counted TP+FP records: {total_calls}")
@@ -906,7 +906,7 @@ class CNVPlotter:
 
     def plot_recall_venn_diagram(
         self,
-        set_keys: List[str],
+        queries: List[str],
         bounds: Optional[Tuple[float, float]] = None,
         svtype: SVType = SVType.ALL,
         figsize: Tuple[int, int] = (10, 8),
@@ -914,7 +914,7 @@ class CNVPlotter:
         show_region_table: bool = False,
     ):
         """
-        Generate Venn diagram comparing TP/FP/FN sets for a specific SV type across all input sets.
+        Generate Venn diagram comparing TP/FP/FN sets for a specific SV type across all queries.
         
         Args:
             svtype: SV type to filter by (e.g., 'DEL', 'DUP', or None for all)
@@ -923,17 +923,17 @@ class CNVPlotter:
             show_region_table: If True, add a side panel listing all 7 region counts
         """
         
-        # Return if not exactly 3 set_keys (venn3 requires exactly 3 sets)
-        if len(set_keys) != 3:
-            print("Error: Venn diagram requires exactly 3 input sets.")
+        # Return if not exactly 3 queries (venn3 requires exactly 3 sets)
+        if len(queries) != 3:
+            print("Error: Venn diagram requires exactly 3 queries.")
             return
         
-        print(len(set_keys), "sets provided for Venn diagram:", set_keys)
+        print(len(queries), "sets provided for Venn diagram:", queries)
 
         # Verify keys exist in data
-        for key in set_keys:
-            if key not in self.data.get('input_sets', {}):
-                print(f"Error: Input set '{key}' not found in data.")
+        for key in queries:
+            if key not in self.data.get('queries', {}):
+                print(f"Error: Query '{key}' not found in data.")
                 return
         
         # Create output directory if saving
@@ -941,11 +941,11 @@ class CNVPlotter:
             output_dir = Path(output_path).parent
             output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Work with copy of input_sets only
-        data = self.data.get('input_sets', {}).copy()
+        # Work with copy of queries only
+        data = self.data.get('queries', {}).copy()
 
         # Filter by size if bounds provided
-        for key in set_keys:
+        for key in queries:
             if bounds is not None:
                 start, end = bounds
                 data[key] = filter_by_size(data[key], lower_bound=int(start), upper_bound=int(end))
@@ -959,13 +959,13 @@ class CNVPlotter:
             all_truth_ids,
             total_truth_cnvs,
             truth_set_sizes,
-        ) = self._build_tp_and_truth_sets(set_keys=set_keys, data=data, svtype=svtype)
+        ) = self._build_tp_and_truth_sets(queries=queries, data=data, svtype=svtype)
 
         print(sum(len(s) for s in tp_sets.values()), "total TP records across all sets after using _create_record_ids with svtype filtering.")
 
         # Compute exact Venn subset counts directly from set algebra.
         # This avoids relying on rendered label artists, which can be omitted for tiny regions.
-        set_a, set_b, set_c = (tp_sets[set_keys[0]], tp_sets[set_keys[1]], tp_sets[set_keys[2]])
+        set_a, set_b, set_c = (tp_sets[queries[0]], tp_sets[queries[1]], tp_sets[queries[2]])
         overlap_counts = {
             '100': len(set_a - set_b - set_c),
             '010': len(set_b - set_a - set_c),
@@ -1006,11 +1006,11 @@ class CNVPlotter:
         
         # Apply name mapping and add counts to labels
         display_names_with_counts = []
-        for input_set_key in set_keys:
-            count = len(tp_sets[input_set_key])
+        for query in queries:
+            count = len(tp_sets[query])
             pct_total = (count / total_unique_cnvs) * 100 if total_unique_cnvs > 0 else 0
             
-            display_name = self.input_name_mapping.get(input_set_key, input_set_key)
+            display_name = self.query_name_mapping.get(query, query)
             label = f"{display_name}\n(n={count}, {pct_total:.1f}%)"
             display_names_with_counts.append(label)
         
@@ -1097,9 +1097,9 @@ class CNVPlotter:
 
         if show_region_table and ax_table is not None:
             display_names = [
-                self.input_name_mapping.get(set_keys[0], set_keys[0]),
-                self.input_name_mapping.get(set_keys[1], set_keys[1]),
-                self.input_name_mapping.get(set_keys[2], set_keys[2]),
+                self.query_name_mapping.get(queries[0], queries[0]),
+                self.query_name_mapping.get(queries[1], queries[1]),
+                self.query_name_mapping.get(queries[2], queries[2]),
             ]
 
             region_labels = {
@@ -1157,9 +1157,9 @@ class CNVPlotter:
         print(f"Not detected by any method (FN): {total_truth_cnvs - total_unique_cnvs}")
         
         print("\nDetection by individual methods:")
-        for input_set_key in set_keys:
-            count = len(tp_sets[input_set_key])
-            display_name = self.input_name_mapping.get(input_set_key, input_set_key)
+        for query in queries:
+            count = len(tp_sets[query])
+            display_name = self.query_name_mapping.get(query, query)
             pct_truth = (count / total_truth_cnvs) * 100 if total_truth_cnvs > 0 else 0
             pct_detected = (count / total_unique_cnvs) * 100 if total_unique_cnvs > 0 else 0
             print(f"  {display_name}: {count} ({pct_truth:.1f}% of truth, {pct_detected:.1f}% of detected)")
@@ -1176,9 +1176,9 @@ class CNVPlotter:
             involved_indices = [i for i, bit in enumerate(comb) if bit == '1']
             pct_each_method = []
             for i in involved_indices:
-                method_count = len(tp_sets[set_keys[i]])
+                method_count = len(tp_sets[queries[i]])
                 pct_method = (count / method_count) * 100 if method_count > 0 else 0
-                method_name = self.input_name_mapping.get(set_keys[i], set_keys[i])
+                method_name = self.query_name_mapping.get(queries[i], queries[i])
                 pct_each_method.append(f"{method_name}: {pct_method:.1f}%")
             pct_each_method_str = " | ".join(pct_each_method)
             
@@ -1210,7 +1210,7 @@ class CNVPlotter:
         Generate size distribution plots (bin density and KDE) for CNVs.
 
         Args:
-            plot_config: Dict mapping plot group name -> list of input set keys
+            plot_config: Dict mapping plot group name -> list of query keys
             svtype: SV type to filter by (DEL, DUP, or ALL)
             figsize: Figure size tuple
             output_dir: Directory to save plots (if None, plots will be shown)
@@ -1225,8 +1225,8 @@ class CNVPlotter:
         if modulus is not None and modulus <= 0:
             raise ValueError(f"modulus must be a positive value, got {modulus}.")
 
-        input_sets = self.data.get('input_sets', {})
-        input_sets_keys = set(input_sets.keys())
+        queries = self.data.get('queries', {})
+        query_keys = set(queries.keys())
 
         # Modulus controls axis scaling, labels and output file/title naming.
         use_log = modulus is None
@@ -1254,26 +1254,26 @@ class CNVPlotter:
         group_membership_sets: Dict[str, set] = {}
 
         # 1) Collect all unique items across all plot groups (preserve first-seen order).
-        ordered_unique_input_sets: List[str] = []
-        seen_input_sets = set()
+        ordered_unique_queries: List[str] = []
+        seen_queries = set()
         for plot_group_name, plot_group_config in plot_config.items():
-            input_set_list = plot_group_config.get('sets', [])
-            for set_key in input_set_list:
-                if set_key in input_sets_keys and set_key not in seen_input_sets:
-                    seen_input_sets.add(set_key)
-                    ordered_unique_input_sets.append(set_key)
+            query_list = plot_group_config.get('sets', [])
+            for query in query_list:
+                if query in query_keys and query not in seen_queries:
+                    seen_queries.add(query)
+                    ordered_unique_queries.append(query)
 
         for plot_group_name, plot_group_config in plot_config.items():
-            plot_group_input_sets = plot_group_config.get('sets', [])
+            plot_group_queries = plot_group_config.get('sets', [])
             group_membership_sets[str(plot_group_name)] = {
-                set_key for set_key in plot_group_input_sets if set_key in input_sets_keys
+                query for query in plot_group_queries if query in query_keys
             }
 
         # 2) Calculate prediction data once and store in all_data.
         all_data = []
-        for set_key in ordered_unique_input_sets:
+        for query in ordered_unique_queries:
             for classification in ['TP', 'FP']:
-                df = input_sets.get(set_key, {}).get(classification)
+                df = queries.get(query, {}).get(classification)
                 if df is None or df.empty or 'pred_size' not in df.columns:
                     continue
 
@@ -1286,21 +1286,21 @@ class CNVPlotter:
                 sizes = sizes[sizes > 0]
 
                 if len(sizes) > 0:
-                    display_name = self.input_name_mapping.get(set_key, set_key)
+                    display_name = self.query_name_mapping.get(query, query)
                     temp_df = pd.DataFrame({
                         'size': sizes,
-                        'source': set_key,
+                        'source': query,
                         'display_name': display_name,
                         'type': 'prediction'
                     })
                     all_data.append(temp_df)
 
         # 3) Retrieve benchmark data once from one prediction source and store in all_data.
-        benchmark_set_key: Optional[str] = ordered_unique_input_sets[0] if ordered_unique_input_sets else None
+        benchmark_query: Optional[str] = ordered_unique_queries[0] if ordered_unique_queries else None
         benchmark_added = False
-        if include_benchmark and benchmark_set_key is not None:
+        if include_benchmark and benchmark_query is not None:
             for classification in ['TP', 'FN']:
-                df = input_sets.get(benchmark_set_key, {}).get(classification)
+                df = queries.get(benchmark_query, {}).get(classification)
                 if df is None or df.empty or 'truth_size' not in df.columns:
                     continue
 
@@ -1333,29 +1333,29 @@ class CNVPlotter:
         if modulus is not None:
             all_data_df['size'] = all_data_df['size'] % modulus
 
-        # Build a single summary stats table across all unique input sets.
+        # Build a single summary stats table across all unique queries.
         size_stats_df = (
             all_data_df
             .groupby('source', sort=True)['size']
             .apply(_compute_series_stats)
             .unstack()
             .reset_index()
-            .rename(columns={'source': 'input_set'})
+            .rename(columns={'source': 'query'})
         )
-        size_stats_df['input_set_display'] = size_stats_df['input_set'].map(
-            lambda set_name: self.input_name_mapping.get(set_name, set_name)
+        size_stats_df['query_display'] = size_stats_df['query'].map(
+            lambda set_name: self.query_name_mapping.get(set_name, set_name)
         )
 
-        # Add boolean membership columns keyed by input_sets_to_plot dictionary keys.
+        # Add boolean membership columns keyed by queries_to_plot dictionary keys.
         for plot_group_name, group_set in group_membership_sets.items():
             size_stats_df[plot_group_name] = (
-                size_stats_df['input_set'].isin(group_set)
-                | size_stats_df['input_set'].eq('Benchmark (Truth)')
+                size_stats_df['query'].isin(group_set)
+                | size_stats_df['query'].eq('Benchmark (Truth)')
             )
 
         # Keep benchmark at the bottom for readability.
         if not size_stats_df.empty:
-            is_benchmark = size_stats_df['input_set'].eq('Benchmark (Truth)')
+            is_benchmark = size_stats_df['query'].eq('Benchmark (Truth)')
             size_stats_df = pd.concat(
                 [size_stats_df[~is_benchmark], size_stats_df[is_benchmark]],
                 ignore_index=True,
@@ -1384,11 +1384,11 @@ class CNVPlotter:
         for plot_group_name, plot_group_config in plot_config.items():
             plot_group_name_clean = str(plot_group_name).lower().replace(' ', '_').replace('/', '_')
 
-            # Validate set_keys against data for this plot group.
-            plot_group_input_sets = set(plot_group_config.get('sets', []))
-            valid_group_input_sets = [set_key for set_key in plot_group_input_sets if set_key in input_sets_keys]
-            if not valid_group_input_sets:
-                print(f"Warning: No valid input sets found for plot group '{plot_group_name}'.")
+            # Validate queries against data for this plot group.
+            plot_group_queries = set(plot_group_config.get('sets', []))
+            valid_group_queries = [query for query in plot_group_queries if query in query_keys]
+            if not valid_group_queries:
+                print(f"Warning: No valid queries found for plot group '{plot_group_name}'.")
                 continue
 
             output_subdir: Optional[Path] = None
@@ -1396,7 +1396,7 @@ class CNVPlotter:
                 output_subdir = output_dir / plot_group_name_clean
                 output_subdir.mkdir(parents=True, exist_ok=True)
 
-            plot_sources = set(valid_group_input_sets)
+            plot_sources = set(valid_group_queries)
             if include_benchmark and benchmark_added:
                 plot_sources.add('Benchmark (Truth)')
 
@@ -1452,7 +1452,7 @@ class CNVPlotter:
                 legend.set_title('Source')
                 for text in legend.get_texts():
                     source_label = text.get_text()
-                    text.set_text(self.input_name_mapping.get(source_label, source_label))
+                    text.set_text(self.query_name_mapping.get(source_label, source_label))
                 plt.setp(legend.get_texts(), fontsize=10)
                 plt.setp(legend.get_title(), fontsize=10)
 
@@ -1498,7 +1498,7 @@ class CNVPlotter:
                 legend.set_title('Source')
                 for text in legend.get_texts():
                     source_label = text.get_text()
-                    text.set_text(self.input_name_mapping.get(source_label, source_label))
+                    text.set_text(self.query_name_mapping.get(source_label, source_label))
                 plt.setp(legend.get_texts(), fontsize=10)
                 plt.setp(legend.get_title(), fontsize=10)
 
@@ -1522,24 +1522,24 @@ class CNVPlotter:
 
     def get_caller_source_distribution(
             self,
-            input_sets_to_include: List[str], 
+            queries_to_include: List[str], 
             output_file: Path
         ):
         """
         Analyze caller source distributions per sample and svtype, then generate box plots.
         
         Args:
-            all_data: Dictionary of analysis data per input set
+            all_data: Dictionary of analysis data per query
             output_dir: Directory to save plots
         """
         rows = []
         total_call_rows = []
 
-        # Iterate only over input_sets (shared_FN is separate)
-        input_sets = self.data.get('input_sets', {})
-        for input_set_key, analysis_data in input_sets.items():
-            if input_set_key not in input_sets_to_include:
-                print(f"Skipping input set '{input_set_key}' for caller source distribution analysis")
+        # Iterate only over queries (shared_FN is separate)
+        queries = self.data.get('queries', {})
+        for query, analysis_data in queries.items():
+            if query not in queries_to_include:
+                print(f"Skipping query '{query}' for caller source distribution analysis")
                 continue
 
             if "TP" in analysis_data:
@@ -1555,9 +1555,9 @@ class CNVPlotter:
                         if total_calls == 0:
                             continue
 
-                        # Store one sample-level total call record per input_set/sample/svtype.
+                        # Store one sample-level total call record per query/sample/svtype.
                         total_call_rows.append({
-                            "input_set": input_set_key,
+                            "query": query,
                             "sample": sample,
                             "svtype": svtype,
                             "total_calls": total_calls,
@@ -1578,7 +1578,7 @@ class CNVPlotter:
                         for caller, count in raw_caller_counts.items():
                             percentage = (count / total_calls) * 100
                             rows.append({
-                                "input_set": input_set_key,
+                                "query": query,
                                 "sample": sample,
                                 "svtype": svtype,
                                 "metric": "raw_count",
@@ -1591,7 +1591,7 @@ class CNVPlotter:
                         for combination, count in combination_counts.items():
                             percentage = (count / total_calls) * 100
                             rows.append({
-                                "input_set": input_set_key,
+                                "query": query,
                                 "sample": sample,
                                 "svtype": svtype,
                                 "metric": "combination_count",
@@ -1617,9 +1617,9 @@ class CNVPlotter:
         
         # Preserve caller/input ordering from the function argument.
         # Only keep sets that are present in this dataframe.
-        present_input_sets = set(df["input_set"].unique())
-        input_sets = [s for s in input_sets_to_include if s in present_input_sets]
-        num_input_sets = len(input_sets)
+        present_queries = set(df["query"].unique())
+        queries = [s for s in queries_to_include if s in present_queries]
+        num_queries = len(queries)
         
         # Create a single figure with 4 subplots (2x2 grid)
         fig, axes = plt.subplots(2, 2, figsize=(24, 14))
@@ -1654,9 +1654,9 @@ class CNVPlotter:
         # color_map_raw = {entity: colors_raw[i] for i, entity in enumerate(entities_raw_sorted)}
         # color_map_combo = {entity: colors_combo[i] for i, entity in enumerate(entities_combo_sorted)}
         
-        # Create color mapping for input sets (different patterns/shades)
-        input_set_colors = matplotlib.colormaps['Set2'](np.linspace(0, 1, num_input_sets))
-        input_set_color_map = {input_set: input_set_colors[i] for i, input_set in enumerate(input_sets)}
+        # Create color mapping for queries (different patterns/shades)
+        query_colors = matplotlib.colormaps['Set2'](np.linspace(0, 1, num_queries))
+        query_color_map = {query: query_colors[i] for i, query in enumerate(queries)}
         
         # Generate each subplot
         for row, col, svtype, metric, metric_label in plot_config:
@@ -1677,35 +1677,35 @@ class CNVPlotter:
                 # entity_color_map = color_map_combo
             
             # Calculate positions for grouped box plots
-            box_width = 0.8 / num_input_sets
+            box_width = 0.8 / num_queries
             group_gap = 1.0
             
             all_positions = []
             all_entity_data = []
             all_colors = []
             
-            # Prepare data grouped by entity, with input sets side-by-side
+            # Prepare data grouped by entity, with queries side-by-side
             for entity_idx, entity in enumerate(entities):
                 base_position = entity_idx * group_gap + 1
                 
-                for input_set_idx, input_set in enumerate(input_sets):
+                for query_idx, query in enumerate(queries):
                     entity_input_data = subset[
                         (subset["caller_or_combination"] == entity) & 
-                        (subset["input_set"] == input_set)
+                        (subset["query"] == query)
                     ]["percentage"].values
                     
                     if len(entity_input_data) > 0:
-                        position = base_position + (input_set_idx - (num_input_sets - 1) / 2) * box_width
+                        position = base_position + (query_idx - (num_queries - 1) / 2) * box_width
                         all_positions.append(position)
                         all_entity_data.append(entity_input_data)
-                        all_colors.append(input_set_color_map[input_set])
+                        all_colors.append(query_color_map[query])
             
             if all_entity_data:
                 # Create box plots
                 bp = ax.boxplot(all_entity_data, positions=all_positions, widths=box_width * 0.8, 
                             patch_artist=True, showfliers=False)
                 
-                # Style boxes with input set colors
+                # Style boxes with query colors
                 for box, color in zip(bp['boxes'], all_colors):
                     box.set_facecolor(color)
                     box.set_alpha(0.7)
@@ -1729,30 +1729,30 @@ class CNVPlotter:
             ax.grid(axis='y', alpha=0.3, linestyle='--')
 
         
-        # Add a single, color-matched legend for average calls/sample per input set.
+        # Add a single, color-matched legend for average calls/sample per query.
         if not total_calls_df.empty:
             avg_calls_by_set_sv = (
                 total_calls_df
-                .groupby(["input_set", "svtype"]) ["total_calls"]
+                .groupby(["query", "svtype"]) ["total_calls"]
                 .mean()
                 .to_dict()
             )
 
             avg_legend_elements = []
-            for input_set in input_sets:
-                del_avg = avg_calls_by_set_sv.get((input_set, "DEL"))
-                dup_avg = avg_calls_by_set_sv.get((input_set, "DUP"))
+            for query in queries:
+                del_avg = avg_calls_by_set_sv.get((query, "DEL"))
+                dup_avg = avg_calls_by_set_sv.get((query, "DUP"))
 
                 del_txt = f"DEL={del_avg:.1f}" if del_avg is not None else "DEL=NA"
                 dup_txt = f"DUP={dup_avg:.1f}" if dup_avg is not None else "DUP=NA"
-                label = f"{self.input_name_mapping.get(input_set, input_set)}\n{del_txt}\n{dup_txt}"
+                label = f"{self.query_name_mapping.get(query, query)}\n{del_txt}\n{dup_txt}"
 
                 avg_legend_elements.append(
                     Rectangle(
                         (0, 0),
                         1,
                         1,
-                        fc=input_set_color_map[input_set],
+                        fc=query_color_map[query],
                         alpha=0.7,
                         label=label,
                     )
@@ -1761,15 +1761,15 @@ class CNVPlotter:
             fig.legend(
                 handles=avg_legend_elements,
                 loc='upper center',
-                ncol=num_input_sets,
+                ncol=num_queries,
                 bbox_to_anchor=(0.5, 0.96),
                 fontsize=9,
                 frameon=True,
-                title="Avg calls/sample by input set",
+                title="Avg calls/sample by query",
                 title_fontsize=9,
             )
         
-        plt.suptitle("Caller Source Distribution by Input Set", fontsize=16, fontweight='bold', y=0.995)
+        plt.suptitle("Caller Source Distribution by Query", fontsize=16, fontweight='bold', y=0.995)
         plt.tight_layout(rect=(0, 0.02, 1, 0.86))
         
         os.makedirs(output_file.parent, exist_ok=True)
@@ -1786,7 +1786,7 @@ class CNVPlotter:
 
         # Summarize per-sample call counts for prediction (TP+FP) and benchmark (TP+FN)
         # in one wide table: ALL columns plus DEL_/DUP_ prefixed columns.
-        input_sets = self.data.get('input_sets', {})
+        queries = self.data.get('queries', {})
         table_statistics: Dict[str, dict] = {}
 
         def _summarize_sample_counts(sample_counts: pd.Series) -> Dict[str, float | int]:
@@ -1820,9 +1820,9 @@ class CNVPlotter:
                 return pd.concat(sample_frames, ignore_index=True).groupby('sample').size()
             return pd.Series(dtype='int64')
 
-        for input_set_key, input_set_data in input_sets.items():
-            tp_df = input_set_data.get('TP', pd.DataFrame())
-            fp_df = input_set_data.get('FP', pd.DataFrame())
+        for query, query_data in queries.items():
+            tp_df = query_data.get('TP', pd.DataFrame())
+            fp_df = query_data.get('FP', pd.DataFrame())
 
             pred_sample_counts_all = _build_sample_counts(tp_df, fp_df, SVType.ALL)
             pred_sample_counts_del = _build_sample_counts(tp_df, fp_df, SVType.DEL)
@@ -1837,9 +1837,9 @@ class CNVPlotter:
                 for key, value in _summarize_sample_counts(pred_sample_counts_dup).items()
             }
 
-            table_statistics[input_set_key] = {
-                'display_name': self.input_name_mapping.get(input_set_key, input_set_key),
-                'input_set': input_set_key,
+            table_statistics[query] = {
+                'display_name': self.query_name_mapping.get(query, query),
+                'query': query,
                 'call_definition': 'TP+FP',
                 'n_samples': int(pred_sample_counts_all.count()),
                 **_summarize_sample_counts(pred_sample_counts_all),
@@ -1847,10 +1847,10 @@ class CNVPlotter:
                 **dup_stats,
             }
 
-        # Build one benchmark row from the first available input set and append it last.
-        first_input_set = next(iter(input_sets.items()), None)
-        if first_input_set is not None:
-            first_key, first_data = first_input_set
+        # Build one benchmark row from the first available query and append it last.
+        first_query = next(iter(queries.items()), None)
+        if first_query is not None:
+            first_key, first_data = first_query
             first_tp_df = first_data.get('TP', pd.DataFrame())
             first_fn_df = first_data.get('FN', pd.DataFrame())
 
@@ -1869,7 +1869,7 @@ class CNVPlotter:
 
             table_statistics['benchmark'] = {
                 'display_name': 'Benchmark (Truth)',
-                'input_set': 'benchmark',
+                'query': 'benchmark',
                 'call_definition': 'TP+FN',
                 'n_samples': int(benchmark_sample_counts_all.count()),
                 **_summarize_sample_counts(benchmark_sample_counts_all),

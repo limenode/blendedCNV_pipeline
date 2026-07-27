@@ -9,7 +9,7 @@ from consensuscnv.analysis.analysis_functions import (
     analyze_logs,
     get_counts_from_config,
     get_samples_from_data,
-    load_data_for_all_input_sets,
+    load_data_for_all_queries,
 )
 from consensuscnv.analysis.cnv_plotter import CNVPlotter
 from consensuscnv.utils import (
@@ -38,7 +38,7 @@ def _load_plots_config(config: PipelineConfig) -> dict:
 
 def main(config: PipelineConfig):
     if not config.experimental:
-        print("No input sets defined in configuration. Exiting analysis pipeline.")
+        print("No queries defined in configuration. Exiting analysis pipeline.")
         return
 
     if not config.benchmark:
@@ -49,46 +49,46 @@ def main(config: PipelineConfig):
     layout = config.layout
     layout.logs.mkdir(parents=True, exist_ok=True)
 
-    # === Step 1: Prepare Input Set Paths ===
+    # === Step 1: Prepare Query Paths ===
 
-    # Create a mapping of input set keys to their corresponding paths
-    input_sets_paths = {}
+    # Create a mapping of query keys to their corresponding paths
+    query_paths = {}
 
     # Setup input name mapping for user-friendly display
-    input_name_mapping = {}
+    query_name_mapping = {}
 
-    # Get all input set keys
-    input_sets_raw = list(config.experimental.keys())
-    print(f"Available input sets: {input_sets_raw}")
+    # Get all query keys
+    queries_raw = list(config.experimental.keys())
+    print(f"Available queries: {queries_raw}")
 
-    # Append each caller, "Intersection", and "Union" to input set keys for binary classification results
+    # Append each caller, "Intersection", and "Union" to query keys for binary classification results
     output_dir = config.output_dir
     layout = config.layout
-    for key in input_sets_raw:
+    for key in queries_raw:
         key_path = key.replace(" ", "_")
-        input_set_subdir = layout.classification_root(key)
+        query_subdir = layout.classification_root(key)
 
         for caller in config.experimental[key].keys():
             caller_key = f"{key_path}_{caller}"
-            input_sets_paths[caller_key] = input_set_subdir / caller
-            input_name_mapping[caller_key] = f"{key} {caller}"
+            query_paths[caller_key] = query_subdir / caller
+            query_name_mapping[caller_key] = f"{key} {caller}"
 
         for consensus_type in ['consensus_1of3', 'consensus_2of3', 'consensus_3of3']:
             for merge_type in ['intersections', 'unions']:
                 consensus_key = f"{key_path}_{consensus_type}_{merge_type}"
-                input_sets_paths[consensus_key] = input_set_subdir / f"{consensus_type}_{merge_type}"
-                input_name_mapping[consensus_key] = f"{key} {consensus_type.replace('_', ' ').title()} {merge_type.title()}"
+                query_paths[consensus_key] = query_subdir / f"{consensus_type}_{merge_type}"
+                query_name_mapping[consensus_key] = f"{key} {consensus_type.replace('_', ' ').title()} {merge_type.title()}"
 
         # Add to input name mapping
-        input_name_mapping[key_path + "_intersections"] = f"{key} Intersections"
-        input_name_mapping[key_path + "_unions"] = f"{key} Unions"
+        query_name_mapping[key_path + "_intersections"] = f"{key} Intersections"
+        query_name_mapping[key_path + "_unions"] = f"{key} Unions"
 
     # Append control sets
     control_sets_raw = list(config.control.keys())
     for key in control_sets_raw:
         key_path = key.replace(" ", "_")
-        input_sets_paths[key_path] = layout.control_classification_dir(key)
-        input_name_mapping[key_path] = key
+        query_paths[key_path] = layout.control_classification_dir(key)
+        query_name_mapping[key_path] = key
 
 
     # === Load plots config ===
@@ -104,8 +104,8 @@ def main(config: PipelineConfig):
 
 
 
-    # === Step 2: Load Data for All Input Sets ===
-    all_data = load_data_for_all_input_sets(input_sets_paths)
+    # === Step 2: Load Data for All Queries ===
+    all_data = load_data_for_all_queries(query_paths)
     samples = get_samples_from_data(all_data, classification_key='TP')
 
     counts_tuple = get_counts_from_config(config, bounds=(500, 1_000_000), samples=list(samples))
@@ -122,22 +122,22 @@ def main(config: PipelineConfig):
         json.dump(counts_tuple_all, f, indent=4)
     print(f"\nSaved unfiltered counts summary to {counts_output_path_all}")
 
-    plotter = CNVPlotter(all_data, config, input_name_mapping)
+    plotter = CNVPlotter(all_data, config, query_name_mapping)
     metrics = [(precision, "Precision"), (recall, "Recall"), (f1_score, "F1 Score"), (f0_5_score, "F 1/2 Score"), (f2_score, "F2 Score")]
 
     # Build venn_diagram_specs from plots config, inserting output paths
     venn_diagrams_raw = plots_config.get('venn_diagrams', {})
     venn_diagram_specs = {
         name: {
-            "set_keys": spec['sets'],
+            "queries": spec['sets'],
             "output_path": layout.venn_figures / spec['output_filename'],
             "title": spec['title'],
         }
         for name, spec in venn_diagrams_raw.items()
     }
 
-    statistical_distribution_input_sets = plots_config.get('statistical_distributions', {})
-    size_distribution_input_sets = plots_config.get('size_distributions', {})
+    statistical_distribution_queries = plots_config.get('statistical_distributions', {})
+    size_distribution_queries = plots_config.get('size_distributions', {})
     statistical_distribution_split_by_svtype_sets = plots_config.get('statistical_distributions_split_by_svtype_sets', {})
 
     # Retrieve distribution of caller distances from benchmark calls.
@@ -152,7 +152,7 @@ def main(config: PipelineConfig):
         # Task 1: Statistical distributions for all SV types only
         partial(
             plotter.plot_statistical_distributions,
-            plot_config=statistical_distribution_input_sets,
+            plot_config=statistical_distribution_queries,
             metrics=metrics,
             svtypes=[SVType.ALL],
             bounds=(500, 1_000_000),
@@ -172,7 +172,7 @@ def main(config: PipelineConfig):
         # Task 2: Size distribution plots
         partial(
             plotter.plot_size_distribution,
-            plot_config=size_distribution_input_sets,
+            plot_config=size_distribution_queries,
             output_dir=layout.size_figures,
             include_benchmark=True,
             stats_output_path=layout.log("size_distribution_stats.tsv"),
@@ -180,7 +180,7 @@ def main(config: PipelineConfig):
         # Task 2b: Size distribtion plots mod 3000
         partial(
             plotter.plot_size_distribution,
-            plot_config=size_distribution_input_sets,
+            plot_config=size_distribution_queries,
             output_dir=layout.size_figures,
             include_benchmark=True,
             stats_output_path=layout.log("size_distribution_stats.tsv"),
@@ -189,7 +189,7 @@ def main(config: PipelineConfig):
         # Task 3: Caller source distribution
         partial(
             plotter.get_caller_source_distribution,
-            input_sets_to_include=caller_source_sets,
+            queries_to_include=caller_source_sets,
             output_file=layout.caller_source_figures / "caller_source_distribution.png",
         ),
         # Task 4: Get counts
@@ -204,7 +204,7 @@ def main(config: PipelineConfig):
         plotting_tasks.append(
             partial(
                 plotter.plot_recall_venn_diagram,
-                set_keys=spec['set_keys'],
+                queries=spec['queries'],
                 output_path=spec['output_path'],
             )
         )
@@ -214,7 +214,7 @@ def main(config: PipelineConfig):
             partial(
                 plotter.plot_count_venn_diagram,
                 config=config,
-                input_set_key=input_name,
+                query=input_name,
                 output_path=layout.venn_figures / f"count_venn_diagram_{input_name.replace(' ', '_')}.png",
             )
         )

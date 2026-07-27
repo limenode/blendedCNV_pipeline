@@ -62,7 +62,7 @@ def generate_graph_from_calls(
         graph.add_node(node_id, call=call)
         partitions[(call.sample_id, call.svtype, call.chrom)].append(node_id)
 
-    for node_ids in partitions.values():
+    for node_ids in partitions.values():        
         node_ids.sort(key=lambda n: calls[n].start)
 
         for index, a_id in enumerate(node_ids):
@@ -130,7 +130,10 @@ def resolve_components(
 
     union_find = nx.utils.UnionFind(graph.nodes)
     for u, v, data in graph.edges(data=True):
-        if data.get("weight", 0) < min_weight or data.get("distance", 0) > padding:
+        if (
+            data.get("weight", 0) > 0.0 and data.get("weight", 0) < min_weight 
+            or data.get("distance", 0) > padding
+        ):
             continue
         if (
             not link_same_source

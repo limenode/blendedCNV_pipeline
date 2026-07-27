@@ -79,7 +79,7 @@ def load_binary_classification(root):
         tree[bench_dir.name] = classify_map
     return tree
 
-def summarize(tree) -> pd.DataFrame:
+def summarize(tree: dict) -> pd.DataFrame:
     """Flatten a loaded tree into a per-sample TP/FP/FN count table with precision/recall."""
     rows = []
 
@@ -90,10 +90,10 @@ def summarize(tree) -> pd.DataFrame:
                     for sc in samples:
                         rows.append(
                             {
-                                "benchmark_setting": bench_setting,
-                                "classification_setting": classify_setting,
-                                "input_set": set_name,
-                                "call_set": call_set,
+                                "benchmark_setting": bench_setting.split("=")[1],
+                                "classification_setting": classify_setting.split("=")[1],
+                                "query": set_name.split("=")[1],
+                                "source": call_set.split("=")[1],
                                 "sample": sc.sample_id,
                                 **sc.counts,
                             }

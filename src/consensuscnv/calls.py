@@ -1,4 +1,11 @@
 from dataclasses import dataclass
+from functools import lru_cache
+
+
+@lru_cache(maxsize=8)
+def _chromosome_rank(chromosome_order: tuple[str, ...]) -> dict[str, int]:
+    """Rank lookup for a chromosome ordering, cached across calls."""
+    return {chrom: i for i, chrom in enumerate(chromosome_order)}
 
 
 @dataclass(frozen=True)
@@ -16,7 +23,7 @@ class Call:
 
     def sort_key(self, chromosome_order: list[str] | None = None) -> tuple:
         """Return a key suitable for sorting calls by chromosome, start, end"""
-        rank = {chrom: i for i, chrom in enumerate(chromosome_order or [])}
+        rank = _chromosome_rank(tuple(chromosome_order or ()))
         return (rank.get(self.chrom, len(rank)), self.chrom, self.start, self.end)
 
     def overlaps(self, other: "Call", padding: int = 0) -> bool:

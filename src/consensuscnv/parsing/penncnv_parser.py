@@ -70,7 +70,7 @@ def process_penncnv_to_beds(
 
         dropped_unmapped = 0
         dropped_size_change = 0
-        handles: dict[tuple[str, str], TextIO] = {}  # (sample_id, svtype) -> open file
+        handles: dict[str, TextIO] = {}  # (sample_id) -> open file
         try:
             for chrom, start, end, svtype, sample_id in iter_penncnv_records(
                 control_path
@@ -90,11 +90,11 @@ def process_penncnv_to_beds(
                         continue
                     start, end = lifted
 
-                # Open one handle per (sample, svtype) lazily, so no empty files are made.
-                fh = handles.get((sample_id, svtype))
+                # Open one handle per (sample_id) lazily, so no empty files are made.
+                fh = handles.get(sample_id)
                 if fh is None:
-                    fh = open(output_dir / f"{sample_id}.{svtype}.bed", "w")
-                    handles[(sample_id, svtype)] = fh
+                    fh = open(output_dir / f"{sample_id}.bed", "w")
+                    handles[sample_id] = fh
                 fh.write(f"{chrom}\t{start}\t{end}\t{svtype}\t{source}\n")
         finally:
             for fh in handles.values():

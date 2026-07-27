@@ -20,7 +20,7 @@ def _():
     import pandas as pd
     from pathlib import Path
 
-    return LineProfiler, Path, glob, os
+    return Path, glob, os
 
 
 @app.cell
@@ -53,12 +53,7 @@ def _():
         resolve_graph,
     )
 
-    return (
-        generate_graph_from_calls,
-        read_bed_file,
-        resolve_components,
-        resolve_graph,
-    )
+    return generate_graph_from_calls, read_bed_file
 
 
 @app.cell(hide_code=True)
@@ -80,7 +75,7 @@ def _(Path, consensuscnv, os, parsing):
     layout = config.layout
 
     # Check path for if parsing is needed 
-    path_to_test_parsing = "/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/4x_Coverage/bed/cnvpytor"
+    path_to_test_parsing = "/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/4x_Coverage/cnvpytor"
     if os.path.exists(path_to_test_parsing):
         print("Parsing is not needed, files already exist.")
     else:
@@ -115,57 +110,57 @@ def _(Path, config, glob, layout, read_bed_file):
 @app.cell
 def _(benchmark_calls1, generate_graph_from_calls):
     benchmark_graph1 = generate_graph_from_calls(benchmark_calls1)
-    return (benchmark_graph1,)
-
-
-@app.cell
-def _(LineProfiler, benchmark_graph1, resolve_graph):
-    lp1 = LineProfiler()
-    lp1.add_function(resolve_graph)
-    lp1.enable_by_count()
-    test_resolve_graph_p0 = resolve_graph(
-        benchmark_graph1,
-        min_nodes=1,
-        min_weight=0.0,
-        padding=0,
-        link_same_source=True
-    )
-    lp1.disable_by_count()
-    lp1.print_stats()
-
-    print(f"Original Graph Nodes: {len(benchmark_graph1.nodes)}, Edges: {len(benchmark_graph1.edges)}")
-    print(f"Resolved Graph (Padding=0) Nodes: {len(test_resolve_graph_p0.nodes)}, Edges: {len(test_resolve_graph_p0.edges)}")
     return
 
 
 @app.cell
-def _(LineProfiler, benchmark_graph1, resolve_components):
-    lp2 = LineProfiler()
-    lp2.add_function(resolve_components)
-    lp2.enable_by_count()
-    test_resolve_components_p0 = resolve_components(
-        benchmark_graph1,
-        min_nodes=1,
-        min_weight=0.0,
-        padding=0,
-        link_same_source=True
-    )
-    lp2.disable_by_count()
-    lp2.print_stats()
+def _():
+    # lp1 = LineProfiler()
+    # lp1.add_function(resolve_graph)
+    # lp1.enable_by_count()
+    # test_resolve_graph_p0 = resolve_graph(
+    #     benchmark_graph1,
+    #     min_nodes=1,
+    #     min_weight=0.0,
+    #     padding=0,
+    #     link_same_source=True
+    # )
+    # lp1.disable_by_count()
+    # lp1.print_stats()
+
+    # print(f"Original Graph Nodes: {len(benchmark_graph1.nodes)}, Edges: {len(benchmark_graph1.edges)}")
+    # print(f"Resolved Graph (Padding=0) Nodes: {len(test_resolve_graph_p0.nodes)}, Edges: {len(test_resolve_graph_p0.edges)}")
     return
 
 
 @app.cell
-def _(benchmark_graph1, resolve_components):
-    benchmark_components_p0 = resolve_components(
-        benchmark_graph1, padding=0, link_same_source=True
-    )
-    benchmark_components_p1000 = resolve_components(
-        benchmark_graph1, padding=1000, link_same_source=True
-    )
+def _():
+    # lp2 = LineProfiler()
+    # lp2.add_function(resolve_components)
+    # lp2.enable_by_count()
+    # test_resolve_components_p0 = resolve_components(
+    #     benchmark_graph1,
+    #     min_nodes=1,
+    #     min_weight=0.0,
+    #     padding=0,
+    #     link_same_source=True
+    # )
+    # lp2.disable_by_count()
+    # lp2.print_stats()
+    return
 
-    print(f"Number of components (Padding=0): {len(benchmark_components_p0)}")
-    print(f"Number of components (Padding=1000): {len(benchmark_components_p1000)}")
+
+@app.cell
+def _():
+    # benchmark_components_p0 = resolve_components(
+    #     benchmark_graph1, padding=0, link_same_source=True
+    # )
+    # benchmark_components_p1000 = resolve_components(
+    #     benchmark_graph1, padding=1000, link_same_source=True
+    # )
+
+    # print(f"Number of components (Padding=0): {len(benchmark_components_p0)}")
+    # print(f"Number of components (Padding=1000): {len(benchmark_components_p1000)}")
     return
 
 
@@ -201,7 +196,7 @@ def _():
 @app.cell
 def _(ConsensusParams, computation, config):
     # Sweep consensus tunables here (one call emits all three levels each time).
-    consensus_param_sweep = [ConsensusParams(min_weight=w) for w in [0.5]]
+    consensus_param_sweep = [ConsensusParams(min_weight=w) for w in [0.0, 0.5]]
 
     consensus_bed_paths_by_param = {
         cp: computation.compute_consensus_from_beds(config, cp)
@@ -257,7 +252,7 @@ def _(config, consensus_bed_paths_by_param, layout):
                 io_sets.append((str(layout.bed_tool_dir(exp_key, tool)), out(exp_key, tool), str(benchmark_bed_path)))
 
         # Controls.
-        for ctrl_key in config.control.keys():
+        for ctrl_key in config.control:
             io_sets.append((str(layout.control_bed_dir(ctrl_key)), out(ctrl_key, "calls"), str(benchmark_bed_path)))
 
         return io_sets

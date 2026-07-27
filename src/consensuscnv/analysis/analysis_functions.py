@@ -13,69 +13,69 @@ from consensuscnv.analysis.load_analysis_data import build_analysis_data_structu
 from consensuscnv.utils import PipelineConfig
 
 
-def load_data_for_all_input_sets(
-        input_sets_paths: Dict[str, Path], 
+def load_data_for_all_queries(
+        query_paths: Dict[str, Path], 
         shared_samples_only: bool = True, 
         bounds: Tuple[int, int] = (500, 1_000_000)
     ) -> Dict[str, dict]:
 
-    all_input_sets_data = {}
+    all_queries_data = {}
     
     # First pass: discover shared samples using filename parsing
     print(f"\n{'='*80}")
-    print("Discovering samples across input sets...")
+    print("Discovering samples across queries...")
     print(f"{'='*80}")
     
-    all_samples_per_input_set = {}
-    for input_set_key, input_set_path in input_sets_paths.items():
-        if not input_set_path.exists():
-            print(f"Warning: Path '{input_set_path}' does not exist. Skipping {input_set_key}.")
+    all_samples_per_query = {}
+    for query, query_path in query_paths.items():
+        if not query_path.exists():
+            print(f"Warning: Path '{query_path}' does not exist. Skipping {query}.")
             continue
         
         # Get sample names efficiently from filenames (text before first dot)
-        bed_files = list(input_set_path.glob("*.bed"))
-        samples_in_input_set = {bed_file.stem.split('.')[0] for bed_file in bed_files}
+        bed_files = list(query_path.glob("*.bed"))
+        samples_in_query = {bed_file.stem.split('.')[0] for bed_file in bed_files}
         
-        all_samples_per_input_set[input_set_key] = samples_in_input_set
-        print(f"  {input_set_key}: {len(samples_in_input_set)} samples")
+        all_samples_per_query[query] = samples_in_query
+        print(f"  {query}: {len(samples_in_query)} samples")
     
     # Determine shared samples
     shared_samples = None
-    if shared_samples_only and all_samples_per_input_set:
-        shared_samples = set.intersection(*all_samples_per_input_set.values())
-        print(f"\nShared samples across all input sets: {len(shared_samples)}")
+    if shared_samples_only and all_samples_per_query:
+        shared_samples = set.intersection(*all_samples_per_query.values())
+        print(f"\nShared samples across all queries: {len(shared_samples)}")
     
     # Second pass: load data with optional filtering by shared samples
     print(f"\n{'='*80}")
     print("Loading and filtering data...")
     print(f"{'='*80}")
     
-    for input_set_key, input_set_path in input_sets_paths.items():
-        if not input_set_path.exists():
+    for query, query_path in query_paths.items():
+        if not query_path.exists():
             continue
         
-        print(f"  Processing: {input_set_key}")
-        analysis_data = build_analysis_data_structure(input_set_path, samples_to_include=shared_samples)
+        print(f"  Processing: {query}")
+        analysis_data = build_analysis_data_structure(query_path, samples_to_include=shared_samples)
         filtered_data = filter_by_size(analysis_data, lower_bound=bounds[0], upper_bound=bounds[1], strict=True)
-        all_input_sets_data[input_set_key] = filtered_data
+        all_queries_data[query] = filtered_data
     
     # Third pass: Compute shared FNs efficiently using vectorized operations
     print(f"\n{'='*80}")
-    print("Computing shared FNs (present in ALL samples across ALL input sets)...")
+    print("Computing shared FNs (present in ALL samples across ALL queries)...")
     print(f"{'='*80}")
     
     shared_fn_data = {'FN': pd.DataFrame()}
     
-    if len(all_input_sets_data) > 0:
-        # Collect all FN DataFrames with input set labels
+    if len(all_queries_data) > 0:
+        # Collect all FN DataFrames with query labels
         all_fn_dfs = []
-        for input_set_key, analysis_data in all_input_sets_data.items():
+        for query, analysis_data in all_queries_data.items():
             fn_df = analysis_data.get('FN', pd.DataFrame())
             if not fn_df.empty:
                 fn_df_copy = fn_df.copy()
-                fn_df_copy['_input_set'] = input_set_key
+                fn_df_copy['_query'] = query
                 all_fn_dfs.append(fn_df_copy)
-                print(f"  {input_set_key}: {len(fn_df)} FNs")
+                print(f"  {query}: {len(fn_df)} FNs")
         
         if all_fn_dfs:
             # Combine all FN data
@@ -89,40 +89,40 @@ def load_data_for_all_input_sets(
                 combined_fn_df['svtype'].astype(str)
             )
             
-            # Count occurrences across input sets and samples
+            # Count occurrences across queries and samples
             fn_counts = combined_fn_df.groupby('_fn_id').agg({
-                '_input_set': 'nunique',
+                '_query': 'nunique',
                 'sample': 'nunique'
             }).reset_index()
             
-            num_input_sets = len(all_input_sets_data)
+            num_queries = len(all_queries_data)
             num_samples = len(shared_samples) if shared_samples else combined_fn_df['sample'].nunique()
             
-            # Find FNs present in all input sets AND all samples
+            # Find FNs present in all queries AND all samples
             shared_fn_ids = fn_counts[
-                (fn_counts['_input_set'] == num_input_sets) & 
+                (fn_counts['_query'] == num_queries) & 
                 (fn_counts['sample'] == num_samples)
             ]['_fn_id'].tolist()
             
             print(f"\n  Total unique FNs: {fn_counts.shape[0]}")
-            print(f"  FNs in all {num_input_sets} input sets and all {num_samples} samples: {len(shared_fn_ids)}")
+            print(f"  FNs in all {num_queries} queries and all {num_samples} samples: {len(shared_fn_ids)}")
             
             if shared_fn_ids:
                 # Get representative records for shared FNs (one per FN)
                 shared_fn_mask = combined_fn_df['_fn_id'].isin(shared_fn_ids)
                 shared_fn_df = combined_fn_df[shared_fn_mask].drop_duplicates(subset='_fn_id', keep='first').copy()
-                shared_fn_df = shared_fn_df.drop(columns=['_fn_id', '_input_set'])
+                shared_fn_df = shared_fn_df.drop(columns=['_fn_id', '_query'])
                 
                 shared_fn_data = {'FN': shared_fn_df}
                 print(f"  Stored {len(shared_fn_df)} shared FN records")
         else:
-            print("  No FN data found in any input set")
+            print("  No FN data found in any query")
     
     print(f"{'='*80}\n")
     
-    # Return structured data with input_sets separated from shared_FN
+    # Return structured data with queries separated from shared_FN
     return {
-        'input_sets': all_input_sets_data,
+        'queries': all_queries_data,
         'shared_FN': shared_fn_data
     }
 
@@ -193,7 +193,7 @@ def get_counts_from_config(config: PipelineConfig,
     
     Args:
         config: Dictionary containing:
-            - 'input_sets': Dict mapping input_set_name to directory path
+            - 'queries': Dict mapping query_name to directory path
             - 'bounds': Optional tuple (lower, upper) for size filtering
             - 'script_path': Optional path to get_bed_counts.sh (defaults to same dir as this file)
         bounds: Optional tuple (lower, upper) for CNV size filtering
@@ -201,7 +201,7 @@ def get_counts_from_config(config: PipelineConfig,
     
     Returns:
         Tuple of (raw_results, post_processed_results):
-        - raw_results: Dictionary mapping input_set_name to sample counts
+        - raw_results: Dictionary mapping query_name to sample counts
         - post_processed_results: Dictionary with aggregated counts by svtype 
     """
     results = {}
@@ -216,7 +216,7 @@ def get_counts_from_config(config: PipelineConfig,
 
     for key, path in config.experimental.items():
         for consensus_type in consensus_types:
-            output_subdir = layout.set_dir(key) / consensus_type
+            output_subdir = layout.call_set_dir(key) / consensus_type
             sets_to_process[f"{key}.{consensus_type}"] = output_subdir
             input_names.append(f"{key}.{consensus_type}")
 
@@ -230,7 +230,7 @@ def get_counts_from_config(config: PipelineConfig,
 
     script_path = Path(__file__).parent / "get_bed_counts.sh"
 
-    # Process each input set
+    # Process each query
     for set_name, directory in sets_to_process.items():
         directory = Path(directory)
         
@@ -254,12 +254,12 @@ def get_counts_from_config(config: PipelineConfig,
 
     post_results = {}
     
-    # Input sets - aggregate by intersections/unions and svtype
-    for input_set_name in input_names:
-        if input_set_name not in results or not results[input_set_name]:
+    # Queries - aggregate by intersections/unions and svtype
+    for query_name in input_names:
+        if query_name not in results or not results[query_name]:
             continue
         
-        raw_counts = results[input_set_name]
+        raw_counts = results[query_name]
         aggregated = {
             'intersections': {'DEL': 0, 'DUP': 0, 'ALL': 0},
             'unions': {'DEL': 0, 'DUP': 0, 'ALL': 0}
@@ -284,7 +284,7 @@ def get_counts_from_config(config: PipelineConfig,
             
             aggregated[category][svtype] += count
         
-        post_results[input_set_name] = aggregated
+        post_results[query_name] = aggregated
 
     # Control sets - aggregate by svtype only
     for control_name in control_names:
@@ -325,11 +325,11 @@ def get_counts_from_config(config: PipelineConfig,
 
 
 def get_samples_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]], classification_key: str) -> set:
-    """Extract sample names from a specific classification across all input sets."""
+    """Extract sample names from a specific classification across all queries."""
 
     all_samples = set()
-    # Iterate only over input_sets (shared_FN is separate)
-    for input_set_name, analysis_data in all_data['input_sets'].items():
+    # Iterate only over queries (shared_FN is separate)
+    for query_name, analysis_data in all_data['queries'].items():
         if classification_key in analysis_data:
             df = analysis_data[classification_key]
             if 'sample' in df.columns:
@@ -339,7 +339,7 @@ def get_samples_from_data(all_data: Dict[str, Dict[str, pd.DataFrame]], classifi
 
 def _compute_change_rows(consensus_calls_dict: Dict[str, list]) -> pd.DataFrame:
     rows = []
-    for input_set, records in consensus_calls_dict.items():
+    for query, records in consensus_calls_dict.items():
         for rec in records:
             sample = rec.get("sample")
             svtype = rec.get("svtype")
@@ -356,7 +356,7 @@ def _compute_change_rows(consensus_calls_dict: Dict[str, list]) -> pd.DataFrame:
                 pct_change = (abs_change / before_val * 100) if before_val > 0 else None
 
                 rows.append({
-                    "input_set": input_set,
+                    "query": query,
                     "sample": sample,
                     "svtype": svtype,
                     "caller": caller,
@@ -370,7 +370,7 @@ def _compute_change_rows(consensus_calls_dict: Dict[str, list]) -> pd.DataFrame:
 def plot_excluded_regions_violin_plots(df: pd.DataFrame, output_path: Path) -> None:
     """
     Create separate figures for excluded regions analysis.
-    Each figure has a 2xN grid: Rows (DEL, DUP), Columns (one per input_set).
+    Each figure has a 2xN grid: Rows (DEL, DUP), Columns (one per query).
     Creates two figures: one for absolute change, one for percent change.
     
     Args:
@@ -379,11 +379,11 @@ def plot_excluded_regions_violin_plots(df: pd.DataFrame, output_path: Path) -> N
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Get unique input sets and callers
-    input_sets = sorted(df["input_set"].dropna().unique().tolist())
+    # Get unique queries and callers
+    queries = sorted(df["query"].dropna().unique().tolist())
     callers = sorted(df["caller"].dropna().unique().tolist())
     
-    num_input_sets = len(input_sets)
+    num_queries = len(queries)
     num_callers = len(callers)
     
     # Color palette for callers
@@ -391,23 +391,23 @@ def plot_excluded_regions_violin_plots(df: pd.DataFrame, output_path: Path) -> N
     
     # Create figures for each metric
     for metric, metric_filename in [('abs_change', 'abs_change'), ('pct_change', 'pct_change')]:
-        fig, axes = plt.subplots(2, num_input_sets, figsize=(6 * num_input_sets, 10))
+        fig, axes = plt.subplots(2, num_queries, figsize=(6 * num_queries, 10))
         
-        # Handle case with single input set
-        if num_input_sets == 1:
+        # Handle case with single query
+        if num_queries == 1:
             axes = axes.reshape(2, 1)
         
         for row_idx, svtype in enumerate(['DEL', 'DUP']):
-            for col_idx, input_set in enumerate(input_sets):
+            for col_idx, query in enumerate(queries):
                 ax = axes[row_idx, col_idx]
                 
-                # Filter data for this svtype and input_set
-                subset_df = df[(df['svtype'] == svtype) & (df['input_set'] == input_set)]
+                # Filter data for this svtype and query
+                subset_df = df[(df['svtype'] == svtype) & (df['query'] == query)]
                 
                 if subset_df.empty:
                     ax.text(0.5, 0.5, 'No data', ha='center', va='center', 
                            transform=ax.transAxes)
-                    ax.set_title(f'{svtype} - {input_set}')
+                    ax.set_title(f'{svtype} - {query}')
                     continue
                 
                 # Plot violins for each caller
@@ -440,7 +440,7 @@ def plot_excluded_regions_violin_plots(df: pd.DataFrame, output_path: Path) -> N
                                   alpha=0.6, color='black', zorder=3)
                 
                 # Set subplot title and labels
-                ax.set_title(f'{svtype} - {input_set}', fontsize=11, fontweight='bold')
+                ax.set_title(f'{svtype} - {query}', fontsize=11, fontweight='bold')
                 ax.set_xticks(range(1, num_callers + 1))
                 ax.set_xticklabels(callers)
                 ax.set_xlabel('Caller')
@@ -477,7 +477,7 @@ def plot_liftover_results(liftover_results_dict: Dict, output_dir: Path) -> None
     rows = []
     
     # Parse liftover results
-    for input_set, input_data in liftover_results_dict.items():
+    for query, input_data in liftover_results_dict.items():
         if 'samples' not in input_data or not isinstance(input_data['samples'], list):
             continue
         
@@ -499,7 +499,7 @@ def plot_liftover_results(liftover_results_dict: Dict, output_dir: Path) -> None
             pct_failed_size_change = (failed_size_change / before) * 100
             
             rows.append({
-                'input_set': input_set,
+                'query': query,
                 'sample': sample,
                 'svtype': svtype,
                 'pct_succeeded': pct_succeeded,
@@ -590,14 +590,14 @@ def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] =
     # print("\nConsensus Calls Change Summary:")
     # print(changes_df.head())
 
-    # Group statistics by input_set and caller
+    # Group statistics by query and caller
     # grouped_means = (
-    #     changes_df.groupby(["input_set", "caller"], dropna=True)[["abs_change", "pct_change"]]
+    #     changes_df.groupby(["query", "caller"], dropna=True)[["abs_change", "pct_change"]]
     #     .mean()
     #     .reset_index()
-    #     .sort_values(["input_set", "caller"])
+    #     .sort_values(["query", "caller"])
     # )
-    # print("\nMean Changes by Input Set and Caller:")
+    # print("\nMean Changes by Query and Caller:")
     # print(grouped_means)
 
     # figures_dir = output_dir / "figures"

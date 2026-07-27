@@ -24,16 +24,16 @@ def compute_consensus_from_beds(
 ) -> dict[str, dict[str, Path]]:
     """Compute consensus calls from per-caller BED files and write them to the output folder.
 
-    Returns ``{input_set_key: {call_set_slug: consensus_dir}}`` where ``call_set_slug``
-    is e.g. ``'consensus_2of3_w0.5'`` — usable directly as the ``call_set`` leaf of
+    Returns ``{call_set: {source_slug: consensus_dir}}`` where ``source_slug``
+    is e.g. ``'consensus_2of3_w0.5'`` — usable directly as the ``source`` leaf of
     ``layout.classification_dir``."""
 
     layout = config.layout
     experimental_keys = config.experimental.keys()
-    call_set_path_dict: dict[str, dict[str, Path]] = defaultdict(lambda: defaultdict(Path))
+    source_path_dict: dict[str, dict[str, Path]] = defaultdict(lambda: defaultdict(Path))
 
     for experimental_key in experimental_keys:
-        bed_paths_str: list[str] = glob.glob(str(layout.bed_dir(experimental_key)) + "/*/*.bed")
+        bed_paths_str: list[str] = glob.glob(str(layout.call_set_dir(experimental_key)) + "/*/*.bed")
         bed_paths = [Path(p) for p in bed_paths_str if Path(p).is_file()]
         calls = []
         for path in bed_paths:
@@ -51,10 +51,10 @@ def compute_consensus_from_beds(
                 dir_path=output_path,
                 chrom_order=config.chromosome_order
             )
-            call_set_slug = OutputLayout.consensus_call_set_slug(level, params)
-            call_set_path_dict[experimental_key][call_set_slug] = output_path
+            source_slug = OutputLayout.consensus_source_slug(level, params)
+            source_path_dict[experimental_key][source_slug] = output_path
 
-    return call_set_path_dict
+    return source_path_dict
 
 
 def load_benchmark_graph(config: PipelineConfig) -> nx.Graph:
