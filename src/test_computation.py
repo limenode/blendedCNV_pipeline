@@ -15,8 +15,6 @@ def _(mo):
 @app.cell
 def _():
     import glob
-    from line_profiler import LineProfiler
-    import pandas as pd
     import os
     from pathlib import Path
 
@@ -80,7 +78,7 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(computation, config, layout):
     from consensuscnv.output_layout import (
         BenchmarkMergeParams,
         ClassificationParams,
@@ -92,18 +90,6 @@ def _():
     )
     from consensuscnv.overlap_graph import dump_calls_to_bed
 
-    return (
-        BenchmarkMergeParams,
-        ClassificationParams,
-        ConsensusParams,
-        dump_calls_to_bed,
-        load_benchmark_graph,
-        merge_benchmarks,
-    )
-
-
-@app.cell
-def _(ConsensusParams, computation, config):
     # Sweep consensus tunables here (one call emits all three levels each time).
     consensus_param_sweep = [ConsensusParams(min_weight=w) for w in [0.0, 0.5]]
 
@@ -111,11 +97,7 @@ def _(ConsensusParams, computation, config):
         config,
         weights=[0.0, 0.5],
     )
-    return (consensus_out,)
 
-
-@app.cell
-def _(config, consensus_out, dump_calls_to_bed, layout):
     for _key, _calls in consensus_out.items():
         _experimental_key, _weight, _level = _key
 
@@ -126,7 +108,12 @@ def _(config, consensus_out, dump_calls_to_bed, layout):
         )
 
         dump_calls_to_bed(_calls, output_dir, chrom_order=config.chromosome_order)
-    return
+    return (
+        BenchmarkMergeParams,
+        ClassificationParams,
+        load_benchmark_graph,
+        merge_benchmarks,
+    )
 
 
 @app.cell
@@ -147,13 +134,6 @@ def _(ClassificationParams):
         ClassificationParams(reciprocal_threshold=t) for t in [0.0, 0.3, 0.5, 0.7]
     ]
     return (classification_param_sweep,)
-
-
-@app.cell
-def _(glob, layout):
-    _all_consensus_beds = glob.glob(str(layout.root / "*" / "consensus_*" / "*" / "*.bed"))
-    _all_consensus_beds
-    return
 
 
 @app.cell
@@ -183,7 +163,7 @@ def _(Path, config, glob, layout):
 
             io_sets.append((
                 str(layout.consensus_rep_dir(_experimental_key, _level, representation=_weight)),
-                out(_experimental_key, f"consensus_weight_{_weight}_{_level}"),
+                out(_experimental_key, f"consensus_{_level}_{_weight}"),
                 str(benchmark_bed_path),
             ))    
 
@@ -207,22 +187,29 @@ def _(
     benchmark_param_sweep,
     build_io_sets,
     classification_param_sweep,
-    computation,
     config,
     merge_benchmarks,
 ):
-    # Full sweep: (benchmark padding) x (reciprocal threshold), consensus params folded
-    # into the tested call sets. Benchmark merge reuses the prebuilt graph.
-    for benchmark_params in benchmark_param_sweep:
-        benchmark_bed_path = merge_benchmarks(config, benchmark_params, benchmark_graph)
+    io_sets = []
+
+    # step 1: merge benchmark calls
+    for _benchmark_params in benchmark_param_sweep:
+        _benchmark_bed_path = merge_benchmarks(config, _benchmark_params, benchmark_graph)
         for classification_params in classification_param_sweep:
-            io_sets = build_io_sets(benchmark_params, classification_params, benchmark_bed_path)
-            print(f"Classifying {len(io_sets)} sets @ {benchmark_params.slug()} / {classification_params.slug()}")
-            computation.run_binary_classification_script(
-                config,
-                io_sets,
-                reciprocal_threshold=classification_params.reciprocal_threshold,
-            )
+            io_sets.extend(build_io_sets(_benchmark_params, classification_params, _benchmark_bed_path))
+    return classification_params, io_sets
+
+
+@app.cell
+def _(classification_params, computation, config, io_sets):
+    print(f"Classifying {len(io_sets)} sets")
+
+    # step 2: run binary classification script
+    computation.run_binary_classification_script(
+        config,
+        io_sets,
+        reciprocal_threshold=classification_params.reciprocal_threshold,
+    )
     return
 
 

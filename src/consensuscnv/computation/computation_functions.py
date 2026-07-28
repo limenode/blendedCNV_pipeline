@@ -1,8 +1,10 @@
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+import glob
 from pathlib import Path
 from typing import List, Tuple
+import os
 
 from consensuscnv.calls import Call
 from consensuscnv.output_layout import OutputLayout
@@ -29,7 +31,7 @@ def _qualifies(weight: float, reciprocal_threshold: float) -> bool:
 
 
 def classify_calls(
-    tested_calls: List[Call],
+    query_calls: List[Call],
     truth_calls: List[Call],
     reciprocal_threshold: float,
 ) -> ClassificationResult:
@@ -50,12 +52,12 @@ def classify_calls(
     The graph partitions by ``(sample_id, svtype, chrom)``, so calls only ever
     match within the same sample, SV type, and chromosome.
     """
-    combined = tested_calls + truth_calls
+    combined = query_calls + truth_calls
     graph = generate_graph_from_calls(combined)
 
     # Nodes are enumerated in `combined` order, so the tested calls own the
     # first `len(tested_calls)` node ids.
-    tested_ids = set(range(len(tested_calls)))
+    query_ids = set(range(len(query_calls)))
 
     true_positives: List[Tuple[Call, Call]] = []
     false_positives: List[Call] = []
@@ -63,13 +65,13 @@ def classify_calls(
 
     for node_id in graph.nodes:
         call: Call = graph.nodes[node_id]["call"]
-        is_tested = node_id in tested_ids
+        is_tested = node_id in query_ids
 
         matches = [
             graph.nodes[neighbor]["call"]
             for neighbor in graph.neighbors(node_id)
             # Only edges that cross the tested/truth boundary and clear the threshold.
-            if (neighbor in tested_ids) != is_tested
+            if (neighbor in query_ids) != is_tested
             and _qualifies(graph.edges[node_id, neighbor].get("weight", 0.0), reciprocal_threshold)
         ]
 
@@ -91,11 +93,13 @@ def _bed5(call: Call) -> str:
     )
 
 
-def _read_calls_from_dir(dir_path: Path, membership: str) -> List[Call]:
+
+def _read_calls_from_dir(dir_path: Path, membership: str, sample_ids: set[str] | None = None) -> List[Call]:
     """Read every ``*.bed`` in a directory into `Call`s."""
     calls: List[Call] = []
     for bed_path in sorted(dir_path.glob("*.bed")):
-        calls.extend(read_bed_file(bed_path, membership=membership))
+        if bed_path.is_file() and (sample_ids is None or bed_path.stem in sample_ids):
+            calls.extend(read_bed_file(bed_path, membership=membership))
     return calls
 
 
@@ -128,27 +132,23 @@ def _write_classification(
 
 
 def _classify_set(
-    input_dir: Path,
-    output_dir: Path,
+    query_dir: Path,
     truth_dir: Path,
+    output_dir: Path,
     reciprocal_threshold: float,
     chrom_order: List[str],
+    common_samples: set[str] | None = None,
 ) -> None:
     """Classify one tested call set against the merged benchmark and write BEDs."""
-    tested_calls = _read_calls_from_dir(input_dir, membership="tested")
-    if not tested_calls:
+    query_calls = _read_calls_from_dir(query_dir, membership="tested")
+    if not query_calls:
         return
 
-    # The benchmark covers every sample; restrict truth to samples this set
-    # actually contains, so recall isn't charged for samples that weren't tested.
-    tested_samples = {call.sample_id for call in tested_calls}
-    truth_calls = [
-        call
-        for call in _read_calls_from_dir(truth_dir, membership="benchmark")
-        if call.sample_id in tested_samples
-    ]
+    truth_calls = _read_calls_from_dir(truth_dir, membership="truth", sample_ids=common_samples)
+    if not truth_calls:
+        return
 
-    result = classify_calls(tested_calls, truth_calls, reciprocal_threshold=reciprocal_threshold)
+    result = classify_calls(query_calls, truth_calls, reciprocal_threshold=reciprocal_threshold)
     _write_classification(result, output_dir, chrom_order)
 
 def run_binary_classification_script(
@@ -164,46 +164,79 @@ def run_binary_classification_script(
         sets_for_classification: ``(input_dir, output_dir)`` pairs, where
             ``input_dir`` holds the tested call set's per-sample BEDs.
     """
-
-    tasks: List[Tuple[Path, Path, Path, float, List[str]]] = []    
     
-    for items in sets_for_classification:
-        # Resolve input/output/truth paths from the tuple
+    max_workers = os.cpu_count() or 1
+    max_workers = max(
+        min(
+            ((max_workers * 2) // 3), 
+            len(sets_for_classification)
+        ),
+        1
+    )
+    
+    def resolve_sets(items):
         if len(items) == 2:
-            input_path, output_path = items
+            query_dir, output_path = items
             if default_truth_dir is None:
                 raise ValueError(
                     "A default truth directory must be provided when sets are 2-tuples."
                 )
             truth_dir = default_truth_dir
         elif len(items) == 3:
-            input_path, output_path, truth_dir = items
+            query_dir, output_path, truth_dir = items
         else:
             raise ValueError(
                 f"Each set for classification must be a 2-tuple or 3-tuple, got {items}"
             )
         
-        if not Path(input_path).exists():
-            print(
-                f"Input path {input_path} does not exist. Skipping binary classification for this set."
-            )
-            continue
+        query_path = Path(query_dir)
+        truth_path = Path(truth_dir)
+        output_path = Path(output_path)
+        
+        if not query_path.exists():
+            raise FileNotFoundError(f"Query directory {query_dir} does not exist.")
+        if not truth_path.exists():
+            raise FileNotFoundError(f"Truth directory {truth_dir} does not exist.")
+
+        return Path(query_dir), Path(truth_dir), Path(output_path)
+    
+    # First pass: Find common samples
+    common_samples: set[str] = set()
+    
+    for items in sets_for_classification:
+        query_dir, truth_dir, _ = resolve_sets(items)
+        
+        query_samples = {bed_path.stem for bed_path in query_dir.glob("*.bed") if bed_path.is_file()}
+        truth_samples = {bed_path.stem for bed_path in truth_dir.glob("*.bed") if bed_path.is_file()}
+        
+        if not common_samples:
+            common_samples = query_samples.intersection(truth_samples)
+        else:
+            common_samples.intersection_update(query_samples.intersection(truth_samples))
+    
+    print(f"Common samples across all sets: {common_samples}")
+    
+    tasks: List[Tuple[Path, Path, Path, float, List[str], set[str]]] = []
+    for items in sets_for_classification:
+        query_dir, truth_dir, output_path = resolve_sets(items)
+        
         tasks.append(
             (
-                Path(input_path),
-                Path(output_path),
-                Path(truth_dir),
+                query_dir,
+                truth_dir,
+                output_path,
                 (
                     config.matching_reciprocal_threshold
                     if reciprocal_threshold is None
                     else reciprocal_threshold
                 ),
                 config.chromosome_order,
+                common_samples
             )
         )
 
     if not tasks:
         return
 
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         list(executor.map(_classify_set, *zip(*tasks)))

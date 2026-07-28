@@ -104,3 +104,4 @@ def merge_benchmarks(
     )
 
     return output_path
+    
