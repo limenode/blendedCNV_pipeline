@@ -1,4 +1,4 @@
-from consensuscnv.computation.consensus_calling import compute_consensus_from_beds, merge_benchmarks
+from consensuscnv.computation.consensus_calling import compute_experimental_consensus, merge_benchmarks
 from consensuscnv.output_layout import (
     BenchmarkMergeParams,
     ClassificationParams,
@@ -21,7 +21,7 @@ def run_computation(config: PipelineConfig):
     )
 
     print("\nRun consensus calling...")
-    consensus_bed_paths = compute_consensus_from_beds(config, consensus_params)
+    consensus_bed_paths = compute_experimental_consensus(config, consensus_params)
 
     print("\nRun benchmark merging...")
     benchmark_bed_path = merge_benchmarks(config, benchmark_params)

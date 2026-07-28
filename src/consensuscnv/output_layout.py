@@ -138,26 +138,26 @@ class OutputLayout:
     # ------------------------------------------------------------------ #
     # Per experimental call set (e.g. '30x Coverage')
     # ------------------------------------------------------------------ #
-    def call_set_dir(self, call_set: str) -> Path:
-        return self.root / _slug(call_set)
+    def call_set_dir(self, origin_set: str) -> Path:
+        return self.root / _slug(origin_set)
 
-    def bed_tool_dir(self, call_set: str, tool: str) -> Path:
-        return self.call_set_dir(call_set) / tool
+    def bed_tool_dir(self, origin_set: str, tool: str) -> Path:
+        return self.call_set_dir(origin_set) / tool
 
     def consensus_dir(
-        self, call_set: str, level: int, params: ConsensusParams | None = None
+        self, origin_set: str, level: int, params: ConsensusParams | None = None
     ) -> Path:
         """``consensus_<level>`` — the directory the consensus BEDs are written to.
 
         When ``params`` is given, its slug is appended so runs with different
         consensus tunables land in sibling directories instead of overwriting
         each other (e.g. ``consensus_2/w0.5``)."""
-        base = self.call_set_dir(call_set) / f"consensus_{level}"
+        base = self.call_set_dir(origin_set) / f"consensus_{level}"
         return base / params.slug() if params is not None else base
 
-    def consensus_rep_dir(self, call_set: str, level: int, representation: str) -> Path:
+    def consensus_rep_dir(self, origin_set: str, level: int, representation: str) -> Path:
         """``intersections/`` or ``unions/`` subdir created by the consensus scripts."""
-        return self.consensus_dir(call_set, level) / representation
+        return self.consensus_dir(origin_set, level) / representation
 
     def classification_root(self, query: str) -> Path:
         """Legacy single-level root, still used by ``analysis_driver``.

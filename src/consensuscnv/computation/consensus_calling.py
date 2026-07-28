@@ -9,6 +9,8 @@ from consensuscnv.overlap_graph import (
     merge_graph_components,
     read_bed_file,
     dump_calls_to_bed,
+    merge_component,
+    resolve_components
 )
 from consensuscnv.output_layout import (
     BenchmarkMergeParams,
@@ -16,12 +18,13 @@ from consensuscnv.output_layout import (
     OutputLayout,
 )
 from consensuscnv.utils import PipelineConfig
+from consensuscnv.calls import Call
 
 
-def compute_consensus_from_beds(
+def compute_experimental_consensus(
     config: PipelineConfig,
-    params: ConsensusParams = ConsensusParams(),
-) -> dict[str, dict[str, Path]]:
+    weights: list[float],
+) -> dict[tuple[str, float, int], list[Call]]:
     """Compute consensus calls from per-caller BED files and write them to the output folder.
 
     Returns ``{call_set: {source_slug: consensus_dir}}`` where ``source_slug``
@@ -29,40 +32,36 @@ def compute_consensus_from_beds(
     ``layout.classification_dir``."""
 
     layout = config.layout
+    chrom_order = config.chromosome_order
     experimental_keys = config.experimental.keys()
-    source_path_dict: dict[str, dict[str, Path]] = defaultdict(lambda: defaultdict(Path))
+    _out = {}
 
     for experimental_key in experimental_keys:
         bed_paths_str: list[str] = glob.glob(str(layout.call_set_dir(experimental_key)) + "/*/*.bed")
         bed_paths = [Path(p) for p in bed_paths_str if Path(p).is_file()]
+        
         calls = []
         for path in bed_paths:
             calls.extend(read_bed_file(path, membership=experimental_key))
-        graph = generate_graph_from_calls(calls)
-        for level in [1, 2, 3]:
-            merged_calls = merge_graph_components(
-                graph,
-                min_nodes=level,
-                min_weight=params.min_weight,
-            )
-            output_path = Path(layout.consensus_dir(experimental_key, level, params))
-            dump_calls_to_bed(
-                merged_calls,
-                dir_path=output_path,
-                chrom_order=config.chromosome_order
-            )
-            source_slug = OutputLayout.consensus_source_slug(level, params)
-            source_path_dict[experimental_key][source_slug] = output_path
+        _graph = generate_graph_from_calls(calls)
 
-    return source_path_dict
+        for weight in weights:
+            _merged = [
+                (len(call.sources), call)
+                for call in (
+                    merge_component(_graph, component)
+                    for component in resolve_components(_graph, min_nodes=1, min_weight=weight)
+                )
+            ]
+            _merged.sort(key=lambda pair: pair[1].sort_key(chrom_order))
+            for level in [1, 2, 3]:
+                _out[(experimental_key, weight, level)] = [call for n, call in _merged if n >= level]
 
+    return _out
 
 def load_benchmark_graph(config: PipelineConfig) -> nx.Graph:
-    """Build the overlap graph over all parsed benchmark calls.
-
-    The graph is threshold-agnostic, so build it once and reuse it across every
-    ``BenchmarkMergeParams`` (padding/weight/etc.) instead of rebuilding it — the
-    build is the expensive step."""
+    """Build the overlap graph over all parsed benchmark calls."""
+    
     layout = config.layout
     benchmark_calls = []
     for key in config.benchmark.keys():

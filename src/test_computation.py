@@ -16,8 +16,8 @@ def _(mo):
 def _():
     import glob
     from line_profiler import LineProfiler
-    import os
     import pandas as pd
+    import os
     from pathlib import Path
 
     return Path, glob, os
@@ -27,7 +27,7 @@ def _():
 def _():
     import consensuscnv
     import consensuscnv.utils
-    import consensuscnv.overlap_graph as overlap_graph
+    from consensuscnv import overlap_graph
 
     return (consensuscnv,)
 
@@ -35,25 +35,11 @@ def _():
 @app.cell
 def _():
     from consensuscnv import (
-        analysis,
         computation,
         parsing,
     )
 
     return computation, parsing
-
-
-@app.cell
-def _():
-    from consensuscnv.overlap_graph import (
-        generate_graph_from_calls,
-        merge_component,
-        read_bed_file,
-        resolve_components,
-        resolve_graph,
-    )
-
-    return generate_graph_from_calls, read_bed_file
 
 
 @app.cell(hide_code=True)
@@ -88,85 +74,6 @@ def _(Path, consensuscnv, os, parsing):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Testing subgraph view retrieval
-    """)
-    return
-
-
-@app.cell
-def _(Path, config, glob, layout, read_bed_file):
-    benchmark_keys = config.benchmark.keys()
-
-    benchmark_calls1 = []
-    for bm_key in benchmark_keys:
-        bed_paths = glob.glob(str(layout.benchmark_dir(bm_key)) + "/*.bed")
-        for path in bed_paths:
-            if Path(path).is_file():
-                benchmark_calls1.extend(read_bed_file(Path(path), membership=bm_key))
-    print(f"Total calls read: {len(benchmark_calls1)}")
-    return (benchmark_calls1,)
-
-
-@app.cell
-def _(benchmark_calls1, generate_graph_from_calls):
-    benchmark_graph1 = generate_graph_from_calls(benchmark_calls1)
-    return
-
-
-@app.cell
-def _():
-    # lp1 = LineProfiler()
-    # lp1.add_function(resolve_graph)
-    # lp1.enable_by_count()
-    # test_resolve_graph_p0 = resolve_graph(
-    #     benchmark_graph1,
-    #     min_nodes=1,
-    #     min_weight=0.0,
-    #     padding=0,
-    #     link_same_source=True
-    # )
-    # lp1.disable_by_count()
-    # lp1.print_stats()
-
-    # print(f"Original Graph Nodes: {len(benchmark_graph1.nodes)}, Edges: {len(benchmark_graph1.edges)}")
-    # print(f"Resolved Graph (Padding=0) Nodes: {len(test_resolve_graph_p0.nodes)}, Edges: {len(test_resolve_graph_p0.edges)}")
-    return
-
-
-@app.cell
-def _():
-    # lp2 = LineProfiler()
-    # lp2.add_function(resolve_components)
-    # lp2.enable_by_count()
-    # test_resolve_components_p0 = resolve_components(
-    #     benchmark_graph1,
-    #     min_nodes=1,
-    #     min_weight=0.0,
-    #     padding=0,
-    #     link_same_source=True
-    # )
-    # lp2.disable_by_count()
-    # lp2.print_stats()
-    return
-
-
-@app.cell
-def _():
-    # benchmark_components_p0 = resolve_components(
-    #     benchmark_graph1, padding=0, link_same_source=True
-    # )
-    # benchmark_components_p1000 = resolve_components(
-    #     benchmark_graph1, padding=1000, link_same_source=True
-    # )
-
-    # print(f"Number of components (Padding=0): {len(benchmark_components_p0)}")
-    # print(f"Number of components (Padding=1000): {len(benchmark_components_p1000)}")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
     ## Testing binary classification
     """)
     return
@@ -183,11 +90,13 @@ def _():
         load_benchmark_graph,
         merge_benchmarks,
     )
+    from consensuscnv.overlap_graph import dump_calls_to_bed
 
     return (
         BenchmarkMergeParams,
         ClassificationParams,
         ConsensusParams,
+        dump_calls_to_bed,
         load_benchmark_graph,
         merge_benchmarks,
     )
@@ -198,16 +107,31 @@ def _(ConsensusParams, computation, config):
     # Sweep consensus tunables here (one call emits all three levels each time).
     consensus_param_sweep = [ConsensusParams(min_weight=w) for w in [0.0, 0.5]]
 
-    consensus_bed_paths_by_param = {
-        cp: computation.compute_consensus_from_beds(config, cp)
-        for cp in consensus_param_sweep
-    }
-    return (consensus_bed_paths_by_param,)
+    consensus_out = computation.compute_experimental_consensus(
+        config,
+        weights=[0.0, 0.5],
+    )
+    return (consensus_out,)
+
+
+@app.cell
+def _(config, consensus_out, dump_calls_to_bed, layout):
+    for _key, _calls in consensus_out.items():
+        _experimental_key, _weight, _level = _key
+
+        output_dir = layout.consensus_rep_dir(
+            origin_set=_experimental_key,
+            level=_level,
+            representation=f"weight_{_weight}"
+        )
+
+        dump_calls_to_bed(_calls, output_dir, chrom_order=config.chromosome_order)
+    return
 
 
 @app.cell
 def _(BenchmarkMergeParams, config, load_benchmark_graph):
-    # Build the (threshold-agnostic) benchmark graph once, reuse across padding values.
+    # Build the benchmark graph once, reuse across padding values.
     benchmark_graph = load_benchmark_graph(config)
 
     benchmark_param_sweep = [
@@ -226,7 +150,14 @@ def _(ClassificationParams):
 
 
 @app.cell
-def _(config, consensus_bed_paths_by_param, layout):
+def _(glob, layout):
+    _all_consensus_beds = glob.glob(str(layout.root / "*" / "consensus_*" / "*" / "*.bed"))
+    _all_consensus_beds
+    return
+
+
+@app.cell
+def _(Path, config, glob, layout):
     def build_io_sets(benchmark_params, classification_params, benchmark_bed_path):
         """Every tested call set -> its classification output dir for one setting."""
 
@@ -238,13 +169,23 @@ def _(config, consensus_bed_paths_by_param, layout):
                 classification_params=classification_params,
             ))
 
+        # Format: (input_set_dir, output_dir, benchmark_bed_path)
         io_sets: list[tuple[str, str, str]] = []
 
-        # Consensus call sets (keyed by their call-set slug, e.g. consensus_2of3_w0.5).
-        for consensus_paths in consensus_bed_paths_by_param.values():
-            for input_set, call_set_map in consensus_paths.items():
-                for call_set_slug, consensus_bed_path in call_set_map.items():
-                    io_sets.append((str(consensus_bed_path), out(input_set, call_set_slug), str(benchmark_bed_path)))
+        # Consensus call sets
+    
+        _all_consensus_bed_dirs = glob.glob(str(layout.root / "*" / "consensus_*" / "*"))
+        for _path in _all_consensus_bed_dirs:
+            _split = Path(_path).parts 
+            _experimental_key = _split[-3]
+            _level = int(_split[-2].split("_")[-1])
+            _weight = _split[-1]
+
+            io_sets.append((
+                str(layout.consensus_rep_dir(_experimental_key, _level, representation=_weight)),
+                out(_experimental_key, f"consensus_weight_{_weight}_{_level}"),
+                str(benchmark_bed_path),
+            ))    
 
         # Individual callers.
         for exp_key, tools in config.experimental.items():
