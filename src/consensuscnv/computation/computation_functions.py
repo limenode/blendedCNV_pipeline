@@ -153,9 +153,7 @@ def _classify_set(
 
 def run_binary_classification_script(
     config: PipelineConfig,
-    sets_for_classification: List[Tuple[str, str] | Tuple[str, str, str]],
-    default_truth_dir: Path | None = None,
-    reciprocal_threshold: float | None = None,
+    sets_for_classification: List[Tuple[str, str, str, float]]
 ):
     """Classify each tested call set against the merged benchmark.
 
@@ -174,16 +172,9 @@ def run_binary_classification_script(
         1
     )
     
-    def resolve_sets(items):
-        if len(items) == 2:
-            query_dir, output_path = items
-            if default_truth_dir is None:
-                raise ValueError(
-                    "A default truth directory must be provided when sets are 2-tuples."
-                )
-            truth_dir = default_truth_dir
-        elif len(items) == 3:
-            query_dir, output_path, truth_dir = items
+    def resolve_sets(items: Tuple[str, str, str, float]) -> Tuple[Path, Path, Path, float]:
+        if len(items) == 4:
+            query_dir, output_path, truth_dir, reciprocal_threshold = items
         else:
             raise ValueError(
                 f"Each set for classification must be a 2-tuple or 3-tuple, got {items}"
@@ -198,13 +189,13 @@ def run_binary_classification_script(
         if not truth_path.exists():
             raise FileNotFoundError(f"Truth directory {truth_dir} does not exist.")
 
-        return Path(query_dir), Path(truth_dir), Path(output_path)
+        return Path(query_dir), Path(truth_dir), Path(output_path), reciprocal_threshold
     
     # First pass: Find common samples
     common_samples: set[str] = set()
     
     for items in sets_for_classification:
-        query_dir, truth_dir, _ = resolve_sets(items)
+        query_dir, truth_dir, _, _ = resolve_sets(items)
         
         query_samples = {bed_path.stem for bed_path in query_dir.glob("*.bed") if bed_path.is_file()}
         truth_samples = {bed_path.stem for bed_path in truth_dir.glob("*.bed") if bed_path.is_file()}
@@ -218,18 +209,14 @@ def run_binary_classification_script(
     
     tasks: List[Tuple[Path, Path, Path, float, List[str], set[str]]] = []
     for items in sets_for_classification:
-        query_dir, truth_dir, output_path = resolve_sets(items)
+        query_dir, truth_dir, output_path, reciprocal_threshold = resolve_sets(items)
         
         tasks.append(
             (
                 query_dir,
                 truth_dir,
                 output_path,
-                (
-                    config.matching_reciprocal_threshold
-                    if reciprocal_threshold is None
-                    else reciprocal_threshold
-                ),
+                reciprocal_threshold,
                 config.chromosome_order,
                 common_samples
             )

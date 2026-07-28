@@ -41,6 +41,17 @@ def _():
             "text.color": "black",
             "xtick.color": "black",
             "ytick.color": "black",
+            # figure.dpi drives inline rendering, savefig.dpi drives files on disk —
+            # they are separate rcParams so the notebook can stay light while saved
+            # figures are print-resolution. savefig.dpi defaults to "figure", i.e. 100.
+            "figure.dpi": 100,
+            "savefig.dpi": 300,
+            # Crop the canvas reserved for the legend instead of banding it in white.
+            "savefig.bbox": "tight",
+            # Embed TrueType rather than Type 3 outlines: Type 3 keeps text
+            # unselectable and is rejected by many journal submission systems.
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
         }
     )
     return Path, np, os, pd, plt, sns
@@ -149,6 +160,27 @@ def padding_bp(setting: str) -> int:
     return int(setting.split("_")[1].removeprefix("pad") or 0)
 
 
+@app.function
+def save_figure(fig, path, formats=("png", "pdf")) -> list:
+    """Write `fig` to `path` once per format, creating parent directories.
+
+    PNG is the raster copy for viewing; PDF is vector, so it has no resolution at all
+    and stays sharp at any zoom — that is the one to hand to a paper or a poster.
+    Resolution and cropping come from rcParams (savefig.dpi / savefig.bbox), so they
+    stay set in one place rather than at each call site.
+    """
+    from pathlib import Path
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    written = []
+    for fmt in formats:
+        out_path = path.with_suffix(f".{fmt}")
+        fig.savefig(out_path, format=fmt)
+        written.append(out_path)
+    return written
+
+
 @app.cell
 def _(summary):
     # Pool per-sample counts into one row
@@ -174,6 +206,12 @@ def _(summary):
 @app.cell
 def _(padding_metrics):
     padding_metrics
+    return
+
+
+@app.cell
+def _(padding_metrics):
+    padding_metrics[padding_metrics["query"].isin(["4x_Coverage"]) & padding_metrics["source"].isin(["consensus_2_weight_0.0", "consensus_2_weight_0.5"])]
     return
 
 
@@ -209,42 +247,125 @@ def select_rows(pd):
 
 @app.cell
 def _(plt, sns):
-    def plot_metric_vs_padding(df, metric, hue=None, style=None) -> plt.Figure:
-        """One metric vs padding; colour/dash encode whichever dims still vary.
+    # Channel capacities. 8 is the categorical order's length — past it, extra hues
+    # break CVD separation. 4 is where dash patterns stop being tellable apart.
+    # Panels have no equivalent cap, which is why the widest dimension goes there.
+    _MAX_HUE, _MAX_STYLE = 8, 4
 
-        `hue` and `style` may name any sweep dimension. When left None they are
-        auto-assigned to the *free* dimensions — those with more than one value
-        left in `df` — so after select_rows() pins a dimension it stops cluttering
-        the legend. Filter first, then hand the slice here.
+    def plot_metric_vs_padding(
+        df, metric, hue=None, style=None, facet=None, sharey=True
+    ) -> plt.Figure:
+        """One metric vs padding, as small multiples over the third sweep dimension.
+
+        Panels share both axes by default so heights are comparable across them —
+        pass sharey=False only when a panel's range would otherwise flatten the rest.
         """
         sweep_dims = ["query", "source", "classification_setting"]
         free = [d for d in sweep_dims if df[d].nunique() > 1]
-        if hue is None:
-            hue = free[0] if free else sweep_dims[0]
-        if style is None:
-            rest = [d for d in free if d != hue]
-            style = rest[0] if rest else None
-
-        fig, ax = plt.subplots(figsize=(9, 6))
-        colors = sns.color_palette("tab10", n_colors=max(df[hue].nunique(), 1))
-        sns.lineplot(
-            data=df,
-            x="padding",
-            y=metric,
-            hue=hue,
-            style=style,
-            markers=True,
-            dashes=True,
-            ax=ax,
-            palette=colors,
+        pool = sorted(
+            (d for d in free if d not in (hue, style, facet)), key=lambda d: df[d].nunique()
         )
+
+        if hue is None and "query" in pool and df["query"].nunique() <= _MAX_HUE:
+            hue = "query"
+            pool.remove("query")
+        if facet is None and len(pool) > (0 if hue else 1):
+            facet = pool.pop()  # widest
+        if hue is None and pool and df[pool[0]].nunique() <= _MAX_HUE:
+            hue = pool.pop(0)
+        if style is None and pool and df[pool[0]].nunique() <= _MAX_STYLE:
+            style = pool.pop(0)
+        if facet is None and pool:
+            facet = pool.pop()
+
+        unencoded = [d for d in free if d not in {hue, style, facet}]
+        if unencoded:
+            raise ValueError(
+                f"{unencoded} still vary but are mapped to nothing — seaborn would "
+                "average over them and draw a bootstrap CI ribbon. Only one dimension "
+                "can be the facet, so narrow these with select_rows() or plot them in "
+                "separate figures."
+            )
+        for channel, dimension, cap in (("hue", hue, _MAX_HUE), ("style", style, _MAX_STYLE)):
+            if dimension and df[dimension].nunique() > cap:
+                raise ValueError(
+                    f"{channel}={dimension!r} has {df[dimension].nunique()} values but "
+                    f"only {cap} are distinguishable. Pass facet={dimension!r} to give it "
+                    "panels instead, or narrow it with select_rows()."
+                )
+        # Everything free may have gone to the facet; fall back to a pinned dimension so
+        # each panel still gets one consistently-coloured line and a named legend entry.
+        if hue is None:
+            hue = next((d for d in sweep_dims if d not in (style, facet)), sweep_dims[0])
+
+        hue_values = sweep_order(hue, df[hue])
+        style_values = sweep_order(style, df[style]) if style else None
+        panels = sweep_order(facet, df[facet]) if facet else [None]
+        colors = dict(zip(hue_values, hue_colors(hue, hue_values)))
+
+        ncols = 1 if len(panels) == 1 else 2 if len(panels) <= 4 else 3
+        nrows = -(-len(panels) // ncols)
+        # Reserve canvas for the legend rather than anchoring it at a fixed fraction —
+        # marimo renders the figure as-is, so an overhanging legend gets clipped.
+        legend_in = 2.8
+        fig_w = 5.5 * ncols + legend_in
+        plot_frac = 1 - legend_in / fig_w
+        fig, axes = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(fig_w, 4.0 * nrows),
+            sharex=True,
+            sharey=sharey,
+            squeeze=False,
+        )
+        flat = axes.ravel()
+        xticks = sorted(df["padding"].unique())
+
+        for ax, panel in zip(flat, panels):
+            panel_df = df if panel is None else df[df[facet] == panel]
+            sns.lineplot(
+                data=panel_df.sort_values("padding"),
+                x="padding",
+                y=metric,
+                hue=hue,
+                hue_order=hue_values,
+                style=style,
+                style_order=style_values,
+                markers=True,
+                dashes=True,
+                estimator=None,  # one row per point; never collapse to a mean
+                errorbar=None,  # and never draw a band around it
+                ax=ax,
+                palette=colors,
+                legend=(ax is flat[0]),
+                # seaborn ignores markers=True when style is unmapped, but padding is
+                # sampled at only a handful of points — keep them visible.
+                **({} if style else {"marker": "o"}),
+            )
+            ax.set_title("" if panel is None else f"{facet} = {panel}", fontsize=10)
+            ax.set_xlabel("padding (bp)")
+            ax.set_ylabel(metric)
+            ax.set_xticks(xticks)
+
+        for ax in flat[len(panels):]:
+            ax.set_visible(False)
+
+        # One figure-level legend rather than a copy per panel.
+        handles, labels = flat[0].get_legend_handles_labels()
+        if flat[0].get_legend() is not None:
+            flat[0].get_legend().remove()
+        fig.legend(
+            handles,
+            labels,
+            bbox_to_anchor=(plot_frac + 0.01, 0.97),
+            loc="upper left",
+            fontsize="small",
+        )
+
         style_note = f", dash={style}" if style else ""
-        ax.set_title(f"{metric} vs benchmark padding (colour={hue}{style_note})")
-        ax.set_xlabel("padding (bp)")
-        ax.set_ylabel(metric)
-        ax.set_xticks(sorted(df["padding"].unique()))
-        ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize="small")
-        fig.tight_layout()
+        facet_note = f", panels={facet}" if facet else ""
+        fig.suptitle(f"{metric} vs benchmark padding (colour={hue}{style_note}{facet_note})")
+        fig.tight_layout(rect=(0, 0, plot_frac, 0.96))
         return fig
 
     return (plot_metric_vs_padding,)
@@ -257,6 +378,80 @@ def recip_value(setting: str) -> float:
     return float(digits) if digits else 0.0
 
 
+@app.function
+def coverage_value(query: str) -> float:
+    """Numeric depth parsed from the leading digits of a '30x_Coverage' query."""
+    digits = ""
+    for char in query:
+        if char.isdigit() or char == ".":
+            digits += char
+        else:
+            break
+    return float(digits) if digits else 0.0
+
+
+@app.function
+def sweep_order(dimension: str, values) -> list:
+    """Values of a sweep dimension in their natural order, not alphabetical.
+
+    Plain sorting puts '30x_Coverage' second and 'classify_recip0.5' before
+    'classify_recip0.7' only by luck; both dimensions are numeric underneath.
+    """
+    if dimension == "query":
+        return sorted(set(values), key=coverage_value)
+    if dimension == "classification_setting":
+        return sorted(set(values), key=recip_value)
+    return sorted(set(values))
+
+
+@app.function
+def coverage_ramp(n: int) -> list[str]:
+    """`n` evenly spaced steps of a single-hue blue ramp, light -> dark.
+
+    Coverage is an ordered quantity, so it takes an ordinal ramp rather than
+    arbitrary categorical hues — depth then reads directly as colour weight. Steps
+    come from the blue 250->700 scale; 250 is the lightest step that still clears
+    2:1 against a light surface. Validated: lightness monotone, adjacent dL >= 0.06,
+    single hue (4 degree spread).
+    """
+    steps = [
+        "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6",
+        "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b",
+    ]
+    if n <= 1:
+        return [steps[len(steps) // 2]]
+    last = len(steps) - 1
+    return [steps[round(i * last / (n - 1))] for i in range(n)]
+
+
+@app.function
+def categorical_colors(n: int) -> list[str]:
+    """First `n` slots of the fixed categorical order — assigned in order, never cycled.
+
+    Validated on the adjacent pairlist (the one that applies to line charts): worst
+    adjacent CVD dE 9.1, worst normal-vision dE 22.9 on a light surface. Two slots
+    sit below 3:1 contrast against the surface, which the notebook's
+    `padding_metrics` table view relieves.
+    """
+    slots = [
+        "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
+        "#e87ba4", "#008300", "#4a3aa7", "#e34948",
+    ]
+    if n > len(slots):
+        raise ValueError(
+            f"{n} series exceeds the {len(slots)}-slot categorical order. Generating "
+            "extra hues would break CVD separation — facet, or fold the tail into "
+            "'Other', instead."
+        )
+    return slots[:n]
+
+
+@app.function
+def hue_colors(dimension: str, values: list) -> list[str]:
+    """Colours for `values`: an ordinal ramp for coverage, categorical otherwise."""
+    return coverage_ramp(len(values)) if dimension == "query" else categorical_colors(len(values))
+
+
 @app.cell
 def _(padding_metrics, plot_metric_vs_padding):
     padding_figures = {
@@ -267,13 +462,11 @@ def _(padding_metrics, plot_metric_vs_padding):
 
 
 @app.cell
-def _(Path, os, padding_figures):
+def _(Path, padding_figures):
     # output to figures directory
     figures_dir = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/figures")
     for _metric, _fig in padding_figures.items():
-        _fig_path = figures_dir / "vs_padding" / f"{_metric}_vs_padding.png"
-        os.makedirs(_fig_path.parent, exist_ok=True)
-        _fig.savefig(_fig_path)
+        save_figure(_fig, figures_dir / "vs_padding" / f"{_metric}_vs_padding.png")
     return (figures_dir,)
 
 
@@ -309,10 +502,10 @@ def _(padding_metrics, plot_metric_vs_padding, select_rows):
     _slice = select_rows(
         padding_metrics,
         query="30x_Coverage",
-        source=["consensus_2of3_w0.5", "calls"],
+        source=["consensus_2_weight_0.5", "calls"],
     )
     # source and classification_setting are free -> colour + dash.
-    plot_metric_vs_padding(_slice, "f1", hue="source", style="classification_setting")
+    plot_metric_vs_padding(_slice, "f1", hue="classification_setting", style="source")
     return
 
 
@@ -322,7 +515,7 @@ def _(padding_metrics, plot_metric_vs_padding, select_rows):
     _slice = select_rows(
         padding_metrics,
         classification_setting="classify_recip0.5",
-        source=["consensus_2of3_w0.5", "calls"],
+        source=["consensus_2_weight_0.5", "calls"],
     )
     plot_metric_vs_padding(_slice, "f1", hue="query", style="source")
     return
@@ -338,6 +531,10 @@ def _(mo):
 
 @app.cell
 def _(padding_metrics, select_rows):
+    _SOURCE_DASHES = ["solid", "dash", "dot", "dashdot"]
+    _SOURCE_SYMBOLS = ["circle", "diamond", "square", "cross"]
+    _NEUTRAL = "#8a8a85"
+
     def plot_metric_3d(df, metric):
         """3D lines over the (padding, reciprocal-threshold) grid.
 
@@ -345,37 +542,90 @@ def _(padding_metrics, select_rows):
         line holds its reciprocal threshold fixed (constant y) and walks padding, so
         the threshold levels read as separate parallel curves instead of one line
         zig-zagging through them all. Returns a plotly Figure; marimo renders it live.
+
+        Colour encodes the query (coverage depth) alone, so every line from the same
+        coverage shares one colour and shallow-to-deep reads off the ramp. Source is
+        carried by dash pattern + marker symbol and the reciprocal threshold is
+        already positional (the y axis), so neither leans on colour.
         """
         import plotly.graph_objects as go
 
         df = df.copy()
         df["recip"] = df["classification_setting"].map(recip_value)
+
+        queries = sweep_order("query", df["query"])
+        sources = sweep_order("source", df["source"])
+        settings = sweep_order("classification_setting", df["classification_setting"])
+        query_color = dict(zip(queries, hue_colors("query", queries)))
+        source_dash = {s: _SOURCE_DASHES[i % len(_SOURCE_DASHES)] for i, s in enumerate(sources)}
+        source_symbol = {s: _SOURCE_SYMBOLS[i % len(_SOURCE_SYMBOLS)] for i, s in enumerate(sources)}
+
+        groups = dict(tuple(df.groupby(["query", "source", "classification_setting"])))
+
         fig = go.Figure()
-        group_cols = ["query", "source", "classification_setting"]
-        for (query, source, _setting), group in df.groupby(group_cols):
-            group = group.sort_values("padding")
-            recip = group["recip"].iloc[0]
+        # Walk queries in coverage order so the legend reads shallow -> deep, and let
+        # only the first trace of each coverage carry a legend entry.
+        for query in queries:
+            for source in sources:
+                for setting in settings:
+                    group = groups.get((query, source, setting))
+                    if group is None or group.empty:
+                        continue
+                    group = group.sort_values("padding")
+                    fig.add_trace(
+                        go.Scatter3d(
+                            x=group["padding"],
+                            y=group["recip"],
+                            z=group[metric],
+                            mode="lines+markers",
+                            marker={
+                                "size": 4,
+                                "color": query_color[query],
+                                "symbol": source_symbol[source],
+                            },
+                            line={
+                                "width": 3,
+                                "color": query_color[query],
+                                "dash": source_dash[source],
+                            },
+                            legendgroup=query,
+                            showlegend=(source == sources[0] and setting == settings[0]),
+                            name=query,
+                            hovertemplate=(
+                                f"<b>{query}<br>{source}</b><br>"
+                                "padding %{x:,} bp<br>"
+                                "recip %{y:g}<br>"
+                                f"{metric} %{{z:.4g}}<extra></extra>"
+                            ),
+                        )
+                    )
+
+        # Neutral swatches document the dash/symbol encoding without repainting series.
+        for source in sources:
             fig.add_trace(
                 go.Scatter3d(
-                    x=group["padding"],
-                    y=group["recip"],
-                    z=group[metric],
+                    x=[None],
+                    y=[None],
+                    z=[None],
                     mode="lines+markers",
-                    marker={"size": 3},
-                    line={"width": 3},
-                    name=f"{query} / {source} @ recip{recip:g}",
+                    line={"width": 3, "color": _NEUTRAL, "dash": source_dash[source]},
+                    marker={"size": 4, "color": _NEUTRAL, "symbol": source_symbol[source]},
+                    name=source,
+                    legendgroup=f"source::{source}",
+                    hoverinfo="skip",
                 )
             )
+
         fig.update_layout(
             title=f"{metric}: padding × reciprocal threshold",
             scene={
                 "xaxis": {"title": "padding (bp)"},
-                "yaxis": {"title": "reciprocal threshold"},
+                "yaxis": {"title": "classification reciprocal threshold"},
                 "zaxis": {"title": metric},
             },
             height=700,
             width=1000,
-            legend={"font": {"size": 9}},
+            legend={"font": {"size": 9}, "title": {"text": "coverage / source"}},
         )
         return fig
 
@@ -383,9 +633,9 @@ def _(padding_metrics, select_rows):
     _slice = select_rows(
         padding_metrics,
         query=["30x_Coverage", "6x_Coverage", "4x_Coverage", "2x_Coverage"],
-        source=["consensus_2of3_w0.5", "calls"],
+        source=["consensus_2_weight_0.5", "calls"],
     )
-    plot_metric_3d(_slice, "f1")
+    plot_metric_3d(_slice, "recall")
     return
 
 
@@ -577,7 +827,7 @@ def _(plt):
         style: str = "source",
         marker: str | None = None,
         title: str = "",
-    ) -> dict:
+    ) -> dict[str, plt.Figure]:
         """Size vs. precision/recall/F1, each metric on its OWN figure.
 
         Returns ``{metric: Figure}`` (keys 'precision', 'recall', 'f1'). Up to three
@@ -677,7 +927,7 @@ def _(plt):
             legend_specs.append((marker_handles, marker, "outside right center"))
         legend_specs.append((dash_handles, style, "outside right lower"))
 
-        figures = {}
+        figures: dict[str, plt.Figure] = {}
         for metric in ["precision", "recall", "f1"]:
             fig, ax = plt.subplots(figsize=(10, 6), layout="constrained")
             for key, distributions in metrics_by_combo.items():
@@ -712,14 +962,14 @@ def _(plt):
 
 
 @app.cell
-def _(figures_dir, metrics_dict, mo, os, plot_size_vs_metric):
+def _(figures_dir, metrics_dict, mo, plot_size_vs_metric):
     # Example slice: padding (colour), query (dash), reciprocal threshold (marker).
     size_figures = plot_size_vs_metric(
         select_metrics(
             metrics_dict,
             benchmark_setting=["bench_pad0_mn1_mw0_lssT", "bench_pad500_mn1_mw0_lssT"],
             query=["30x_Coverage", "2x_Coverage"],
-            source=["consensus_2of3_w0.5", "calls"],
+            source=["consensus_2_weight_0.5", "calls"],
             classification_setting=["classify_recip0.5", "classify_recip0.3", "classify_recip0.7", "classify_recip0"],),
         hue="benchmark_setting",
         style="query",
@@ -730,9 +980,7 @@ def _(figures_dir, metrics_dict, mo, os, plot_size_vs_metric):
 
     # Output to figures directory
     for _metric, _fig in size_figures.items():
-        _fig_path = figures_dir / "size_vs_metric" / f"{_metric}_vs_size.png"
-        os.makedirs(_fig_path.parent, exist_ok=True)
-        _fig.savefig(_fig_path)
+        save_figure(_fig, figures_dir / "size_vs_metric" / f"{_metric}_vs_size.png")
     return
 
 

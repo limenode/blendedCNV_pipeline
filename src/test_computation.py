@@ -149,11 +149,11 @@ def _(Path, config, glob, layout):
                 classification_params=classification_params,
             ))
 
-        # Format: (input_set_dir, output_dir, benchmark_bed_path)
-        io_sets: list[tuple[str, str, str]] = []
+        # Format: (input_set_dir, output_dir, benchmark_bed_path, reciprocal_threshold)
+        io_sets: list[tuple[str, str, str, float]] = []
 
         # Consensus call sets
-    
+
         _all_consensus_bed_dirs = glob.glob(str(layout.root / "*" / "consensus_*" / "*"))
         for _path in _all_consensus_bed_dirs:
             _split = Path(_path).parts 
@@ -165,16 +165,27 @@ def _(Path, config, glob, layout):
                 str(layout.consensus_rep_dir(_experimental_key, _level, representation=_weight)),
                 out(_experimental_key, f"consensus_{_level}_{_weight}"),
                 str(benchmark_bed_path),
+                classification_params.reciprocal_threshold,
             ))    
 
         # Individual callers.
         for exp_key, tools in config.experimental.items():
             for tool in tools:
-                io_sets.append((str(layout.bed_tool_dir(exp_key, tool)), out(exp_key, tool), str(benchmark_bed_path)))
+                io_sets.append((
+                    str(layout.bed_tool_dir(exp_key, tool)), 
+                    out(exp_key, tool), 
+                    str(benchmark_bed_path),
+                    classification_params.reciprocal_threshold
+                ))
 
         # Controls.
         for ctrl_key in config.control:
-            io_sets.append((str(layout.control_bed_dir(ctrl_key)), out(ctrl_key, "calls"), str(benchmark_bed_path)))
+            io_sets.append((
+                str(layout.control_bed_dir(ctrl_key)),
+                out(ctrl_key, "calls"),
+                str(benchmark_bed_path),
+                classification_params.reciprocal_threshold
+            ))
 
         return io_sets
 
@@ -197,18 +208,17 @@ def _(
         _benchmark_bed_path = merge_benchmarks(config, _benchmark_params, benchmark_graph)
         for classification_params in classification_param_sweep:
             io_sets.extend(build_io_sets(_benchmark_params, classification_params, _benchmark_bed_path))
-    return classification_params, io_sets
+    return (io_sets,)
 
 
 @app.cell
-def _(classification_params, computation, config, io_sets):
+def _(computation, config, io_sets):
     print(f"Classifying {len(io_sets)} sets")
 
     # step 2: run binary classification script
     computation.run_binary_classification_script(
         config,
-        io_sets,
-        reciprocal_threshold=classification_params.reciprocal_threshold,
+        io_sets
     )
     return
 
