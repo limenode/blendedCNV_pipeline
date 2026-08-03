@@ -1,6 +1,8 @@
 # %%
+from operator import attrgetter
 from timeit import timeit
 from pathlib import Path
+from collections.abc import Iterable, Iterator
 import networkx as nx
 from dataclasses import dataclass
 from collections import defaultdict
@@ -83,18 +85,12 @@ def read_bed_file_into_graph(bed_file_path: str | Path) -> nx.Graph:
     return G
 
 # %%
-def read_bed_file_into_callset(bed_file_path: str | Path) -> CallSet:
-    if isinstance(bed_file_path, str):
-        bed_file_path = Path(bed_file_path)
+def iterate_bed(path: str | Path) -> Iterator[Call]:
+    path = Path(path) if isinstance(path, str) else path
 
-    calls: list[Call] = []
-    edges: list[tuple[int, int, float, int]] = []
-    chromosome_index: dict[str, int] = {}
+    sample_id = path.stem
 
-    svtype_connected_component = defaultdict(list)
-
-    with open(bed_file_path, 'r') as bed_file:
-        sample_id = bed_file_path.stem
+    with open(path, 'r') as bed_file:
         for line in bed_file:
             if line.startswith('#'):
                 continue  # Skip comment lines
@@ -103,48 +99,67 @@ def read_bed_file_into_callset(bed_file_path: str | Path) -> CallSet:
                 continue  # Skip lines that don't have enough fields
 
             chrom, start, end, svtype, source = fields[0], int(fields[1]), int(fields[2]), fields[3], fields[4]
-            current_call = Call(chrom=chrom, start=start, end=end, svtype=svtype, source=source, sample_id=sample_id)
-            calls.append(current_call)
-            current_call_index = len(calls) - 1
+            yield Call(chrom=chrom, start=start, end=end, svtype=svtype, source=source, sample_id=sample_id)
 
-            if chrom not in chromosome_index:
-                chromosome_index[chrom] = current_call_index  # Store the index of the first call for this chromosome
-                svtype_connected_component.clear()
+def build_callset(calls: Iterable[Call]) -> CallSet:
+    calls_list = list(calls)
+    edges: list[tuple[int, int, float, int]] = []
+    chromosome_index: dict[str, int] = {}
 
-            # Create edges with all previous calls in the same connected component
-            create_new_connected_component = True
-            component_of_interest = svtype_connected_component[svtype]
+    svtype_connected_component = defaultdict(list)
 
-            for i in component_of_interest:
-                # inline retrieve overlap logic
-                prev_call: Call = calls[i]
-                overlap_end = min(prev_call.end, end)
+    previous_chrom = None
+    previous_start = -1
 
-                if start < overlap_end:
-                    prev_size = prev_call.end - prev_call.start
-                    curr_size = end - start
-                    reciprocal_overlap = (overlap_end - start) / max(prev_size, curr_size)
-                    distance = 0
-                    create_new_connected_component = False
-                else:
-                    reciprocal_overlap = 0
-                    distance = start - prev_call.end # start <= prev_call.end due to sorting, so this is always positive
-                    if distance == 0:
-                        create_new_connected_component = False
+    for current_call_index, current_call in enumerate(calls_list):
+        chrom = current_call.chrom
+        start = current_call.start
+        end = current_call.end
+        svtype = current_call.svtype
 
-                edges.append((i, current_call_index, reciprocal_overlap, distance))
+        if chrom != previous_chrom:
+            if chrom in chromosome_index:
+                raise ValueError(f"Chromosome {chrom} appears multiple times in the input calls. Ensure that calls are sorted by chromosome and start position.")
 
-            if create_new_connected_component:
-                svtype_connected_component[svtype] = [current_call_index]  # Start a new connected component for this svtype
+            chromosome_index[chrom] = current_call_index
+            svtype_connected_component.clear()
+            previous_chrom = chrom
+        elif start < previous_start:
+            raise ValueError(f"Calls are not sorted by start position within chromosome {chrom}. Ensure that calls are sorted by chromosome and start position.")
+        previous_start = start
+
+        current_size = end - start
+        create_new_connected_component = True
+        component_of_interest = svtype_connected_component[svtype]
+
+        for i in component_of_interest:
+            prev_call = calls_list[i]
+            prev_end = prev_call.end
+            overlap_end = min(prev_end, end)
+
+            if start < overlap_end:
+                prev_size = prev_end - prev_call.start
+                reciprocal_overlap = (overlap_end - start) / max(prev_size, current_size)
+                distance = 0
+                create_new_connected_component = False
             else:
-                component_of_interest.append(current_call_index)  # Add to the existing connected component
+                reciprocal_overlap = 0
+                distance = start - prev_end # start <= prev_call.end due to sorting, so this is always positive
+                if distance == 0:
+                    create_new_connected_component = False
 
-    # print(len(calls), "calls and", len(edges), "edges created in the call set.")
-    return CallSet(calls=calls, edges=edges, chromosome_index=chromosome_index)
+            edges.append((i, current_call_index, reciprocal_overlap, distance))
+
+        if create_new_connected_component:
+            svtype_connected_component[svtype] = [current_call_index]  # Start a new connected component for this svtype
+        else:
+            component_of_interest.append(current_call_index)  # Add to the existing connected component
+
+    return CallSet(calls=calls_list, edges=edges, chromosome_index=chromosome_index)
 
 # %%
 print(timeit(lambda: read_bed_file_into_graph("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark/1000G/HG00096.bed"), number=10))
-print(timeit(lambda: read_bed_file_into_callset("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark/1000G/HG00096.bed"), number=10))
+print(timeit(lambda: build_callset(iterate_bed("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark/1000G/HG00096.bed")), number=10))
 
 # %%
 chromosome_order = ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10",
@@ -153,56 +168,36 @@ chromosome_order = ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr
 
 # %%
 def merge_callsets(list_of_callsets: list[CallSet]) -> CallSet:
-    rank = {chrom: i for i, chrom in enumerate(chromosome_order or [])}
+    by_chrom = defaultdict(list)
+    for callset in list_of_callsets:
+        for call in callset.calls:
+            by_chrom[call.chrom].append(call)
 
-    decorated = [
-        (set_idx, local_idx, call)
-        for set_idx, callset in enumerate(list_of_callsets)
-        for local_idx, call in enumerate(callset.calls)
-    ]
+    key = attrgetter("start", "end")
+    merged: list[Call] = []
+    for chrom in chromosome_order:
+        group = by_chrom.pop(chrom, None)
+        if group:
+            group.sort(key=key)
+            merged += group
 
-    merged = (
-        sorted(decorated, key=lambda item: (
-            rank.get(item[2].chrom, len(rank)),
-            item[2].chrom,
-            item[2].start,
-            item[2].end)
-        )
-    )
+    for chrom in sorted(by_chrom):
+        by_chrom[chrom].sort(key=key)
+        merged += by_chrom[chrom]
 
-    remap: list[list[int]] = [[-1] * len(cs.calls) for cs in list_of_callsets]
-
-    calls: list[Call] = []
-    origin: list[int] = []
-    chromosome_index: dict[str, int] = {}
-
-    for new_idx, (set_idx, local_idx, call) in enumerate(merged):
-        calls.append(call)
-        origin.append(set_idx)
-        remap[set_idx][local_idx] = new_idx
-
-        if call.chrom not in chromosome_index:
-            chromosome_index[call.chrom] = new_idx
-
-    edges: list[tuple[int, int, dict[str, float | int]]] = [
-        (remap[set_idx][u], remap[set_idx][v], data)
-        for set_idx, callset in enumerate(list_of_callsets)
-        for u, v, data in callset.edges
-    ]
-
-    #
-
-    return CallSet(calls=calls, edges=edges, chromosome_index=chromosome_index)
+    return build_callset(merged)
 
 # %%
-cs1 = read_bed_file_into_callset("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark/1000G/HG00096.bed")
-cs2 = read_bed_file_into_callset("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark/HGSVC3/HG00096.bed")
+cs1 = build_callset(iterate_bed("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark/1000G/HG00096.bed"))
+cs2 = build_callset(iterate_bed("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark/HGSVC3/HG00096.bed"))
+cs3 = build_callset(iterate_bed("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark/ont_vienna/HG00096.bed"))
 print(len(cs1.calls), "calls in callset 1; ", len(cs1.edges), "edges.")
 print(len(cs2.calls), "calls in callset 2; ", len(cs2.edges), "edges.")
-print(len(cs1.calls) + len(cs2.calls), "calls in total; ", len(cs1.edges) + len(cs2.edges), "edges.")
-# timeit(lambda: merge_callsets([cs1, cs2]), number=1)
+print(len(cs3.calls), "calls in callset 3; ", len(cs3.edges), "edges.")
+print(len(cs1.calls) + len(cs2.calls) + len(cs3.calls), "calls in total; ", len(cs1.edges) + len(cs2.edges) + len(cs3.edges), "edges.")
+timeit(lambda: merge_callsets([cs1, cs2, cs3]), number=1)
 
 # %%
-merged_callset = merge_callsets([cs1, cs2])
+merged_callset = merge_callsets([cs1, cs2, cs3])
 print(len(merged_callset.calls), "calls in merged callset.")
 print(len(merged_callset.edges), "edges in merged callset.")
