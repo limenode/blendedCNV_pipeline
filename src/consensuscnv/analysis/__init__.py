@@ -3,7 +3,6 @@
 from consensuscnv.analysis.analysis_driver import main as run_analysis
 from consensuscnv.analysis.analysis_functions import (
     analyze_logs,
-    discover_distances_between_benchmark_cnvs,
     get_bed_counts,
     get_counts_from_config,
     get_samples_from_data,
@@ -27,7 +26,6 @@ __all__ = [
     "analyze_logs",
     "build_analysis_data_structure",
     "discover_classification_files",
-    "discover_distances_between_benchmark_cnvs",
     "filter_by_size",
     "get_bed_counts",
     "get_counts_from_config",

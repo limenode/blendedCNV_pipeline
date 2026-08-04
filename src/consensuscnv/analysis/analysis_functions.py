@@ -1,6 +1,5 @@
 import json
 import subprocess
-from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -616,55 +615,3 @@ def analyze_logs(log_dir: Path, output_dir: Path, samples: Optional[List[str]] =
     # else:
     #     print(f"Warning: Liftover results file not found: {liftover_results_file}")
     pass
-
-def discover_distances_between_benchmark_cnvs(
-    config: PipelineConfig,
-) -> defaultdict[str, list[int]]:
-    import glob
-
-    from consensuscnv.calls import Call
-    
-    # Retrieve merged benchmark CNVs per sample
-    merged_benchmark_dir = config.layout.benchmark_dir("merged")
-
-    string_paths = glob.glob(str(merged_benchmark_dir / "*.bed"))
-
-    paths = [Path(p) for p in string_paths]
-    
-    from consensuscnv.overlap_graph import read_bed_file
-    
-    sample_calls_dict: defaultdict[str, list[Call]] = defaultdict(list)
-    for path in paths:
-        sample_name = Path(path).stem.split(".")[0]
-        calls = read_bed_file(path, membership="merged")
-        sample_calls_dict[sample_name] = calls
-
-    sample_distances_dict: defaultdict[str, list[int]] = defaultdict(list)
-    for sample, calls in sample_calls_dict.items():
-        distances = []
-        
-        for svtype in ["DEL", "DUP"]:
-            svtype_calls = [c for c in calls if c.svtype == svtype]
-            if len(svtype_calls) < 2:
-                continue  # Need at least two calls to compute distances
-            
-            sorted_calls = sorted(svtype_calls, key=lambda c: (c.chrom, c.start))
-            
-            # Get shortest distance from one call to another
-            for i in range(1, len(sorted_calls) - 1):
-                if sorted_calls[i].chrom != sorted_calls[i - 1].chrom or sorted_calls[i].chrom != sorted_calls[i + 1].chrom:
-                    continue  # Skip if not on the same chromosome as neighbors
-                
-                distance_to_prev = sorted_calls[i].start - sorted_calls[i - 1].end
-                distance_to_next = sorted_calls[i + 1].start - sorted_calls[i].end
-                min_distance = min(distance_to_prev, distance_to_next)
-                if min_distance < 0:
-                    print(f"Warning: Overlapping calls detected for sample {sample}")
-                    # print(f"  Call 1: {sorted_calls[i - 1].bed_str()}")
-                    # print(f"  Call 2: {sorted_calls[i].bed_str()}")
-                
-                distances.append(min_distance)
-            
-        sample_distances_dict[sample] = distances
-    
-    return sample_distances_dict
