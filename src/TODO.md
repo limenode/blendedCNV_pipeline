@@ -1,4 +1,0 @@
-[] Check merge_components in overlap_graph.py
-- Need to refine limiter to be on the unique callers and not number of nodes
-
-[] Only move get_binary_classification into graph operation if needed.

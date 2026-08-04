@@ -1,9 +1,5 @@
 # %%
-"""Diagnostics and timings for consensuscnv.callsets.
-
-The functions and types this exercises now live in the package -- this file is
-only the scratch surface for timing them and eyeballing results.
-"""
+"""Diagnostics and timings for consensuscnv.callsets."""
 
 import glob
 from pathlib import Path
@@ -25,8 +21,7 @@ TEST_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/src/test")
 
 # %%
 def retrieve_overlap(call_a: Call, call_b: Call) -> tuple[bool, float, int]:
-    """Pairwise reference implementation, kept as an oracle for the sweep in
-    `build_callset`. Not used by the package."""
+    """Pairwise reference implementation"""
     reciprocal_overlap = 0.0
     distance = 0
 
@@ -64,33 +59,32 @@ print(
     len(cs1.ov_key) + len(cs2.ov_key) + len(cs3.ov_key),
     "overlap edges.",
 )
-print(timeit(lambda: collect_callsets([cs1, cs2, cs3]), number=1))
+print("collect_callsets (HG00096)", timeit(lambda: collect_callsets([cs1, cs2, cs3]), number=1))
 
 merged_callset = collect_callsets([cs1, cs2, cs3])
 print(len(merged_callset.calls), "calls in merged callset.")
 print(len(merged_callset.ov_key), "edges in merged callset.")
 
 # %%
-print(timeit(
+print("merge_components (HG00096):", timeit(
     lambda: merge_components(merged_callset, max_padding=0, min_calls=1, min_sources=1),
     number=10,
 ))
-merged_set = merge_components(merged_callset, max_padding=0, min_calls=1, min_sources=1)
-print(len(merged_set.starts))
 
-# %%
-print(timeit(
+merged_set = merge_components(merged_callset, max_padding=0, min_calls=1, min_sources=1)
+print("HG00096 Benchmark Merged Calls Total:", len(merged_set.starts))
+
+print("write_merged_bed (HG00096):", timeit(
     lambda: write_merged_bed(merged_callset, merged_set, TEST_DIR / "output.bed"),
     number=1,
 ))
+
 
 # %%
 list_of_beds = glob.glob(str(BENCHMARK_DIR / "*/*.bed"))
 all_bm_callset = collect_callsets(read_bed_calls(bed) for bed in list_of_beds)
 print(len(all_bm_callset.calls), "calls across", len(list_of_beds), "files")
-
-# %%
-print(timeit(
+print("write_merged_bed (all):", timeit(
     lambda: write_merged_bed(
         all_bm_callset,
         merge_components(all_bm_callset, max_padding=0),
