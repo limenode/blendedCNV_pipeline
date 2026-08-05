@@ -5,7 +5,7 @@ are indices into it, and chrom / svtype / sample_id are read back off the
 representative rather than stored, since they are uniform within a component.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.sparse import coo_matrix, csgraph
@@ -23,6 +23,7 @@ class MergedCallSet:
     n_calls: np.ndarray
     component_id: np.ndarray  # original label; survives min_* filtering
     labels: np.ndarray  # node -> label, for every node of the parent CallSet
+    parent: CallSet = field(repr=False)
 
     def __len__(self) -> int:
         return len(self.starts)
@@ -85,4 +86,5 @@ def merge_components(
         n_calls=n_calls,
         component_id=component_id,
         labels=labels,
+        parent=callset
     )

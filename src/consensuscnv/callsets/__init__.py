@@ -1,11 +1,15 @@
 """Interval call sets and their overlap structure. The pipeline's core primitive.
+Interned ids (chrom_idx, svtype_idx, sample_idx, source_bits) come from
+process-wide registries in `registry`, not from the CallSet.
+
     calls = read_bed_calls(path)                     # bed_io
     callset = collect_callsets([...])                # callset
     selection = filter_edges(callset, 0.5)           # edges
     merged = merge_components(callset, selection)    # merging
-    write_merged_bed(callset, merged, out)           # bed_io
+    write_merged_bed(merged, out)           # bed_io
 """
 
+from consensuscnv.callsets import DEFAULT_CHROMOSOME_ORDER, Registry
 from consensuscnv.callsets.bed_io import (
     read_bed_calls,
     source_strings_for,
@@ -13,7 +17,6 @@ from consensuscnv.callsets.bed_io import (
 )
 from consensuscnv.callsets.calls import Call
 from consensuscnv.callsets.callset import (
-    DEFAULT_CHROMOSOME_ORDER,
     CallSet,
     CallSource,
     build_callset,
@@ -30,6 +33,7 @@ __all__ = [
     "CallSource",
     "EdgeSelection",
     "MergedCallSet",
+    "Registry",
     "build_callset",
     "collect_callsets",
     "filter_edges",

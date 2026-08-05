@@ -20,28 +20,34 @@ from operator import attrgetter
 import numpy as np
 
 from consensuscnv.callsets.calls import Call
-
-DEFAULT_CHROMOSOME_ORDER = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY"]
+from consensuscnv.callsets.registry import (
+    CHROMOSOMES,
+    DEFAULT_CHROMOSOME_ORDER,
+    SAMPLES,
+    SOURCES,
+    SVTYPES,
+)
 
 
 @dataclass
 class CallSet:
+    """
+    A set of calls in columnar form, plus a threshold-independent overlap graph.
+
+    Notes:
+        - To get all chromosomes present in the CallSet, use `np.unique(cs.chrom_idx)`.
+    """
     calls: list[Call]
-    chromosome_index: dict[str, int]
 
     # columnar node fields
     starts: np.ndarray
     ends: np.ndarray
-    source_bits: np.ndarray
-    source_names: list[str]
 
     # metadata columns
     chrom_idx: np.ndarray
-    chrom_names: list[str]
     svtype_idx: np.ndarray
-    svtype_names: list[str]
     sample_idx: np.ndarray
-    sample_names: list[str]
+    source_bits: np.ndarray
 
     # overlap edges
     ov_a: np.ndarray
@@ -60,12 +66,7 @@ class CallSet:
 def sort_into_genome_order(
     calls: Iterable[Call], chromosome_order: Iterable[str]
 ) -> list[Call]:
-    """Put calls into canonical order: genome chromosome order, then (start, end).
-
-    A plain sort on (chrom, start, end) would order chromosomes lexicographically
-    -- chr1, chr10, chr11, chr2 -- and that ordering becomes `chrom_names` and so
-    reaches the BED output, hence the explicit chromosome order.
-    """
+    """Put calls into canonical order: (chrom, start, end, svtype, source, sample_id)."""
     by_chrom = defaultdict(list)
     for call in calls:
         by_chrom[call.chrom].append(call)
@@ -103,21 +104,21 @@ def build_callset(
     starts: list[int] = []
     ends: list[int] = []
     bits: list[int] = []
-    source_names: list[str] = []
-    bit_of_source: dict[str, int] = {}
-
     chrom_ids: list[int] = []
-    chrom_names: list[str] = []
     svtype_ids: list[int] = []
-    svtype_names: list[str] = []
-    index_of_svtype: dict[str, int] = {}
     sample_ids: list[int] = []
-    sample_names: list[str] = []
-    index_of_sample: dict[str, int] = {}
 
-    chromosome_index: dict[str, int] = {}
+    bit_of_source: dict[str, int] = {}
+    id_of_svtype: dict[str, int] = {}
+    id_of_sample: dict[str, int] = {}
+
+    cached_source_bit = bit_of_source.get
+    cached_svtype_id = id_of_svtype.get
+    cached_sample_id = id_of_sample.get
+
     svtype_connected_component = defaultdict(list)
     previous_chrom = None
+    chrom_id = -1
 
     for current_call_index, current_call in enumerate(calls_list):
         chrom = current_call.chrom
@@ -129,32 +130,27 @@ def build_callset(
 
         if chrom != previous_chrom:
             # chromosomes are contiguous after sorting, so each is seen exactly once and is always a new name
-            chromosome_index[chrom] = current_call_index
-            chrom_names.append(chrom)
+            chrom_id = CHROMOSOMES.intern(chrom)
             svtype_connected_component.clear()
             previous_chrom = chrom
 
         starts.append(start)
         ends.append(end)
+        chrom_ids.append(chrom_id)
 
-        chrom_ids.append(len(chrom_names) - 1)
-
-        bit = bit_of_source.get(source)
+        bit = cached_source_bit(source)
         if bit is None:
-            bit = bit_of_source[source] = 1 << len(source_names)
-            source_names.append(source)
+            bit = bit_of_source[source] = 1 << SOURCES.intern(source)
         bits.append(bit)
 
-        svtype_index = index_of_svtype.get(svtype)
+        svtype_index = cached_svtype_id(svtype)
         if svtype_index is None:
-            svtype_index = index_of_svtype[svtype] = len(svtype_names)
-            svtype_names.append(svtype)
+            svtype_index = id_of_svtype[svtype] = SVTYPES.intern(svtype)
         svtype_ids.append(svtype_index)
 
-        sample_index = index_of_sample.get(sample_id)
+        sample_index = cached_sample_id(sample_id)
         if sample_index is None:
-            sample_index = index_of_sample[sample_id] = len(sample_names)
-            sample_names.append(sample_id)
+            sample_index = id_of_sample[sample_id] = SAMPLES.intern(sample_id)
         sample_ids.append(sample_index)
 
         current_size = end - start
@@ -201,17 +197,12 @@ def build_callset(
 
     return CallSet(
         calls=calls_list,
-        chromosome_index=chromosome_index,
         starts=np.fromiter(starts, np.int64, n),
         ends=np.fromiter(ends, np.int64, n),
         source_bits=np.fromiter(bits, np.int64, n),
-        source_names=source_names,
         chrom_idx=np.fromiter(chrom_ids, np.int32, n),
-        chrom_names=chrom_names,
         svtype_idx=np.fromiter(svtype_ids, np.int32, n),
-        svtype_names=svtype_names,
         sample_idx=np.fromiter(sample_ids, np.int32, n),
-        sample_names=sample_names,
         ov_a=np.fromiter(ov_a, np.int64, n_ov)[ov_order],
         ov_b=np.fromiter(ov_b, np.int64, n_ov)[ov_order],
         ov_key=ov_key_arr[ov_order],
