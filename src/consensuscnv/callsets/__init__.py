@@ -9,7 +9,6 @@ process-wide registries in `registry`, not from the CallSet.
     write_merged_bed(merged, out)           # bed_io
 """
 
-from consensuscnv.callsets import DEFAULT_CHROMOSOME_ORDER, Registry
 from consensuscnv.callsets.bed_io import (
     read_bed_calls,
     source_strings_for,
@@ -25,6 +24,7 @@ from consensuscnv.callsets.callset import (
 )
 from consensuscnv.callsets.edges import EdgeSelection, filter_edges
 from consensuscnv.callsets.merging import MergedCallSet, merge_components
+from consensuscnv.callsets.registry import DEFAULT_CHROMOSOME_ORDER, Registry
 
 __all__ = [
     "DEFAULT_CHROMOSOME_ORDER",
