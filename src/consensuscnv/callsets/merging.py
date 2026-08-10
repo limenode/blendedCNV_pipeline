@@ -41,6 +41,7 @@ def merge_components(
     max_padding: int | None = None,
     min_calls: int = 1,
     min_sources: int = 1,
+    allow_mixed: bool = False
 ) -> MergedCallSet:
     """Merge each connected component of the selected edges into a single call.
 
@@ -51,6 +52,7 @@ def merge_components(
             callset,
             min_reciprocal_overlap=min_reciprocal_overlap,
             max_padding=max_padding,
+            allow_mixed=allow_mixed
         )
 
     n = len(callset.calls)
