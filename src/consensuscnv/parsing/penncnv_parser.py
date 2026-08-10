@@ -1,5 +1,6 @@
 import os
-from typing import Iterator, TextIO, Tuple
+from collections.abc import Iterator
+from typing import TextIO
 
 from liftover import get_lifter
 
@@ -7,9 +8,9 @@ from consensuscnv.parsing.parser_utils import discover_samples_of_interest
 from consensuscnv.utils import LiftoverStatus, PipelineConfig, lift_interval
 
 
-def iter_penncnv_records(penncnv_file: str) -> Iterator[Tuple[str, int, int, str, str]]:
+def iter_penncnv_records(penncnv_file: str) -> Iterator[tuple[str, int, int, str, str]]:
     """Yield (chrom, start, end, svtype, sample_id) for each CNV call in a PennCNV file.
-    
+
     Example Record:
         chr1:112494946-112506104  numsnp=5  length=11,159  state1,cn=0  /path/HG00096.sig.tsv  startsnp=...  endsnp=...
     """

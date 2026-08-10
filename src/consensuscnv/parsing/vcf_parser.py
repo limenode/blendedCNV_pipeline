@@ -1,7 +1,7 @@
 import glob
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import pandas as pd
 from cyvcf2 import VCF
@@ -142,14 +142,12 @@ def extract_svtype_from_rdcn(record, sex_threshold: float) -> str:
 
 def determine_svtype_method(record) -> Callable:
     # Check INFO SVTYPE
-    if record.INFO.get("SVTYPE") is not None:
-        if sanitize_svtype(record.INFO.get("SVTYPE")) != "NA":
+    if record.INFO.get("SVTYPE") is not None and sanitize_svtype(record.INFO.get("SVTYPE")) != "NA":
             return extract_svtype_from_info
 
     if record.ALT and len(record.ALT) > 0:
         alt_str = str(record.ALT[0]).strip()
-        if alt_str.startswith("<") and alt_str.endswith(">"):
-            if sanitize_svtype(alt_str[1:-1]) != "NA":
+        if alt_str.startswith("<") and alt_str.endswith(">") and sanitize_svtype(alt_str[1:-1]) != "NA":
                 return extract_svtype_from_alt
 
     # Check RDCN in FORMAT field
@@ -291,13 +289,13 @@ def process_vcfs_to_beds(config: PipelineConfig, common_only: bool = True) -> li
 
     all_statistics = []
 
-    experimental_map = parse_experimental_map(config)        
+    experimental_map = parse_experimental_map(config)
     liftover_map = config.liftover
 
     for experimental_name, tools in experimental_map.items():
-        
+
         common_samples = set()
-        
+
         if common_only:
             # Check if all tools have a given sample, if not then drop that sample from the other tools
             for tool, sample_map in tools.items():
