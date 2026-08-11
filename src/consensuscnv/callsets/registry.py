@@ -2,7 +2,7 @@
 
 import threading
 
-DEFAULT_CHROMOSOME_ORDER = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY", "chrM"]
+DEFAULT_CHROMOSOME_ORDER = [f"chr{i}" for i in range(1, 23)]
 
 MAX_SOURCES = 63
 
