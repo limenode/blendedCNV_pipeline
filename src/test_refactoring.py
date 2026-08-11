@@ -1,5 +1,4 @@
 # %% Imports and constants
-"""Diagnostics and timings for consensuscnv.callsets."""
 
 import glob
 from pathlib import Path
@@ -11,80 +10,49 @@ import matplotlib.pyplot as plt
 from consensuscnv.callsets import (
     CallSet,
     MergedCallSet,
-    build_callset,
     collect_callsets,
-    filter_edges,
     merge_components,
     read_bed_calls,
-    write_merged_bed,
 )
 
 from consensuscnv.classification.pairs import build_candidates
 from consensuscnv.classification.classify import classify, match_topology
+from consensuscnv.classification.intervals import IntervalSet
 
 BENCHMARK_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark")
 QUERY_DIR: Path = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/30x_Coverage")
 TEST_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/src/test")
 
-# %% Test collecting benchmark call sets for HG00096
-cs1 = build_callset(read_bed_calls(BENCHMARK_DIR / "1000G/HG00096.bed"))
-cs2 = build_callset(read_bed_calls(BENCHMARK_DIR / "HGSVC3/HG00096.bed"))
-cs3 = build_callset(read_bed_calls(BENCHMARK_DIR / "ont_vienna/HG00096.bed"))
-print(len(cs1.calls), "calls in callset 1; ", len(cs1.ov_key), "overlap edges.")
-print(len(cs2.calls), "calls in callset 2; ", len(cs2.ov_key), "overlap edges.")
-print(len(cs3.calls), "calls in callset 3; ", len(cs3.ov_key), "overlap edges.")
-print(
-    len(cs1.calls) + len(cs2.calls) + len(cs3.calls),
-    "calls in total; ",
-    len(cs1.ov_key) + len(cs2.ov_key) + len(cs3.ov_key),
-    "overlap edges.",
-)
-print("collect_callsets (HG00096)", timeit(lambda: collect_callsets([cs1, cs2, cs3]), number=1))
+# The detectable size domain.
+SIZE_FLOOR = 1_000
 
-aggregate_benchmark_hg00096 = collect_callsets([cs1, cs2, cs3])
-print(len(aggregate_benchmark_hg00096.calls), "calls in merged callset.")
-print(len(aggregate_benchmark_hg00096.ov_key), "edges in merged callset.")
 
-# %% Merge components into merged calls
-print("merge_components (HG00096) timeit:", timeit(
-    lambda: merge_components(aggregate_benchmark_hg00096, max_padding=0, min_calls=1, min_sources=1),
-    number=10,
-))
+def evaluation_intervals(merged: MergedCallSet) -> IntervalSet:
+    """Merged calls as an IntervalSet, restricted to the detectable size domain."""
+    return IntervalSet.from_merged(merged).filter_by_size(min_size=SIZE_FLOOR)
 
-merged_set = merge_components(aggregate_benchmark_hg00096, max_padding=0, min_calls=1, min_sources=1)
-print("HG00096 Benchmark Merged Calls Total:", len(merged_set.starts))
-
-print("write_merged_bed (HG00096) timeit:", timeit(
-    lambda: write_merged_bed(merged_set, TEST_DIR / "output.bed"),
-    number=1,
-))
-
-# %% Consensus callset based on source counts
-selection = filter_edges(aggregate_benchmark_hg00096, max_padding=0)
-merged = merge_components(aggregate_benchmark_hg00096, selection)
-for level in (1, 2, 3):
-    print(f">= {level} source(s):", int((merged.n_sources >= level).sum()))
 
 # %% Create Interval Sets
-from consensuscnv.classification.intervals import IntervalSet
 
 # 1. Benchmark
 benchmark_callset = collect_callsets(read_bed_calls(bed) for bed in glob.glob(str(BENCHMARK_DIR / "*/*.bed")))
 benchmark_merged = merge_components(benchmark_callset, max_padding=0)
-benchmark_merged_interval_set = IntervalSet.from_merged(benchmark_merged)
+benchmark_merged_interval_set = evaluation_intervals(benchmark_merged)
 print("Benchmark:")
 print(len(benchmark_callset.calls), "calls in benchmark callset")
 print(len(benchmark_merged.starts), "calls in benchmark merged callset")
-print(len(benchmark_merged_interval_set.starts), "intervals in merged interval set")
+print(len(benchmark_merged_interval_set.starts),
+      f"intervals after the {SIZE_FLOOR:,} bp size floor")
 
 # 2. Query
 query_callset: CallSet = collect_callsets(read_bed_calls(bed) for bed in glob.glob(str(QUERY_DIR / "*/*.bed")))
 query_merged: MergedCallSet = merge_components(query_callset, min_reciprocal_overlap=0.5, min_sources=2)
-query_merged_interval_set: IntervalSet = IntervalSet.from_merged(query_merged)
+query_merged_interval_set: IntervalSet = evaluation_intervals(query_merged)
 print("\nQuery:")
 print(len(query_callset.calls), "calls in query callset")
 print(len(query_merged.starts), "calls in query merged callset")
-print(len(query_merged_interval_set.starts), "intervals in query merged interval set")
+print(len(query_merged_interval_set.starts),
+      f"intervals after the {SIZE_FLOOR:,} bp size floor")
 
 # %% Evaluate performance across classification thresholds
 candidate_set = build_candidates(query_merged_interval_set, benchmark_merged_interval_set)
@@ -181,7 +149,7 @@ merging_threshold_to_metrics: list[tuple[float, tuple[float, float, float]]] = [
 
 for threshold in np.arange(0.0, 1.0, 0.01):
     query_merged_variable: MergedCallSet = merge_components(query_callset, min_reciprocal_overlap=threshold, min_sources=3)
-    query_merged_interval_set_variable: IntervalSet = IntervalSet.from_merged(query_merged_variable)
+    query_merged_interval_set_variable: IntervalSet = evaluation_intervals(query_merged_variable)
     candidate_set = build_candidates(query_merged_interval_set_variable, benchmark_merged_interval_set)
     classification = classify(candidate_set, min_reciprocal_overlap=0.5, validate=False)
     summary = classification.summary()
@@ -212,11 +180,11 @@ benchmark_padding_threshold_to_metrics: list[tuple[int, tuple[float, float, floa
 padding_values_log = np.concatenate(([0],np.logspace(1, 7, num=50, base=10, dtype=np.int64)))
 
 _query_merged_variable: MergedCallSet = merge_components(query_callset, min_reciprocal_overlap=0.5, min_sources=2)
-_query_merged_interval_set_variable: IntervalSet = IntervalSet.from_merged(_query_merged_variable)
+_query_merged_interval_set_variable: IntervalSet = evaluation_intervals(_query_merged_variable)
 
 for threhsold in padding_values_log:
     benchmark_merged_variable: MergedCallSet = merge_components(benchmark_callset, max_padding=int(threhsold))
-    benchmark_merged_interval_set_variable: IntervalSet = IntervalSet.from_merged(benchmark_merged_variable)
+    benchmark_merged_interval_set_variable: IntervalSet = evaluation_intervals(benchmark_merged_variable)
     candidate_set = build_candidates(_query_merged_interval_set_variable, benchmark_merged_interval_set_variable)
     classification = classify(candidate_set, min_reciprocal_overlap=0.3, validate=False)
     summary = classification.summary()
@@ -360,12 +328,12 @@ range_of_classify_threshold = np.round(np.arange(0.05, 1.0, 0.05), 2)
 all_combinations = list(itertools.product(range_of_consensus_threhsolds, range_of_benchmark_padding, range_of_classify_threshold))
 
 query_callsets_dict = {
-    threshold: IntervalSet.from_merged(merge_components(query_callset, min_reciprocal_overlap=threshold, min_sources=2))
+    threshold: evaluation_intervals(merge_components(query_callset, min_reciprocal_overlap=threshold, min_sources=2))
     for threshold in range_of_consensus_threhsolds
 }
 
 benchmark_callsets_dict = {
-    padding: IntervalSet.from_merged(merge_components(benchmark_callset, max_padding=int(padding)))
+    padding: evaluation_intervals(merge_components(benchmark_callset, max_padding=int(padding)))
     for padding in range_of_benchmark_padding
 }
 
