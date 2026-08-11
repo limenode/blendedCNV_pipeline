@@ -15,9 +15,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
 from consensuscnv.classification.intervals import IntervalSet
 from consensuscnv.classification.pairs import CandidateSet, PairSelection, filter_candidates
+from consensuscnv.utils import DistributionType
 
 
 class ClassLabel(Enum):
@@ -265,6 +267,46 @@ def match_topology(classification: Classification) -> MatchTopology:
         max_padding=classification.max_padding,
     )
 
+def _counts_by_group(
+    classification: Classification,
+    query_group: np.ndarray,
+    truth_group: np.ndarray,
+    width: int,
+) -> tuple[np.ndarray, ...]:
+    """Per-group (n_query, n_truth, n_true_positive, n_truth_found, n_pairs).
+
+    One scatter-add per column. Query-side columns are keyed by `query_group`
+    and truth-side ones by `truth_group`, which is what makes the two sides'
+    denominators independent.
+    """
+    return (
+        np.bincount(query_group, minlength=width),
+        np.bincount(truth_group, minlength=width),
+        np.bincount(query_group, weights=classification.query_matched,
+                    minlength=width).astype(np.int64),
+        np.bincount(truth_group, weights=classification.truth_matched,
+                    minlength=width).astype(np.int64),
+        np.bincount(query_group, weights=classification.query_n_partners,
+                    minlength=width).astype(np.int64),
+    )
+
+def _summary_from_counts(
+    counts: tuple[np.ndarray, ...], index: int, classification: Classification
+) -> ClassificationSummary:
+    """Pull one group out of `_counts_by_group` output as a ClassificationSummary."""
+    n_query, n_truth, n_tp, n_found, n_pairs = counts
+    return ClassificationSummary(
+        n_query=int(n_query[index]),
+        n_truth=int(n_truth[index]),
+        n_pairs=int(n_pairs[index]),
+        n_true_positive=int(n_tp[index]),
+        n_false_positive=int(n_query[index] - n_tp[index]),
+        n_truth_found=int(n_found[index]),
+        n_false_negative=int(n_truth[index] - n_found[index]),
+        min_reciprocal_overlap=classification.min_reciprocal_overlap,
+        max_padding=classification.max_padding,
+    )
+
 def group_metrics(
     classification: Classification,
     by: str = "sample_idx"
@@ -275,35 +317,308 @@ def group_metrics(
     truth_group = getattr(classification.truth, by)
     width = int(max(query_group.max(initial=-1), truth_group.max(initial=-1)) + 1)
 
-    n_query = np.bincount(query_group, minlength=width)
-    n_truth = np.bincount(truth_group, minlength=width)
-    n_tp = np.bincount(query_group, weights=classification.query_matched, minlength=width)
-    n_found = np.bincount(truth_group, weights=classification.truth_matched, minlength=width)
-    np_pairs = np.bincount(query_group, weights=classification.query_n_partners, minlength=width)
+    counts = _counts_by_group(classification, query_group, truth_group, width)
+    n_query, n_truth = counts[0], counts[1]
 
     return {
-        group_id: ClassificationSummary(
-            n_query=int(n_query[group_id]),
-            n_truth=int(n_truth[group_id]),
-            n_pairs=int(np_pairs[group_id]),
-            n_true_positive=int(n_tp[group_id]),
-            n_false_positive=int(n_query[group_id] - n_tp[group_id]),
-            n_truth_found=int(n_found[group_id]),
-            n_false_negative=int(n_truth[group_id] - n_found[group_id]),
-            min_reciprocal_overlap=classification.min_reciprocal_overlap,
-            max_padding=classification.max_padding,
-        )
+        group_id: _summary_from_counts(counts, group_id, classification)
         for group_id in range(width)
         if n_query[group_id] > 0 or n_truth[group_id] > 0
     }
 
 
+@dataclass(frozen=True, slots=True)
+class SizeBinning:
+    """Row -> size-bin assignment for one query/truth pair.
+
+    Depends only on the interval sizes, never on a classification threshold, so
+    one SizeBinning serves every parameter point -- the same hoist that makes
+    `CandidateSet` reusable across a sweep.
+
+    Bin ``k`` covers ``[lower_edges[k], lower_edges[k + 1])``: bin 0 is
+    everything below ``edges[0]`` and bin ``len(edges)`` everything at or above
+    ``edges[-1]``.
+    """
+
+    edges: np.ndarray
+    query_bin: np.ndarray = field(repr=False)
+    truth_bin: np.ndarray = field(repr=False)
+
+    def __len__(self) -> int:
+        return len(self.edges) + 1
+
+    @property
+    def lower_edges(self) -> np.ndarray:
+        """Left edge of each bin -- the natural x values for a plot."""
+        return np.concatenate(([0], self.edges))
+
+    @classmethod
+    def from_candidates(cls, candidates: CandidateSet, edges: np.ndarray) -> "SizeBinning":
+        edges = np.asarray(edges)
+        return cls(
+            edges=edges,
+            query_bin=np.searchsorted(edges, candidates.query.lengths, side="right"),
+            truth_bin=np.searchsorted(edges, candidates.truth.lengths, side="right"),
+        )
+
+    @classmethod
+    def at_every_size(cls, candidates: CandidateSet) -> "SizeBinning":
+        """Bin at every distinct size present in either set.
+
+        The metrics are step functions that can only change where a row's size
+        actually falls, so this resolution is exact -- it reproduces a
+        sort-and-step sweep point for point. Distinct sizes are far fewer than
+        rows, and `bincount` is flat in the number of bins, so it is also cheap.
+        """
+        return cls.from_candidates(
+            candidates,
+            np.union1d(np.unique(candidates.query.lengths), np.unique(candidates.truth.lengths)),
+        )
+
+@dataclass(frozen=True, slots=True)
+class SizeMetrics:
+    """Classification metrics as a function of CNV size.
+
+    Columnar rather than a list of summaries, because these are meant to be
+    plotted. `precision` / `recall` / `f1` are NaN where the corresponding
+    denominator is empty, so a plot breaks the line instead of drawing a drop to
+    zero that would read as a real collapse. Index into it for a
+    `ClassificationSummary` of one bin, which keeps the scalar 0.0 convention.
+    """
+
+    lower_edges: np.ndarray
+    n_query: np.ndarray
+    n_truth: np.ndarray
+    n_pairs: np.ndarray
+    n_true_positive: np.ndarray
+    n_truth_found: np.ndarray
+
+    distribution: DistributionType
+    min_reciprocal_overlap: float
+    max_padding: int | None
+
+    def __len__(self) -> int:
+        return len(self.lower_edges)
+
+    def __getitem__(self, index: int) -> ClassificationSummary:
+        return ClassificationSummary(
+            n_query=int(self.n_query[index]),
+            n_truth=int(self.n_truth[index]),
+            n_pairs=int(self.n_pairs[index]),
+            n_true_positive=int(self.n_true_positive[index]),
+            n_false_positive=int(self.n_query[index] - self.n_true_positive[index]),
+            n_truth_found=int(self.n_truth_found[index]),
+            n_false_negative=int(self.n_truth[index] - self.n_truth_found[index]),
+            min_reciprocal_overlap=self.min_reciprocal_overlap,
+            max_padding=self.max_padding,
+        )
+
+    @property
+    def n_false_positive(self) -> np.ndarray:
+        return self.n_query - self.n_true_positive
+
+    @property
+    def n_false_negative(self) -> np.ndarray:
+        return self.n_truth - self.n_truth_found
+
+    @property
+    def precision(self) -> np.ndarray:
+        """Share of query calls of this size that matched something."""
+        return _safe_ratio(self.n_true_positive, self.n_query)
+
+    @property
+    def recall(self) -> np.ndarray:
+        """Share of truth calls of this size that were found."""
+        return _safe_ratio(self.n_truth_found, self.n_truth)
+
+    def f_beta(self, beta: float = 1.0) -> np.ndarray:
+        p, r = self.precision, self.recall
+        beta_squared = beta**2
+        return _safe_ratio((1 + beta_squared) * p * r, beta_squared * p + r)
+
+    @property
+    def f1(self) -> np.ndarray:
+        return self.f_beta(beta=1.0)
+
+def _safe_ratio(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
+    """Elementwise division, NaN where the denominator is zero or undefined."""
+    numerator = np.asarray(numerator, dtype=np.float64)
+    denominator = np.asarray(denominator, dtype=np.float64)
+    valid = denominator > 0
+    out = np.full(denominator.shape, np.nan)
+    np.divide(numerator, denominator, out=out, where=valid)
+    return out
+
+def size_metrics(
+    classification: Classification,
+    bins: "SizeBinning | np.ndarray",
+    *,
+    distribution: DistributionType = DistributionType.DENSITY,
+) -> SizeMetrics:
+    """Classification metrics stratified by CNV size.
+
+    Query rows are binned by query size and truth rows by truth size, so
+    `precision` at a size is over calls of that size and `recall` is over truth
+    events of that size. They are different populations by construction -- there
+    is no single "number of CNVs of size s" that both share.
+
+    `distribution` selects how bins accumulate:
+        DENSITY                  -- calls whose size falls in the bin
+        CUMULATIVE               -- calls at or below the bin's upper edge
+        COMPLEMENTARY_CUMULATIVE -- calls at or above the bin's lower edge
+
+    Both cumulative forms are exact at their edges: they are the same running
+    totals a sort-and-step sweep produces, evaluated at the chosen sizes rather
+    than at every distinct one. Use `SizeBinning.at_every_size` for the full
+    curve. Pass a prebuilt `SizeBinning` to reuse the assignment across a sweep;
+    an array of edges is binned on the spot.
+    """
+    if not isinstance(bins, SizeBinning):
+        bins = SizeBinning.from_candidates(classification.candidates, bins)
+
+    counts = _counts_by_group(classification, bins.query_bin, bins.truth_bin, len(bins))
+
+    if distribution is DistributionType.CUMULATIVE:
+        counts = tuple(np.cumsum(column) for column in counts)
+    elif distribution is DistributionType.COMPLEMENTARY_CUMULATIVE:
+        counts = tuple(np.cumsum(column[::-1])[::-1] for column in counts)
+
+    n_query, n_truth, n_tp, n_found, n_pairs = counts
+    return SizeMetrics(
+        lower_edges=bins.lower_edges,
+        n_query=n_query,
+        n_truth=n_truth,
+        n_pairs=n_pairs,
+        n_true_positive=n_tp,
+        n_truth_found=n_found,
+        distribution=distribution,
+        min_reciprocal_overlap=classification.min_reciprocal_overlap,
+        max_padding=classification.max_padding,
+    )
+
+@dataclass(frozen=True, slots=True)
+class SizeDensityCurve:
+    """Kernel-smoothed metrics against size, plus the size densities behind them.
+
+    `precision` here is a ratio of two kernel density estimates sharing one
+    bandwidth: the density of matched query calls over the density of all query
+    calls, at each size. That is the smooth counterpart of a DENSITY-binned
+    `SizeMetrics` -- soft kernel weights in place of hard bin edges -- and it is
+    a local rate, not a probability density; only `query_density` and
+    `truth_density` integrate to one.
+
+    `query_weight` / `truth_weight` are the effective number of calls behind
+    each grid point (the summed kernel weights). Metrics are NaN wherever that
+    falls below the requested floor, since a ratio estimated from two calls is
+    noise however smooth it looks.
+    """
+
+    sizes: np.ndarray
+    precision: np.ndarray
+    recall: np.ndarray
+    query_density: np.ndarray
+    truth_density: np.ndarray
+    query_weight: np.ndarray = field(repr=False)
+    truth_weight: np.ndarray = field(repr=False)
+
+    bandwidth: float
+    min_effective_count: float
+    min_reciprocal_overlap: float
+    max_padding: int | None
+
+    def __len__(self) -> int:
+        return len(self.sizes)
+
+    def f_beta(self, beta: float = 1.0) -> np.ndarray:
+        p, r = self.precision, self.recall
+        beta_squared = beta**2
+        return _safe_ratio((1 + beta_squared) * p * r, beta_squared * p + r)
+
+    @property
+    def f1(self) -> np.ndarray:
+        return self.f_beta(beta=1.0)
+
+def size_density_curve(
+    classification: Classification,
+    *,
+    bandwidth: float = 0.12,
+    n_points: int = 512,
+    size_range: tuple[float, float] | None = None,
+    min_effective_count: float = 20.0,
+) -> SizeDensityCurve:
+    """Kernel-smoothed precision and recall against CNV size.
+
+    Sizes are smoothed in log10 space, where CNV size distributions are roughly
+    unimodal and a single `bandwidth` (in decades -- 0.12 is about +/-32%) is
+    meaningful across four orders of magnitude. A fixed-width kernel in raw base
+    pairs would be far too wide at 1 kb and far too narrow at 1 Mb.
+
+    Implemented as a fine histogram convolved with a Gaussian rather than an
+    O(n_points * n_rows) kernel sum, which is what makes it affordable over large
+    numbers of truth rows. Numerator and denominator are smoothed identically, so
+    the boundary bias of the two densities largely cancels in their ratio.
+    """
+    query_size = classification.query.lengths
+    truth_size = classification.truth.lengths
+
+    # log10 of a 0-length interval is undefined; clamp to 1 bp.
+    log_query = np.log10(np.maximum(query_size, 1))
+    log_truth = np.log10(np.maximum(truth_size, 1))
+
+    if size_range is None:
+        low = float(min(log_query.min(), log_truth.min()))
+        high = float(max(log_query.max(), log_truth.max()))
+    else:
+        low, high = (float(np.log10(max(bound, 1))) for bound in size_range)
+    if not high > low:
+        high = low + 1.0
+
+    grid = np.linspace(low, high, n_points)
+    step = (high - low) / (n_points - 1)
+    sigma = bandwidth / step
+
+    def smooth(log_sizes: np.ndarray, matched: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        index = np.clip(np.rint((log_sizes - low) / step).astype(np.int64), 0, n_points - 1)
+        total = np.bincount(index, minlength=n_points).astype(np.float64)
+        hits = np.bincount(index, weights=matched, minlength=n_points)
+        return (
+            gaussian_filter1d(total, sigma, mode="constant"),
+            gaussian_filter1d(hits, sigma, mode="constant"),
+        )
+
+    query_total, query_hits = smooth(log_query, classification.query_matched)
+    truth_total, truth_hits = smooth(log_truth, classification.truth_matched)
+
+    # gaussian_filter1d normalises its kernel to sum 1, so multiplying back by
+    # sqrt(2*pi)*sigma recovers the summed unnormalised weights -- the effective
+    # number of calls each grid point is estimated from.
+    weight_scale = np.sqrt(2.0 * np.pi) * sigma
+    query_weight = query_total * weight_scale
+    truth_weight = truth_total * weight_scale
+
+    precision = _safe_ratio(query_hits, np.where(query_weight >= min_effective_count,
+                                                 query_total, 0.0))
+    recall = _safe_ratio(truth_hits, np.where(truth_weight >= min_effective_count,
+                                              truth_total, 0.0))
+
+    return SizeDensityCurve(
+        sizes=np.power(10.0, grid),
+        precision=precision,
+        recall=recall,
+        query_density=query_total / max(query_total.sum() * step, 1e-300),
+        truth_density=truth_total / max(truth_total.sum() * step, 1e-300),
+        query_weight=query_weight,
+        truth_weight=truth_weight,
+        bandwidth=bandwidth,
+        min_effective_count=min_effective_count,
+        min_reciprocal_overlap=classification.min_reciprocal_overlap,
+        max_padding=classification.max_padding,
+    )
+
 def _warn_if_truth_covers_extra_samples(candidates: CandidateSet) -> None:
     """Warn if the truth set contains samples not in the query set.
 
-    This is a common source of confusion, because it can make the recall
-    appear lower than expected. The user may have intended to filter the
-    truth set to only include samples present in the query set.
+    If warning shows, recall may be lower than expected due a higher truth call count.
     """
     query_samples = np.unique(candidates.query.sample_idx)
     truth_samples = np.unique(candidates.truth.sample_idx)

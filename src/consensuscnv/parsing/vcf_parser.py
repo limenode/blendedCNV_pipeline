@@ -15,7 +15,7 @@ from consensuscnv.utils import (
     sanitize_svtype,
 )
 
-valid_chromosomes = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY", "chrM"]
+valid_chromosomes = [f"chr{i}" for i in range(1, 23)]
 
 def expand_pattern(pattern: str) -> dict[str, Path]:
     """Find every file matching `pattern` and key it by sample id.
