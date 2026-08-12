@@ -4,7 +4,7 @@ from typing import TextIO
 
 from liftover import get_lifter
 
-from consensuscnv.parsing.parser_utils import discover_samples_of_interest
+from consensuscnv.parsing.parser_utils import ExclusionMask, discover_samples_of_interest
 from consensuscnv.utils import LiftoverStatus, PipelineConfig, lift_interval
 
 
@@ -41,9 +41,13 @@ def iter_penncnv_records(penncnv_file: str) -> Iterator[tuple[str, int, int, str
 
 
 def process_penncnv_to_beds(
-    config: PipelineConfig, common_only: bool = True
+    config: PipelineConfig,
+    excluded_regions: ExclusionMask | None = None,
+    common_only: bool = True,
+    max_excluded_fraction: float = 0.0,
 ) -> dict | None:
     """Convert control PennCNV datasets to per-sample DEL/DUP BED files."""
+    excluded_regions = excluded_regions or ExclusionMask({})
     if not config.control:
         print("No control datasets found in config. Skipping control processing.")
         return None
@@ -71,6 +75,9 @@ def process_penncnv_to_beds(
 
         dropped_unmapped = 0
         dropped_size_change = 0
+        dropped_excluded = 0
+        bases_removed_excluded = 0
+        bases_masked_excluded = 0
         handles: dict[str, TextIO] = {}  # (sample_id) -> open file
         try:
             for chrom, start, end, svtype, sample_id in iter_penncnv_records(
@@ -90,6 +97,13 @@ def process_penncnv_to_beds(
                             dropped_size_change += 1
                         continue
                     start, end = lifted
+
+                # After liftover, so the mask sees target-assembly coordinates.
+                if excluded_regions.is_excluded(chrom, start, end, max_excluded_fraction):
+                    dropped_excluded += 1
+                    bases_removed_excluded += end - start
+                    bases_masked_excluded += excluded_regions.overlap_bp(chrom, start, end)
+                    continue
 
                 # Open one handle per (sample_id) lazily, so no empty files are made.
                 fh = handles.get(sample_id)
@@ -114,6 +128,20 @@ def process_penncnv_to_beds(
                 "records_dropped_unmapped": dropped_unmapped,
                 "records_dropped_size_change": dropped_size_change,
             }
+
+        if dropped_excluded:
+            print(
+                f"  {control_name}: dropped {dropped_excluded:,} records overlapping the "
+                f"exclusion mask ({bases_removed_excluded / 1e6:,.1f} Mb removed, "
+                f"{bases_masked_excluded / 1e6:,.1f} Mb of it inside the mask)"
+            )
+            liftover_stats.setdefault(control_name, {}).update(
+                {
+                    "records_dropped_excluded": dropped_excluded,
+                    "bases_removed_excluded": bases_removed_excluded,
+                    "bases_masked_excluded": bases_masked_excluded,
+                }
+            )
         print(f"  Control dataset '{control_name}' processing complete.\n")
 
     return liftover_stats if liftover_stats else None

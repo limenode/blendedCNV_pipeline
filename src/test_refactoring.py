@@ -2,7 +2,6 @@
 
 import glob
 from pathlib import Path
-from timeit import timeit
 import itertools
 import numpy as np
 import matplotlib.pyplot as plt

@@ -4,7 +4,7 @@ from typing import TextIO
 from cyvcf2 import VCF
 from liftover import get_lifter
 
-from consensuscnv.parsing.parser_utils import discover_samples_of_interest
+from consensuscnv.parsing.parser_utils import ExclusionMask, discover_samples_of_interest
 from consensuscnv.utils import (
     LiftoverStatus,
     PipelineConfig,
@@ -15,9 +15,13 @@ from consensuscnv.utils import (
 
 
 def process_benchmarks_to_beds(
-    config: PipelineConfig, common_only: bool = True
+    config: PipelineConfig,
+    excluded_regions: ExclusionMask | None = None,
+    common_only: bool = True,
+    max_excluded_fraction: float = 0.0,
 ) -> dict | None:
     """Convert benchmark VCFs to per-benchmark, per-sample BED files."""
+    excluded_regions = excluded_regions or ExclusionMask({})
     if not config.benchmark:
         print("No benchmark map found in config. Skipping benchmark parsing.")
         return None
@@ -44,6 +48,9 @@ def process_benchmarks_to_beds(
 
         dropped_unmapped = 0
         dropped_size_change = 0
+        dropped_excluded = 0
+        bases_removed_excluded = 0
+        bases_masked_excluded = 0
         handles: dict[str, TextIO] = {}  # sample_id -> open file
         try:
             for record in vcf:
@@ -85,8 +92,14 @@ def process_benchmarks_to_beds(
                         continue
                     start, end = lifted
 
-                # Write one entry per sample that carries a non-reference genotype.
-                # Handles are opened lazily so samples with no calls make no file.
+                # After liftover, so the mask sees target-assembly coordinates.
+                if excluded_regions.is_excluded(chrom, start, end, max_excluded_fraction):
+                    dropped_excluded += 1
+                    bases_removed_excluded += end - start
+                    bases_masked_excluded += excluded_regions.overlap_bp(chrom, start, end)
+                    continue
+
+                # Open one handle per (sample_id) lazily, so no empty files are made.
                 for idx, gt in enumerate(record.genotypes):
                     if gt[0] == 0 and gt[1] == 0:
                         continue  # Skip homozygous reference samples
@@ -114,6 +127,20 @@ def process_benchmarks_to_beds(
                 "records_dropped_unmapped": dropped_unmapped,
                 "records_dropped_size_change": dropped_size_change,
             }
+
+        if dropped_excluded:
+            print(
+                f"  {bench_name}: dropped {dropped_excluded:,} records overlapping the "
+                f"exclusion mask ({bases_removed_excluded / 1e6:,.1f} Mb removed, "
+                f"{bases_masked_excluded / 1e6:,.1f} Mb of it inside the mask)"
+            )
+            liftover_stats.setdefault(bench_name, {}).update(
+                {
+                    "records_dropped_excluded": dropped_excluded,
+                    "bases_removed_excluded": bases_removed_excluded,
+                    "bases_masked_excluded": bases_masked_excluded,
+                }
+            )
         print(f"  Benchmark '{bench_name}' processing complete.\n")
 
     return liftover_stats if liftover_stats else None

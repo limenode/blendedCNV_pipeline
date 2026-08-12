@@ -3,7 +3,6 @@ import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
@@ -13,6 +12,7 @@ import yaml
 from liftover import ChainFile
 
 from consensuscnv.output_layout import OutputLayout
+
 
 class DistributionType(Enum):
     DENSITY = "density"
@@ -45,9 +45,9 @@ class PipelineConfig:
     benchmark: dict[str, str] = field(default_factory=dict)
     liftover: dict[str, dict[str, str]] = field(default_factory=dict)
     valid_chromosomes: set = field(default_factory=set)
-    chromosome_order: List[str] = field(default_factory=list)
-    excluded_regions_file: Optional[str] = None
-    analysis_plots_config: Optional[str] = None
+    chromosome_order: list[str] = field(default_factory=list)
+    excluded_regions_file: str | None = None
+    analysis_plots_config: str | None = None
 
     # --- Thresholds ---
     consensus_reciprocal_threshold: float = 0.5
@@ -99,7 +99,7 @@ def build_config(config_path: Path, *, do_processing: bool,
         config = yaml.safe_load(f)
 
     # Process benchmark to handle URLs
-    if 'benchmark' in config and config['benchmark']:
+    if config.get('benchmark'):
         # Get project root (parent of the config file's directory or workspace root)
         project_root = Path(config_path).parent
         tmp_dir = project_root / 'tmp'
@@ -114,7 +114,7 @@ def build_config(config_path: Path, *, do_processing: bool,
 
     # Read genome.txt and store set of valid chromosomes
     # Get first column of genome file as set of valid chromosomes
-    if 'genome_file' in config and config['genome_file']:
+    if config.get('genome_file'):
         genome_file = Path(config['genome_file'])
         if genome_file.exists():
             with open(genome_file, 'r') as f:
@@ -166,19 +166,19 @@ def _download_benchmark(url: str, tmp_dir: Path, benchmark_name: str) -> Path:
     # Extract filename from URL
     parsed_url = urlparse(url)
     filename = os.path.basename(parsed_url.path)
-    
+
     # If no filename in URL, use benchmark name
     if not filename:
         filename = f"{benchmark_name}.vcf.gz"
-    
+
     # Create a unique filename with benchmark name prefix
     local_path = tmp_dir / f"{benchmark_name}_{filename}"
-    
+
     # Check if file already exists
     if local_path.exists():
         # print(f"File already exists at {local_path}, skipping download")
         return local_path
-    
+
     # Download the file (use urllib for FTP, requests for HTTP/HTTPS)
     if parsed_url.scheme in ('ftp', 'ftps'):
         # Use urllib for FTP downloads
@@ -187,12 +187,12 @@ def _download_benchmark(url: str, tmp_dir: Path, benchmark_name: str) -> Path:
         # Use requests for HTTP/HTTPS downloads with streaming
         response = requests.get(url, stream=True)
         response.raise_for_status()
-        
+
         with open(local_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-    
+
     return local_path
 
 # Define metric functions
@@ -224,10 +224,10 @@ def f2_score(tp: int, fp: int, fn: int) -> float:
     return f_beta_score(tp, fp, fn, beta=2.0)
 
 def generate_size_intervals(
-    start: float, 
-    end: float, 
-    n_points: int, 
-) -> List[Tuple[float, float]]:
+    start: float,
+    end: float,
+    n_points: int,
+) -> list[tuple[float, float]]:
     """
     Generate size intervals for different distribution analyses.
     """
@@ -250,7 +250,7 @@ def lift_interval(
     start: int,
     end: int,
     size_change_threshold: float = 0.10,
-) -> Tuple[LiftoverStatus, Optional[Tuple[int, int]]]:
+) -> tuple[LiftoverStatus, tuple[int, int] | None]:
     """Lift a (start, end) interval to another genome build.
 
     Returns a `(status, coords)` pair:
@@ -281,18 +281,18 @@ def lift_interval(
         return LiftoverStatus.SIZE_CHANGE, None
     return LiftoverStatus.OK, (new_start, new_end)
 
-def sanitize_svtype(svtype: Optional[str], record_id: str = "") -> str:
+def sanitize_svtype(svtype: str | None, record_id: str = "") -> str:
     """Sanitize SVTYPE to DEL, DUP, or NA."""
     if svtype is None:
         return 'NA'
-    
+
     svtype = svtype.upper()
-    
+
     if svtype in {'DEL', 'DELETION'}:
         return "DEL"
     elif svtype in {'DUP', 'DUPLICATION', 'INS', 'INSERTION', 'LINE1', 'ALU', 'SVA'}:
         return "DUP"
-    
+
     # Handle CNV type by checking ID field
     if 'CNV' in svtype:
         record_id_upper = record_id.upper()
@@ -300,5 +300,5 @@ def sanitize_svtype(svtype: Optional[str], record_id: str = "") -> str:
             return 'DEL'
         elif 'DUP' in record_id_upper:
             return 'DUP'
-    
+
     return 'NA'

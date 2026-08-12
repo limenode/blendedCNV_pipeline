@@ -1,5 +1,6 @@
 import glob
 import re
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pandas as pd
 from cyvcf2 import VCF
 from liftover import ChainFile, get_lifter
 
+from consensuscnv.parsing.parser_utils import ExclusionMask
 from consensuscnv.utils import (
     LiftoverStatus,
     PipelineConfig,
@@ -16,6 +18,37 @@ from consensuscnv.utils import (
 )
 
 valid_chromosomes = [f"chr{i}" for i in range(1, 23)]
+
+# Every counter `_process_single_vcf_to_df` reports. Removal counters are counted
+# against `total_call_count`, which is tallied before any filtering.
+# `bases_removed_excluded` is the full span of the dropped calls;
+# `bases_masked_excluded` is only the part actually inside the mask. Their ratio
+# is the collateral cost of dropping whole calls instead of trimming them.
+PARSING_STAT_KEYS = (
+    "total_call_count",
+    "total_del_call_count",
+    "total_dup_call_count",
+    "total_base_count",
+    "total_del_base_count",
+    "total_dup_base_count",
+    "calls_removed_from_failed_liftover",
+    "calls_del_removed_from_failed_liftover",
+    "calls_dup_removed_from_failed_liftover",
+    "bases_removed_from_failed_liftover",
+    "bases_removed_from_failed_liftover_del",
+    "bases_removed_from_failed_liftover_dup",
+    "calls_removed_unmapped",
+    "bases_removed_unmapped",
+    "calls_removed_size_change",
+    "bases_removed_size_change",
+    "calls_removed_excluded",
+    "calls_del_removed_excluded",
+    "calls_dup_removed_excluded",
+    "bases_removed_excluded",
+    "bases_del_removed_excluded",
+    "bases_dup_removed_excluded",
+    "bases_masked_excluded",
+)
 
 def expand_pattern(pattern: str) -> dict[str, Path]:
     """Find every file matching `pattern` and key it by sample id.
@@ -161,10 +194,16 @@ def determine_svtype_method(record) -> Callable:
 
 
 def _process_single_vcf_to_df(
-    vcf_path: Path, lifter: ChainFile | None = None, size_change_treshold: float = 0.1
+    vcf_path: Path,
+    excluded_regions: ExclusionMask,
+    lifter: ChainFile | None = None,
+    size_change_treshold: float = 0.1,
+    max_excluded_fraction: float = 0.0,
 ) -> tuple[pd.DataFrame, dict]:
     """Process a single VCF file and convert it to a DataFrame with BED-like format.
-    If a lifter is provided, apply liftover to the coordinates.
+    If a lifter is provided, apply liftover to the coordinates. Calls overlapping
+    `excluded_regions` by more than `max_excluded_fraction` of their length are
+    dropped whole (0.0 drops on any overlap).
     Returns a tuple of (DataFrame, statistics).
     """
 
@@ -172,22 +211,7 @@ def _process_single_vcf_to_df(
     vcf = VCF(vcf_path, threads=2)
     svtype_method: Callable | None = None
 
-    total_call_count = 0
-    total_del_call_count = 0
-    total_dup_call_count = 0
-    total_base_count = 0
-    total_del_base_count = 0
-    total_dup_base_count = 0
-    calls_removed_from_failed_liftover = 0
-    calls_del_removed_from_failed_liftover = 0
-    calls_dup_removed_from_failed_liftover = 0
-    bases_removed_from_failed_liftover = 0
-    bases_removed_from_failed_liftover_del = 0
-    bases_removed_from_failed_liftover_dup = 0
-    calls_removed_unmapped = 0
-    bases_removed_unmapped = 0
-    calls_removed_size_change = 0
-    bases_removed_size_change = 0
+    stats: Counter[str] = Counter(dict.fromkeys(PARSING_STAT_KEYS, 0))
 
     for record in vcf:
         if not record.ALT or len(record.ALT) == 0:
@@ -205,15 +229,14 @@ def _process_single_vcf_to_df(
         end = extract_end_position(record)
         svtype = svtype_method(record)
 
-        total_call_count += 1
-        total_base_count += end - start
+        kind = svtype.lower() if svtype in ("DEL", "DUP") else None
+        size = end - start
 
-        if svtype == "DEL":
-            total_del_call_count += 1
-            total_del_base_count += end - start
-        elif svtype == "DUP":
-            total_dup_call_count += 1
-            total_dup_base_count += end - start
+        stats["total_call_count"] += 1
+        stats["total_base_count"] += size
+        if kind:
+            stats[f"total_{kind}_call_count"] += 1
+            stats[f"total_{kind}_base_count"] += size
 
         if lifter:
             old_size = end - start
@@ -221,51 +244,37 @@ def _process_single_vcf_to_df(
 
             # Drop records that fail to map or whose size drifts past the threshold.
             if lifted is None:
-                calls_removed_from_failed_liftover += 1
-                bases_removed_from_failed_liftover += old_size
-
-                if svtype == "DEL":
-                    calls_del_removed_from_failed_liftover += 1
-                    bases_removed_from_failed_liftover_del += old_size
-                elif svtype == "DUP":
-                    calls_dup_removed_from_failed_liftover += 1
-                    bases_removed_from_failed_liftover_dup += old_size
+                stats["calls_removed_from_failed_liftover"] += 1
+                stats["bases_removed_from_failed_liftover"] += old_size
+                if kind:
+                    stats[f"calls_{kind}_removed_from_failed_liftover"] += 1
+                    stats[f"bases_removed_from_failed_liftover_{kind}"] += old_size
 
                 if status is LiftoverStatus.UNMAPPED:
-                    calls_removed_unmapped += 1
-                    bases_removed_unmapped += old_size
+                    stats["calls_removed_unmapped"] += 1
+                    stats["bases_removed_unmapped"] += old_size
                 else:  # LiftoverStatus.SIZE_CHANGE
-                    calls_removed_size_change += 1
-                    bases_removed_size_change += old_size
+                    stats["calls_removed_size_change"] += 1
+                    stats["bases_removed_size_change"] += old_size
 
                 continue
 
             start, end = lifted
 
+        if excluded_regions.is_excluded(chrom, start, end, max_excluded_fraction):
+            stats["calls_removed_excluded"] += 1
+            stats["bases_removed_excluded"] += end - start
+            stats["bases_masked_excluded"] += excluded_regions.overlap_bp(chrom, start, end)
+            if kind:
+                stats[f"calls_{kind}_removed_excluded"] += 1
+                stats[f"bases_{kind}_removed_excluded"] += end - start
+            continue
+
         records.append((chrom, start, end, svtype))
 
     df = pd.DataFrame(records, columns=["chrom", "start", "end", "svtype"])
 
-    statistics = {
-        "total_call_count": total_call_count,
-        "total_del_call_count": total_del_call_count,
-        "total_dup_call_count": total_dup_call_count,
-        "total_base_count": total_base_count,
-        "total_del_base_count": total_del_base_count,
-        "total_dup_base_count": total_dup_base_count,
-        "calls_removed_from_failed_liftover": calls_removed_from_failed_liftover,
-        "bases_removed_from_failed_liftover": bases_removed_from_failed_liftover,
-        "calls_del_removed_from_failed_liftover": calls_del_removed_from_failed_liftover,
-        "calls_dup_removed_from_failed_liftover": calls_dup_removed_from_failed_liftover,
-        "bases_removed_from_failed_liftover_del": bases_removed_from_failed_liftover_del,
-        "bases_removed_from_failed_liftover_dup": bases_removed_from_failed_liftover_dup,
-        "calls_removed_unmapped": calls_removed_unmapped,
-        "bases_removed_unmapped": bases_removed_unmapped,
-        "calls_removed_size_change": calls_removed_size_change,
-        "bases_removed_size_change": bases_removed_size_change,
-    }
-
-    return df, statistics
+    return df, dict(stats)
 
 
 def parse_experimental_map(config: PipelineConfig) -> dict[str, dict[str, dict[str, Path]]]:
@@ -280,9 +289,14 @@ def parse_experimental_map(config: PipelineConfig) -> dict[str, dict[str, dict[s
     }
 
 
-def process_vcfs_to_beds(config: PipelineConfig, common_only: bool = True) -> list:
+def process_vcfs_to_beds(
+    config: PipelineConfig,
+    excluded_regions: ExclusionMask,
+    common_only: bool = True,
+    max_excluded_fraction: float = 0.0,
+) -> list:
     """Convert all experimental VCFs to BED format, applying liftover if needed.
-    Returns a list of liftover statistics for each experimental set, tool, and sample.
+    Returns a list of parsing statistics for each experimental set, tool, and sample.
     """
 
     layout = config.layout
@@ -320,7 +334,12 @@ def process_vcfs_to_beds(config: PipelineConfig, common_only: bool = True) -> li
                     layout.bed_tool_dir(experimental_name, tool) / f"{sample_id}.bed"
                 )
 
-                df, statistics = _process_single_vcf_to_df(vcf_path, lifter)
+                df, statistics = _process_single_vcf_to_df(
+                    vcf_path,
+                    excluded_regions,
+                    lifter,
+                    max_excluded_fraction=max_excluded_fraction,
+                )
 
                 statistics["experimental_name"] = experimental_name
                 statistics["sample_id"] = sample_id
