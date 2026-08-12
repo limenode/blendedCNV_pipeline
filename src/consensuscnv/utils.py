@@ -85,8 +85,13 @@ class PipelineConfig:
             do_analysis=do_analysis,
         )
 
-def build_config(config_path: Path, *, do_processing: bool,
-                 do_computation: bool, do_analysis: bool) -> PipelineConfig:
+def build_config(
+    config_path: Path,
+    *,
+    do_processing: bool = True,
+    do_computation: bool = True,
+    do_analysis: bool = True
+) -> PipelineConfig:
     """Load a config YAML and build a PipelineConfig.
 
     Parses the YAML at `config_path`, resolves benchmark URLs and valid

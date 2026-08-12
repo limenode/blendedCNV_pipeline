@@ -1,4 +1,5 @@
 import os
+from collections import Counter
 from typing import TextIO
 
 from cyvcf2 import VCF
@@ -13,18 +14,35 @@ from consensuscnv.utils import (
     sanitize_svtype,
 )
 
+BENCHMARK_STAT_KEYS = (
+    "total_record_count",
+    "total_call_count",
+    "total_del_call_count",
+    "total_dup_call_count",
+    "total_base_count",
+    "records_dropped",
+    "records_dropped_unmapped",
+    "records_dropped_size_change",
+    "records_removed_excluded",
+    "calls_removed_excluded",
+    "calls_del_removed_excluded",
+    "calls_dup_removed_excluded",
+    "bases_removed_excluded",
+    "bases_masked_excluded",
+)
+
 
 def process_benchmarks_to_beds(
     config: PipelineConfig,
     excluded_regions: ExclusionMask | None = None,
     common_only: bool = True,
     max_excluded_fraction: float = 0.0,
-) -> dict | None:
+) -> dict:
     """Convert benchmark VCFs to per-benchmark, per-sample BED files."""
     excluded_regions = excluded_regions or ExclusionMask({})
     if not config.benchmark:
         print("No benchmark map found in config. Skipping benchmark parsing.")
-        return None
+        return {}
 
     layout = config.layout
 
@@ -46,11 +64,7 @@ def process_benchmarks_to_beds(
             if liftover_dict else None
         )
 
-        dropped_unmapped = 0
-        dropped_size_change = 0
-        dropped_excluded = 0
-        bases_removed_excluded = 0
-        bases_masked_excluded = 0
+        stats: Counter[str] = Counter(dict.fromkeys(BENCHMARK_STAT_KEYS, 0))
         handles: dict[str, TextIO] = {}  # sample_id -> open file
         try:
             for record in vcf:
@@ -85,26 +99,44 @@ def process_benchmarks_to_beds(
                 if lifter:
                     status, lifted = lift_interval(lifter, chrom, start, end)
                     if lifted is None:
+                        stats["records_dropped"] += 1
                         if status is LiftoverStatus.UNMAPPED:
-                            dropped_unmapped += 1
+                            stats["records_dropped_unmapped"] += 1
                         else:  # LiftoverStatus.SIZE_CHANGE
-                            dropped_size_change += 1
+                            stats["records_dropped_size_change"] += 1
                         continue
                     start, end = lifted
 
+                # One VCF record becomes one BED line per carrier.
+                carriers = [
+                    vcf.samples[idx]
+                    for idx, gt in enumerate(record.genotypes)
+                    if not (gt[0] == 0 and gt[1] == 0)
+                ]
+                if not carriers:
+                    continue
+
+                kind = svtype.lower() if svtype in ("DEL", "DUP") else None
+                size = end - start
+                stats["total_record_count"] += 1
+                stats["total_call_count"] += len(carriers)
+                stats["total_base_count"] += size * len(carriers)
+                if kind:
+                    stats[f"total_{kind}_call_count"] += len(carriers)
+
                 # After liftover, so the mask sees target-assembly coordinates.
                 if excluded_regions.is_excluded(chrom, start, end, max_excluded_fraction):
-                    dropped_excluded += 1
-                    bases_removed_excluded += end - start
-                    bases_masked_excluded += excluded_regions.overlap_bp(chrom, start, end)
+                    masked = excluded_regions.overlap_bp(chrom, start, end)
+                    stats["records_removed_excluded"] += 1
+                    stats["calls_removed_excluded"] += len(carriers)
+                    stats["bases_removed_excluded"] += size * len(carriers)
+                    stats["bases_masked_excluded"] += masked * len(carriers)
+                    if kind:
+                        stats[f"calls_{kind}_removed_excluded"] += len(carriers)
                     continue
 
                 # Open one handle per (sample_id) lazily, so no empty files are made.
-                for idx, gt in enumerate(record.genotypes):
-                    if gt[0] == 0 and gt[1] == 0:
-                        continue  # Skip homozygous reference samples
-                    sample_id = vcf.samples[idx]
-
+                for sample_id in carriers:
                     fh = handles.get(sample_id)
                     if fh is None:
                         fh = open(output_dir / f"{sample_id}.bed", "w")
@@ -115,32 +147,27 @@ def process_benchmarks_to_beds(
                 fh.close()
 
         if liftover_dict:
-            dropped = dropped_unmapped + dropped_size_change
             print(
-                f"  {bench_name}: dropped {dropped} records that failed liftover "
-                f"({dropped_unmapped} unmapped, {dropped_size_change} size change)"
+                f"  {bench_name}: dropped {stats['records_dropped']} records that failed "
+                f"liftover ({stats['records_dropped_unmapped']} unmapped, "
+                f"{stats['records_dropped_size_change']} size change)"
             )
-            liftover_stats[bench_name] = {
-                "from": liftover_dict["from"],
-                "to": liftover_dict["to"],
-                "records_dropped": dropped,
-                "records_dropped_unmapped": dropped_unmapped,
-                "records_dropped_size_change": dropped_size_change,
-            }
 
-        if dropped_excluded:
+        if stats["calls_removed_excluded"]:
             print(
-                f"  {bench_name}: dropped {dropped_excluded:,} records overlapping the "
-                f"exclusion mask ({bases_removed_excluded / 1e6:,.1f} Mb removed, "
-                f"{bases_masked_excluded / 1e6:,.1f} Mb of it inside the mask)"
+                f"  {bench_name}: dropped {stats['calls_removed_excluded']:,} calls "
+                f"({stats['records_removed_excluded']:,} records) overlapping the "
+                f"exclusion mask, {stats['bases_removed_excluded'] / 1e6:,.1f} Mb removed, "
+                f"{stats['bases_masked_excluded'] / 1e6:,.1f} Mb of it inside the mask"
             )
-            liftover_stats.setdefault(bench_name, {}).update(
-                {
-                    "records_dropped_excluded": dropped_excluded,
-                    "bases_removed_excluded": bases_removed_excluded,
-                    "bases_masked_excluded": bases_masked_excluded,
-                }
-            )
+
+        # Recorded unconditionally: a benchmark that lost nothing still needs a
+        # row, otherwise "no exclusions" and "never ran" look identical.
+        liftover_stats[bench_name] = {
+            "liftover_from": liftover_dict["from"] if liftover_dict else "",
+            "liftover_to": liftover_dict["to"] if liftover_dict else "",
+            **dict(stats),
+        }
         print(f"  Benchmark '{bench_name}' processing complete.\n")
 
-    return liftover_stats if liftover_stats else None
+    return liftover_stats

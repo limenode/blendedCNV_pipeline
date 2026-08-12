@@ -1,4 +1,5 @@
 import os
+from collections import Counter
 from collections.abc import Iterator
 from typing import TextIO
 
@@ -40,17 +41,34 @@ def iter_penncnv_records(penncnv_file: str) -> Iterator[tuple[str, int, int, str
             yield chrom, int(start_str) - 1, int(end_str), svtype, sample_id
 
 
+# PennCNV records are already per-sample, so one record is one call.
+PENNCNV_STAT_KEYS = (
+    "total_call_count",
+    "total_del_call_count",
+    "total_dup_call_count",
+    "total_base_count",
+    "records_dropped",
+    "records_dropped_unmapped",
+    "records_dropped_size_change",
+    "calls_removed_excluded",
+    "calls_del_removed_excluded",
+    "calls_dup_removed_excluded",
+    "bases_removed_excluded",
+    "bases_masked_excluded",
+)
+
+
 def process_penncnv_to_beds(
     config: PipelineConfig,
     excluded_regions: ExclusionMask | None = None,
     common_only: bool = True,
     max_excluded_fraction: float = 0.0,
-) -> dict | None:
+) -> dict:
     """Convert control PennCNV datasets to per-sample DEL/DUP BED files."""
     excluded_regions = excluded_regions or ExclusionMask({})
     if not config.control:
         print("No control datasets found in config. Skipping control processing.")
-        return None
+        return {}
 
     layout = config.layout
 
@@ -73,11 +91,7 @@ def process_penncnv_to_beds(
             else None
         )
 
-        dropped_unmapped = 0
-        dropped_size_change = 0
-        dropped_excluded = 0
-        bases_removed_excluded = 0
-        bases_masked_excluded = 0
+        stats: Counter[str] = Counter(dict.fromkeys(PENNCNV_STAT_KEYS, 0))
         handles: dict[str, TextIO] = {}  # (sample_id) -> open file
         try:
             for chrom, start, end, svtype, sample_id in iter_penncnv_records(
@@ -91,18 +105,30 @@ def process_penncnv_to_beds(
                 if lifter:
                     status, lifted = lift_interval(lifter, chrom, start, end)
                     if lifted is None:
+                        stats["records_dropped"] += 1
                         if status is LiftoverStatus.UNMAPPED:
-                            dropped_unmapped += 1
+                            stats["records_dropped_unmapped"] += 1
                         else:  # LiftoverStatus.SIZE_CHANGE
-                            dropped_size_change += 1
+                            stats["records_dropped_size_change"] += 1
                         continue
                     start, end = lifted
 
+                kind = svtype.lower() if svtype in ("DEL", "DUP") else None
+                size = end - start
+                stats["total_call_count"] += 1
+                stats["total_base_count"] += size
+                if kind:
+                    stats[f"total_{kind}_call_count"] += 1
+
                 # After liftover, so the mask sees target-assembly coordinates.
                 if excluded_regions.is_excluded(chrom, start, end, max_excluded_fraction):
-                    dropped_excluded += 1
-                    bases_removed_excluded += end - start
-                    bases_masked_excluded += excluded_regions.overlap_bp(chrom, start, end)
+                    stats["calls_removed_excluded"] += 1
+                    stats["bases_removed_excluded"] += size
+                    stats["bases_masked_excluded"] += excluded_regions.overlap_bp(
+                        chrom, start, end
+                    )
+                    if kind:
+                        stats[f"calls_{kind}_removed_excluded"] += 1
                     continue
 
                 # Open one handle per (sample_id) lazily, so no empty files are made.
@@ -116,32 +142,27 @@ def process_penncnv_to_beds(
                 fh.close()
 
         if liftover_dict:
-            dropped = dropped_unmapped + dropped_size_change
             print(
-                f"  {control_name}: dropped {dropped} records that failed liftover "
-                f"({dropped_unmapped} unmapped, {dropped_size_change} size change)"
+                f"  {control_name}: dropped {stats['records_dropped']} records that failed "
+                f"liftover ({stats['records_dropped_unmapped']} unmapped, "
+                f"{stats['records_dropped_size_change']} size change)"
             )
-            liftover_stats[control_name] = {
-                "from": liftover_dict["from"],
-                "to": liftover_dict["to"],
-                "records_dropped": dropped,
-                "records_dropped_unmapped": dropped_unmapped,
-                "records_dropped_size_change": dropped_size_change,
-            }
 
-        if dropped_excluded:
+        if stats["calls_removed_excluded"]:
             print(
-                f"  {control_name}: dropped {dropped_excluded:,} records overlapping the "
-                f"exclusion mask ({bases_removed_excluded / 1e6:,.1f} Mb removed, "
-                f"{bases_masked_excluded / 1e6:,.1f} Mb of it inside the mask)"
+                f"  {control_name}: dropped {stats['calls_removed_excluded']:,} calls "
+                f"overlapping the exclusion mask, "
+                f"{stats['bases_removed_excluded'] / 1e6:,.1f} Mb removed, "
+                f"{stats['bases_masked_excluded'] / 1e6:,.1f} Mb of it inside the mask"
             )
-            liftover_stats.setdefault(control_name, {}).update(
-                {
-                    "records_dropped_excluded": dropped_excluded,
-                    "bases_removed_excluded": bases_removed_excluded,
-                    "bases_masked_excluded": bases_masked_excluded,
-                }
-            )
+
+        # Recorded unconditionally: a control that lost nothing still needs a row,
+        # otherwise "no exclusions" and "never ran" look identical.
+        liftover_stats[control_name] = {
+            "liftover_from": liftover_dict["from"] if liftover_dict else "",
+            "liftover_to": liftover_dict["to"] if liftover_dict else "",
+            **dict(stats),
+        }
         print(f"  Control dataset '{control_name}' processing complete.\n")
 
-    return liftover_stats if liftover_stats else None
+    return liftover_stats

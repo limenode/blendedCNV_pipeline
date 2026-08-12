@@ -294,7 +294,7 @@ def process_vcfs_to_beds(
     excluded_regions: ExclusionMask,
     common_only: bool = True,
     max_excluded_fraction: float = 0.0,
-) -> list:
+) -> list[dict]:
     """Convert all experimental VCFs to BED format, applying liftover if needed.
     Returns a list of parsing statistics for each experimental set, tool, and sample.
     """
