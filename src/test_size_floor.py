@@ -229,7 +229,7 @@ def size_domain_frame(floors: list[int]) -> pd.DataFrame:
 
 
 size_table = size_domain_frame(TABLE_FLOORS)
-size_table.to_csv(RESULTS_DIR / "detectable_size_domain.tsv", sep="\t")
+size_table.to_csv(RESULTS_DIR / "size_floor" / "detectable_size_domain.tsv", sep="\t")
 print(size_table.to_string(float_format=lambda v: f"{v:.4f}"))
 
 
@@ -325,4 +325,4 @@ fig.subplots_adjust(left=0.10, right=0.83, top=0.93, bottom=0.06, hspace=0.28)
 # After subplots_adjust, so the data-to-display transform is final.
 for ax, entries in pending_labels:
     label_line_ends(ax, size_floors, entries)
-fig.savefig(RESULTS_DIR / "detectable_size_domain.png", dpi=300, facecolor=SURFACE)
+fig.savefig(RESULTS_DIR / "size_floor" / "detectable_size_domain.png", dpi=300, facecolor=SURFACE)

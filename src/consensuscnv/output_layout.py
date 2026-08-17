@@ -3,17 +3,13 @@
 Every producer and consumer should build paths through ``OutputLayout`` instead
 of concatenating strings, so the on-disk contract lives in exactly one place.
 
-The layout computes paths and never creates directories.
-"""
+The layout computes paths and never creates directories."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import ClassVar
-
-CONSENSUS_LEVELS = (1, 2, 3)
-REPRESENTATIONS = ("intersections", "unions")
 
 
 def _slug(name: str) -> str:
@@ -58,15 +54,31 @@ class ParamSet:
 
 @dataclass(frozen=True)
 class ConsensusParams(ParamSet):
-    """Tunables for ``compute_consensus_from_beds`` (the consensus level is
-    carried separately, since one call emits all three levels)."""
+    """Tunables for merging the query call sets into consensus components.
+
+    ``min_weight`` is the ``min_reciprocal_overlap`` passed to
+    ``callsets.merging.merge_components``. The consensus level is carried
+    separately, since one merge serves all three (``min_sources`` is a post-hoc
+    filter on the components, so selecting ``n_sources >= k`` off an unfiltered
+    merge reproduces ``min_sources=k`` exactly).
+
+    The field name and its ``w`` label are kept as-is because the slug they
+    produce is part of the on-disk contract; renaming either changes every
+    directory name.
+    """
 
     min_weight: float = field(default=0.5, metadata={"label": "w"})
 
 
 @dataclass(frozen=True)
 class BenchmarkMergeParams(ParamSet):
-    """Tunables for merging the benchmark truth set (``merge_benchmarks``)."""
+    """Tunables for merging the benchmark truth set.
+
+    The truth side merges on padding rather than reciprocal overlap, so
+    ``padding`` maps to ``merge_components(max_padding=...)``. Note that
+    ``max_padding=None`` disables padding entirely while ``max_padding=0``
+    bridges exactly-touching intervals -- they are not the same setting.
+    """
 
     _prefix: ClassVar[str] = "bench"
 
@@ -78,62 +90,18 @@ class BenchmarkMergeParams(ParamSet):
 
 @dataclass(frozen=True)
 class ClassificationParams(ParamSet):
-    """Tunables for node-level binary classification (``classify_calls``)."""
+    """Tunables for matching query intervals against the merged truth set."""
 
     _prefix: ClassVar[str] = "classify"
 
     reciprocal_threshold: float = field(default=0.5, metadata={"label": "recip"})
+
 
 @dataclass(frozen=True)
 class OutputLayout:
     """Owns the ``output_dir`` tree. Construct once from config, pass it down."""
 
     root: Path
-
-    # ------------------------------------------------------------------ #
-    # Global artifact directories
-    # ------------------------------------------------------------------ #
-    @property
-    def logs(self) -> Path:
-        return self.root / "logs"
-
-    @property
-    def figures(self) -> Path:
-        return self.root / "figures"
-
-    @property
-    def benchmark(self) -> Path:
-        """Parsed benchmarks directory."""
-        return self.root / "benchmark"
-
-    def log(self, filename: str) -> Path:
-        return self.logs / filename
-
-    def figure_group(self, name: str) -> Path:
-        return self.figures / name
-
-    # ------------------------------------------------------------------ #
-    # Named figure groups (as currently emitted under figures/)
-    # ------------------------------------------------------------------ #
-    @property
-    def venn_figures(self) -> Path:
-        return self.figure_group("venn_diagrams")
-
-    @property
-    def size_figures(self) -> Path:
-        return self.figure_group("size_distributions")
-
-    @property
-    def caller_source_figures(self) -> Path:
-        return self.figure_group("caller_source_distribution")
-
-    @property
-    def stat_dist_all_figures(self) -> Path:
-        return self.figure_group("statistical_distributions_all_only")
-
-    @property
-    def stat_dist_split_figures(self) -> Path:
-        return self.figure_group("statistical_distributions_split_by_svtype")
 
     # ------------------------------------------------------------------ #
     # Per experimental call set (e.g. '30x Coverage')
@@ -144,93 +112,6 @@ class OutputLayout:
     def bed_tool_dir(self, origin_set: str, tool: str) -> Path:
         return self.call_set_dir(origin_set) / tool
 
-    def consensus_dir(
-        self, origin_set: str, level: int, params: ConsensusParams | None = None
-    ) -> Path:
-        """``consensus_<level>`` — the directory the consensus BEDs are written to.
-
-        When ``params`` is given, its slug is appended so runs with different
-        consensus tunables land in sibling directories instead of overwriting
-        each other (e.g. ``consensus_2/w0.5``)."""
-        base = self.call_set_dir(origin_set) / f"consensus_{level}"
-        return base / params.slug() if params is not None else base
-
-    def consensus_rep_dir(self, origin_set: str, level: int, representation: str) -> Path:
-        """``intersections/`` or ``unions/`` subdir created by the consensus scripts."""
-        return self.consensus_dir(origin_set, level) / representation
-
-    def classification_root(self, query: str) -> Path:
-        """Legacy single-level root, still used by ``analysis_driver``.
-
-        Superseded by :meth:`classification_setting_dir` for the parameterized
-        4-level tree; kept until the analysis reader migrates."""
-        return self.root / "binary_classification" / _slug(query)
-
-    @property
-    def classification_dataset(self) -> Path:
-        """Root of the hive-partitioned classification parquet dataset."""
-        return self.root / "binary_classification"
-
-    @property
-    def classification_summary(self) -> Path:
-        """Sweep-level counts table (per partition / sample / TP-FP-FN)."""
-        return self.root / "binary_classification_summary.parquet"
-
-    def classification_setting_dir(
-        self,
-        benchmark_params: BenchmarkMergeParams,
-        classification_params: ClassificationParams,
-    ) -> Path:
-        """``binary_classification/bench=<slug>/classify=<slug>`` — the subtree
-        holding every query classified under one benchmark+matching setting."""
-        return (
-            self.classification_dataset
-            / f"bench={benchmark_params.slug()}"
-            / f"classify={classification_params.slug()}"
-        )
-
-    def classification_dir(
-        self,
-        query: str,
-        source: str,
-        *,
-        benchmark_params: BenchmarkMergeParams,
-        classification_params: ClassificationParams,
-    ) -> Path:
-        """One leaf of the classification dataset.
-
-        ``binary_classification/bench=<..>/classify=<..>/query=<..>/source=<..>``.
-
-        The four levels are: benchmark-merge params, classification params, the
-        query call set (e.g. ``30x_Coverage``), and the source that produced the
-        calls (a caller name or ``consensus_2of3_w0.5``). They are written as
-        ``key=value`` so ``find_parts`` recovers them as columns and prunes
-        partitions on filtered reads."""
-        return (
-            self.classification_setting_dir(benchmark_params, classification_params)
-            / f"query={_slug(query)}"
-            / f"source={_slug(source)}"
-        )
-
-    def classification_parquet(
-        self,
-        query: str,
-        source: str,
-        *,
-        benchmark_params: BenchmarkMergeParams,
-        classification_params: ClassificationParams,
-    ) -> Path:
-        """The parquet part file inside a :meth:`classification_dir` leaf."""
-        return (
-            self.classification_dir(
-                query,
-                source,
-                benchmark_params=benchmark_params,
-                classification_params=classification_params,
-            )
-            / "part-0.parquet"
-        )
-
     # ------------------------------------------------------------------ #
     # Per control call set (e.g. 'SNP Array')
     # ------------------------------------------------------------------ #
@@ -240,48 +121,13 @@ class OutputLayout:
     def control_bed_dir(self, control_key: str) -> Path:
         return self.control_dir(control_key) / "bed"
 
-    def control_classification_dir(self, control_key: str) -> Path:
-        return self.control_dir(control_key) / "binary_classification"
-    
     # ------------------------------------------------------------------ #
     # Per benchmark
     # ------------------------------------------------------------------ #
+    @property
+    def benchmark(self) -> Path:
+        """Parsed benchmarks directory."""
+        return self.root / "benchmark"
+
     def benchmark_dir(self, benchmark_key: str) -> Path:
         return self.benchmark / _slug(benchmark_key)
-
-    def benchmark_merge_dir(self, params: BenchmarkMergeParams) -> Path:
-        """``benchmark/merged/<bench slug>`` — merged truth set for one setting."""
-        return self.benchmark / "merged" / params.slug()
-    
-
-    # ------------------------------------------------------------------ #
-    # Naming conventions (centralized so the contract stays in one file)
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def consensus_source(level: int, representation: str) -> str:
-        """Name of a consensus source, e.g. ``'consensus_2of3_intersections'``.
-
-        Used both as a ``binary_classification`` subdirectory and as an analysis key.
-        """
-        return f"consensus_{level}of3_{representation}"
-
-    @staticmethod
-    def consensus_source_slug(level: int, params: ConsensusParams) -> str:
-        """Source name for a consensus level under given params.
-
-        Used as the ``source`` leaf of :meth:`classification_dir`, e.g.
-        ``'consensus_2of3_w0.5'``."""
-        return f"consensus_{level}of3_{params.slug()}"
-
-    @staticmethod
-    def sample_bed(sample: str, svtype: str) -> str:
-        """Per-sample BED filename, e.g. ``'HG002.DEL.bed'``."""
-        return f"{sample}.{svtype}.bed"
-
-    @staticmethod
-    def classification_bed(sample: str, svtype: str | None, label: str) -> str:
-        """TP/FP/FN BED filename, e.g. ``'HG002.DEL.TP.bed'`` (``label`` is TP/FP/FN)."""
-        if svtype is None:
-            return f"{sample}.{label}.bed"
-        
-        return f"{sample}.{svtype}.{label}.bed"
