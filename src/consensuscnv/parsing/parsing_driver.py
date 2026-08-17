@@ -8,19 +8,19 @@ from consensuscnv.parsing.vcf_parser import process_vcfs_to_beds
 from consensuscnv.utils import PipelineConfig
 
 
-def parse_input_files(config: PipelineConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def parse_input_files(config: PipelineConfig, max_excluded_fraction: float = 0.0) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Parsing pipeline."""
 
     excluded_regions = ExclusionMask.load(config.excluded_regions_file)
 
     print("\nProcessing experimental datasets (VCF)...")
-    vcf_statistics_list = process_vcfs_to_beds(config, excluded_regions)
+    vcf_statistics_list = process_vcfs_to_beds(config, excluded_regions, max_excluded_fraction=max_excluded_fraction)
 
     print("\nProcessing control datasets (SNP Array)...")
-    penncnv_statistics = process_penncnv_to_beds(config, excluded_regions)
+    penncnv_statistics = process_penncnv_to_beds(config, excluded_regions, max_excluded_fraction=max_excluded_fraction)
 
     print("\nParsing all benchmarks to BED format...")
-    benchmark_statistics = process_benchmarks_to_beds(config, excluded_regions)
+    benchmark_statistics = process_benchmarks_to_beds(config, excluded_regions, max_excluded_fraction=max_excluded_fraction)
 
     # Return the statistics.
     vcf_statistics_df = pd.DataFrame(vcf_statistics_list)

@@ -36,3 +36,4 @@ pip = ">=26.2,<27"
 consensuscnv = { path = ".", editable = true }
 liftover = ">=1.4.1, <2"
 cyvcf2 = ">=0.34.0, <0.35"
+pandas-stubs = ">=3.0.5.260730, <4"

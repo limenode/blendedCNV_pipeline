@@ -20,6 +20,7 @@ out/
 tmp/
 test/
 figures/
+results/
 
 # marimo
 __marimo__/

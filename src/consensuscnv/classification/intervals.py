@@ -61,7 +61,7 @@ class IntervalSet:
             chrom_idx=parent.chrom_idx[representative],
             svtype_idx=parent.svtype_idx[representative],
             sample_idx=parent.sample_idx[representative],
-            source_bits=parent.source_bits[representative],
+            source_bits=merged.source_bits,
             origin=parent,
             row_index=representative
         )
