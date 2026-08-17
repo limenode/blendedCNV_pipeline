@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+import matplotlib.patheffects as path_effects
 
 from consensuscnv.callsets import (
     collect_callsets,
@@ -32,6 +33,8 @@ BENCHMARKS = ("1000G", "HGSVC3", "ont_vienna")
 
 TABLE_FLOORS = [1, 100, 500, 1_000, 2_000, 5_000, 10_000, 20_000, 50_000, 100_000]
 
+os.makedirs(str(RESULTS_DIR / "size_floor"), exist_ok=True)
+
 
 def bed_paths(root: Path, subdirs: tuple[str, ...]) -> list[str]:
     """Every per-sample BED under the named subdirectories of `root`."""
@@ -47,8 +50,16 @@ BENCHMARK_PADDING = 0       # truth side: padding only, bridges touching interva
 CLASSIFY_THRESHOLD = 0.5
 
 CONSENSUS_LEVELS = (1, 2, 3)
-RECOMMENDED_DOMAIN = (10_000, 100_000)
+# Where F1 peaks across the six query sets (see the printed peak table below).
+# This is read off the sweep rather than assumed: an earlier draft shaded
+# 10-100 kb, which is where precision has already collapsed for four of the six.
+RECOMMENDED_DOMAIN = (1_000, 5_000)
 REFERENCE_FLOOR = 1_000
+
+# Above a large floor a call set can be down to a few dozen calls, and a
+# precision estimated from 34 calls is noise drawn with the same weight as one
+# estimated from 16,000. Curves are cut where they fall below this.
+MIN_QUERY_CALLS = 100
 
 SURFACE, INK, INK_2, MUTED = "#fcfcfb", "#0b0b0b", "#52514e", "#8a8983"
 # Two families, two hue ranges. Consensus level is ordinal, so it gets a
@@ -226,6 +237,29 @@ size_table = size_domain_frame(TABLE_FLOORS)
 size_table.to_csv(RESULTS_DIR / "size_floor" / "detectable_size_domain.tsv", sep="\t")
 print(size_table.to_string(float_format=lambda v: f"{v:.4f}"))
 
+# %% Where the domain comes from, and where the benchmark stops being the larger set
+print("\nF1 peak per call set (this is what RECOMMENDED_DOMAIN is set from):")
+for name, curve in size_curves.items():
+    peak = int(np.nanargmax(curve["f1"]))
+    print(f"  {name:>8}: F1 = {curve['f1'][peak]:.3f} at a {size_floors[peak]:,} bp floor")
+
+# The benchmark starts an order of magnitude larger than any query set and ends
+# below the largest of them, so there is a crossing. Reporting it keeps panel A's
+# title honest -- the benchmark does not simply "collapse first".
+for name, curve in size_curves.items():
+    below = np.flatnonzero(reference_n_truth < curve["n_query"])
+    if below.size:
+        print(f"  benchmark falls below {name} above a {size_floors[below[0]]:,} bp floor")
+
+# Every duplication in the merged benchmark, for the caption: after the parser
+# stopped folding insertions into DUP this set is almost entirely deletions, so
+# the figure is a deletion benchmark and should say so.
+from consensuscnv.callsets.registry import SVTYPES
+
+n_dup = int((truth_merged.svtype_idx != SVTYPES.get("DEL")).sum())
+print(f"\nbenchmark is {100 * (1 - n_dup / len(truth_merged)):.1f}% deletions "
+      f"({n_dup:,} duplications of {len(truth_merged):,} intervals)")
+
 
 # %% Figure: choosing a detectable size domain
 def dress_size_axis(ax, title, ylabel, last=False):
@@ -245,31 +279,54 @@ def dress_size_axis(ax, title, ylabel, last=False):
         ax.set_xlabel("Minimum CNV size applied to both call sets (bp)", fontsize=9, color=INK_2)
 
 
+def trimmed(values, curve):
+    """`values` with the low-count tail blanked out.
+
+    A curve is only drawn while the query set behind it still holds at least
+    MIN_QUERY_CALLS calls. Blanking rather than slicing keeps every array the
+    same length as `size_floors`, so one x vector serves all of them.
+    """
+    return np.where(curve["n_query"] >= MIN_QUERY_CALLS, values, np.nan)
+
+
 def label_line_ends(ax, x, entries, min_gap=10.5):
     """Right-edge labels, pushed apart so six converging lines stay readable.
 
     Identity is never carried by colour alone, but at a 100 kb floor several of
     these curves land within a few pixels of each other, so the labels are
-    separated in display space and then converted back to point offsets.
+    separated in display space and then converted back to point offsets. Curves
+    trimmed for low counts end early, so each label is anchored to that curve's
+    last finite point rather than to the right edge of the axis.
     """
     ax.figure.canvas.draw()
-    placed = sorted(
-        ([ax.transData.transform((x[-1], y[-1]))[1], y[-1], text, color]
-         for y, text, color in entries),
-        key=lambda row: row[0],
-    )
+    anchored = []
+    for y, text, color in entries:
+        finite = np.flatnonzero(np.isfinite(y))
+        if finite.size:
+            last = finite[-1]
+            anchored.append([ax.transData.transform((x[last], y[last]))[1],
+                             x[last], y[last], text, color])
+    placed = sorted(anchored, key=lambda row: row[0])
     for previous, current in pairwise(placed):
         current[0] = max(current[0], previous[0] + min_gap)
-    for display_y, data_y, text, color in placed:
-        offset = display_y - ax.transData.transform((x[-1], data_y))[1]
-        ax.annotate(text, (x[-1], data_y), textcoords="offset points", xytext=(7, offset),
-                    fontsize=8.5, color=color, va="center", annotation_clip=False)
+    for display_y, data_x, data_y, text, color in placed:
+        offset = display_y - ax.transData.transform((data_x, data_y))[1]
+        annotation = ax.annotate(
+            text, (data_x, data_y), textcoords="offset points", xytext=(7, offset),
+            fontsize=8.5, color=color, va="center", annotation_clip=False, zorder=6,
+        )
+        # Trimmed curves end at different x, so a label can land on top of a
+        # neighbouring line rather than in clear space at the right margin.
+        # A surface-coloured stroke keeps it legible wherever it falls.
+        annotation.set_path_effects(
+            [path_effects.withStroke(linewidth=2.6, foreground=SURFACE)]
+        )
 
 
 # Colour carries the call set and line style carries the metric, so the two
 # encodings never compete for the same channel. Panel order runs from the cause
 # (the benchmark thinning out) to the effect (the metrics it moves).
-fig, axes = plt.subplots(3, 1, figsize=(9, 12), facecolor=SURFACE, sharex=True)
+fig, axes = plt.subplots(4, 1, figsize=(9, 15.5), facecolor=SURFACE, sharex=True)
 pending_labels = []
 
 ax = axes[0]
@@ -279,7 +336,7 @@ for name, curve in size_curves.items():
     ax.plot(size_floors, curve["n_query"], color=QUERY_COLORS[name],
             linewidth=QUERY_WIDTHS[name], zorder=3)
 ax.set_yscale("log")
-dress_size_axis(ax, "A.  The benchmark collapses long before the query sets do",
+dress_size_axis(ax, "A.  The benchmark thins out fastest, and ends below the largest query sets",
                 "Intervals (log scale)")
 pending_labels.append((ax, [(reference_n_truth, "Benchmark", TRUTH_SIDE)]
                        + [(c["n_query"], n, QUERY_COLORS[n]) for n, c in size_curves.items()]))
@@ -305,17 +362,36 @@ pending_labels.append((ax, [(c["recall"], n, QUERY_COLORS[n]) for n, c in size_c
 
 ax = axes[2]
 for name, curve in size_curves.items():
-    ax.plot(size_floors, curve["precision"], color=QUERY_COLORS[name],
+    ax.plot(size_floors, trimmed(curve["precision"], curve), color=QUERY_COLORS[name],
             linewidth=QUERY_WIDTHS[name], zorder=3)
 dress_size_axis(ax, "C.  Precision, which is also recall as a fraction of its ceiling:\n"
                     "     recall / maximum attainable recall reduces to "
                     "n_truth_found / n_query",
-                "Precision", last=True)
-pending_labels.append((ax, [(c["precision"], n, QUERY_COLORS[n]) for n, c in size_curves.items()]))
+                "Precision")
+pending_labels.append(
+    (ax, [(trimmed(c["precision"], c), n, QUERY_COLORS[n]) for n, c in size_curves.items()])
+)
 
-fig.suptitle("Choosing a detectable size domain", x=0.055, y=0.985, ha="left",
+# The panel the shaded domain is read off. Every set peaks in the same narrow
+# band, which is a stronger argument for the floor than any single set's curve:
+# six call sets of very different size and precision agree on where the floor
+# should sit.
+ax = axes[3]
+for name, curve in size_curves.items():
+    f1 = trimmed(curve["f1"], curve)
+    ax.plot(size_floors, f1, color=QUERY_COLORS[name],
+            linewidth=QUERY_WIDTHS[name], zorder=3)
+    peak = int(np.nanargmax(f1))
+    ax.plot(size_floors[peak], f1[peak], marker="o", markersize=4.5,
+            color=QUERY_COLORS[name], markeredgecolor=SURFACE, markeredgewidth=0.8, zorder=4)
+dress_size_axis(ax, "D.  F1 peaks in the same narrow band for every call set", "F1", last=True)
+pending_labels.append(
+    (ax, [(trimmed(c["f1"], c), n, QUERY_COLORS[n]) for n, c in size_curves.items()])
+)
+
+fig.suptitle("Choosing a detectable size domain", x=0.055, y=0.988, ha="left",
              fontsize=13.5, color=INK)
-fig.subplots_adjust(left=0.10, right=0.83, top=0.93, bottom=0.06, hspace=0.28)
+fig.subplots_adjust(left=0.10, right=0.83, top=0.945, bottom=0.05, hspace=0.26)
 # After subplots_adjust, so the data-to-display transform is final.
 for ax, entries in pending_labels:
     label_line_ends(ax, size_floors, entries)
