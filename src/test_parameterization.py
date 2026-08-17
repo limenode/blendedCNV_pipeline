@@ -1,6 +1,7 @@
 # %% Imports and constants
 
 import glob
+import os
 from pathlib import Path
 import itertools
 import numpy as np
@@ -30,6 +31,8 @@ RESULTS_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/results"
 
 # The detectable size domain.
 SIZE_FLOOR = 1_000
+
+os.makedirs(str(RESULTS_DIR / "classification"))
 
 
 def evaluation_intervals(merged: MergedCallSet) -> IntervalSet:
@@ -89,7 +92,7 @@ plt.plot(thresholds, f1s, label='F1 Score', color='green')
 plt.xlabel('Classification Reciprocal Overlap Threshold')
 plt.ylabel('F1 Score')
 plt.tight_layout()
-plt.savefig(RESULTS_DIR / "classification_performance_across_classification_reciprocal_thresholds.png", dpi=300)
+plt.savefig(RESULTS_DIR / "classification" / "classification_performance_across_classification_reciprocal_thresholds.png", dpi=300)
 
 # %% Many-to-many structure across the same thresholds.
 # Matching is many-to-many, so n_pairs, TP (counted over query rows) and found
@@ -163,7 +166,7 @@ plt.plot(thresholds, f1s, label='F1 Score', color='green')
 plt.xlabel('Query Consensus Reciprocal Overlap Threshold')
 plt.ylabel('F1 Score')
 plt.tight_layout()
-plt.savefig(RESULTS_DIR / "classification_performance_across_query_consensus_thresholds.png", dpi=300)
+plt.savefig(RESULTS_DIR / "classification" / "classification_performance_across_query_consensus_thresholds.png", dpi=300)
 
 # %% Evaluate classification performance across benchmark padding thresholds
 benchmark_padding_threshold_to_metrics: list[tuple[int, tuple[float, float, float]]] = []
@@ -203,7 +206,7 @@ plt.xscale('log')
 plt.xlabel('Benchmark Padding Threshold')
 plt.ylabel('F1 Score')
 plt.tight_layout()
-plt.savefig(RESULTS_DIR / "classification_performance_across_benchmark_padding_thresholds.png", dpi=300)
+plt.savefig(RESULTS_DIR / "classification" / "classification_performance_across_benchmark_padding_thresholds.png", dpi=300)
 
 # %% Classification performance as a function of CNV size
 from consensuscnv.classification.classify import (
@@ -263,7 +266,7 @@ plt.ylabel('Calls in denominator')
 plt.legend()
 
 plt.tight_layout()
-plt.savefig(RESULTS_DIR / "classification_performance_across_cnv_size_cumulative.png", dpi=300)
+plt.savefig(RESULTS_DIR / "classification" / "classification_performance_across_cnv_size_cumulative.png", dpi=300)
 
 # %% Kernel-smoothed performance vs CNV size
 size_kde = size_density_curve(
@@ -309,7 +312,7 @@ plt.ylabel('Density (per log10 bp)')
 plt.legend()
 
 plt.tight_layout()
-plt.savefig(RESULTS_DIR / "classification_performance_across_cnv_size_density.png", dpi=300)
+plt.savefig(RESULTS_DIR / "classification" / "classification_performance_across_cnv_size_density.png", dpi=300)
 
 # %%
 range_of_benchmark_padding = np.array([0, 10, 25, 50, 100, 200, 400, 700, 1000, 5000, 10000])

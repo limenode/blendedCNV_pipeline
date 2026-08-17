@@ -27,12 +27,6 @@ QUERY_DIRS = {
     "2x": Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/2x_Coverage"),
 }
 RESULTS_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/results")
-
-# Named explicitly rather than globbed as */*.bed. Each coverage directory also
-# holds consensus_1/2/3, and out/benchmark holds merged/, which are pipeline
-# *outputs*. They are empty today, but once the consensus writer fills them a
-# wildcard would read pre-merged call sets back in as extra sources and inflate
-# every source_bits count.
 CALLERS = ("cnvpytor", "delly", "gatk")
 BENCHMARKS = ("1000G", "HGSVC3", "ont_vienna")
 
