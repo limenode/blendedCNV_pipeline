@@ -5,9 +5,46 @@ from pathlib import Path
 from consensuscnv.utils import PipelineConfig, ensure_chr_prefix
 
 
-def discover_samples_of_interest(config: PipelineConfig) -> set[str]:
-    layout = config.layout
+def load_sample_list(path: str | Path | None) -> frozenset[str] | None:
+    """Read a newline-separated sample allowlist.
 
+    Returns ``None`` when no list was requested, which every parser reads as
+    "keep every sample". Blank lines and ``#`` comments are ignored.
+    """
+    if path is None:
+        return None
+
+    path = Path(path)
+    if not path.exists():
+        print(f"Warning: sample list {path} does not exist. All samples will be kept.")
+        return None
+
+    samples = frozenset(
+        stripped
+        for line in path.read_text().splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    )
+    print(f"Loaded sample list: {len(samples)} samples from {path}")
+    return samples
+
+
+def discover_samples_of_interest(
+    config: PipelineConfig,
+    samples: frozenset[str] | None = None,
+    common_only: bool = True,
+) -> frozenset[str] | None:
+    """Which samples the control and benchmark parsers should keep. ``None`` means all.
+
+    An explicit `samples` allowlist wins outright and needs no disk scan. Without
+    one, fall back to whatever the VCF parser already wrote, which makes the
+    result depend on parse order -- prefer the allowlist.
+    """
+    if samples is not None:
+        return samples
+    if not common_only:
+        return None
+
+    layout = config.layout
     sample_ids: set[str] = set()
     for key in config.experimental:
         bed_paths = glob.glob(str(layout.call_set_dir(key)) + "/*/*.bed")
@@ -15,11 +52,10 @@ def discover_samples_of_interest(config: PipelineConfig) -> set[str]:
 
     if not sample_ids:
         print("Warning: No samples found in consensus call sets. Skipping control processing.")
-
     else:
         print(f"Found {len(sample_ids)} samples of interest from consensus call sets")
 
-    return sample_ids
+    return frozenset(sample_ids)
 
 def _merge_regions(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """Sort and union one chromosome's mask regions."""

@@ -1,0 +1,15 @@
+# Samples with SNP array (PennCNV) data -- the 13 evaluated in the manuscript.
+# Derived from out/SNP_Array/bed/*.bed on 2026-08-17.
+HG00096
+HG00171
+HG00268
+HG00513
+HG00731
+HG01596
+HG01890
+NA18989
+NA19129
+NA19238
+NA19331
+NA19347
+NA20847

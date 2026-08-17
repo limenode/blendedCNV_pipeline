@@ -47,6 +47,7 @@ class PipelineConfig:
     valid_chromosomes: set = field(default_factory=set)
     chromosome_order: list[str] = field(default_factory=list)
     excluded_regions_file: str | None = None
+    sample_list_file: str | None = None   # newline-separated allowlist; None keeps all samples
     analysis_plots_config: str | None = None
 
     # --- Thresholds ---
@@ -76,6 +77,7 @@ class PipelineConfig:
             valid_chromosomes=raw.get('valid_chromosomes', set()),
             chromosome_order=raw.get('chromosome_order', []),
             excluded_regions_file=raw.get('excluded_regions_file') or None,
+            sample_list_file=raw.get('sample_list_file') or None,
             analysis_plots_config=raw.get('analysis_plots_config'),
             consensus_reciprocal_threshold=raw.get('consensus_reciprocal_threshold', 0.5),
             matching_reciprocal_threshold=raw.get('matching_reciprocal_threshold', 0.5),

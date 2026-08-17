@@ -277,14 +277,27 @@ def _process_single_vcf_to_df(
     return df, dict(stats)
 
 
-def parse_experimental_map(config: PipelineConfig) -> dict[str, dict[str, dict[str, Path]]]:
+def parse_experimental_map(
+    config: PipelineConfig, samples: frozenset[str] | None = None
+) -> dict[str, dict[str, dict[str, Path]]]:
     """Expand every experimental set's tool patterns into {sample_id: file_path} maps.
 
     Returns a nested dict:
         {experimental_name: {tool_label: {sample_id: path}}}
+
+    `samples` restricts every map to an allowlist; ``None`` keeps all.
     """
+
+    def expand(pattern: str) -> dict[str, Path]:
+        found = expand_pattern(pattern)
+        if samples is None:
+            return found
+        return {
+            sample_id: path for sample_id, path in found.items() if sample_id in samples
+        }
+
     return {
-        experimental_name: {tool: expand_pattern(pattern) for tool, pattern in tools.items()}
+        experimental_name: {tool: expand(pattern) for tool, pattern in tools.items()}
         for experimental_name, tools in config.experimental.items()
     }
 
@@ -294,6 +307,7 @@ def process_vcfs_to_beds(
     excluded_regions: ExclusionMask,
     common_only: bool = True,
     max_excluded_fraction: float = 0.0,
+    samples: frozenset[str] | None = None,
 ) -> list[dict]:
     """Convert all experimental VCFs to BED format, applying liftover if needed.
     Returns a list of parsing statistics for each experimental set, tool, and sample.
@@ -303,7 +317,7 @@ def process_vcfs_to_beds(
 
     all_statistics = []
 
-    experimental_map = parse_experimental_map(config)
+    experimental_map = parse_experimental_map(config, samples)
     liftover_map = config.liftover
 
     for experimental_name, tools in experimental_map.items():

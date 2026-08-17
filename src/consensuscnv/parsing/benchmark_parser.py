@@ -37,6 +37,7 @@ def process_benchmarks_to_beds(
     excluded_regions: ExclusionMask | None = None,
     common_only: bool = True,
     max_excluded_fraction: float = 0.0,
+    samples: frozenset[str] | None = None,
 ) -> dict:
     """Convert benchmark VCFs to per-benchmark, per-sample BED files."""
     excluded_regions = excluded_regions or ExclusionMask({})
@@ -46,13 +47,17 @@ def process_benchmarks_to_beds(
 
     layout = config.layout
 
-    samples_of_interest = discover_samples_of_interest(config) if common_only else set()
+    samples_of_interest = discover_samples_of_interest(config, samples, common_only)
 
     liftover_stats: dict = {}
 
     for bench_name, bench_path in config.benchmark.items():
         print(f"Processing benchmark {bench_name} at {bench_path}")
-        vcf = VCF(bench_path, samples=list(samples_of_interest), threads=2)
+        vcf = VCF(
+            bench_path,
+            samples=None if samples_of_interest is None else list(samples_of_interest),
+            threads=2,
+        )
         source = bench_name.replace(" ", "_").lower()
 
         output_dir = layout.benchmark_dir(bench_name)

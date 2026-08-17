@@ -18,6 +18,9 @@ genome_file: "/path/to/genome.txt"
 # Excluded regions file [optional]
 excluded_regions_file: "/path/to/excluded_regions_hg38.bed"
 
+# Sample allowlist [optional] - one sample ID per line, blank lines and '#' comments ignored.
+sample_list_file: "/path/to/samples.txt"
+
 # Control datasets [optional, used with --run-benchmark]
 control:
   "SNP Array": "/path/to/array/data.cnv"

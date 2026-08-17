@@ -63,6 +63,7 @@ def process_penncnv_to_beds(
     excluded_regions: ExclusionMask | None = None,
     common_only: bool = True,
     max_excluded_fraction: float = 0.0,
+    samples: frozenset[str] | None = None,
 ) -> dict:
     """Convert control PennCNV datasets to per-sample DEL/DUP BED files."""
     excluded_regions = excluded_regions or ExclusionMask({})
@@ -72,7 +73,7 @@ def process_penncnv_to_beds(
 
     layout = config.layout
 
-    samples_of_interest = discover_samples_of_interest(config) if common_only else set()
+    samples_of_interest = discover_samples_of_interest(config, samples, common_only)
 
     liftover_stats: dict = {}
 
@@ -97,7 +98,7 @@ def process_penncnv_to_beds(
             for chrom, start, end, svtype, sample_id in iter_penncnv_records(
                 control_path
             ):
-                if common_only and sample_id not in samples_of_interest:
+                if samples_of_interest is not None and sample_id not in samples_of_interest:
                     continue
                 if config.valid_chromosomes and chrom not in config.valid_chromosomes:
                     continue
