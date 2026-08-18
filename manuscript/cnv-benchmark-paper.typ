@@ -2,13 +2,7 @@
 // Evaluating Low-Pass Whole Genome Sequencing as a Cost-Effective Method
 // for Copy Number Variant Detection
 //
-// Converted from "CNV Benchmark Paper.md" / ".pdf" (Google Docs export).
-// Compile with:  typst compile cnv-benchmark-paper.typ
-//        watch:  typst watch cnv-benchmark-paper.typ
-//
 // Prose uses semantic line breaks: one sentence per line, no column limit.
-// Keep it that way -- it is what makes a git diff land on the sentence you
-// actually edited instead of re-flowing the rest of the paragraph.
 // =============================================================================
 
 #set document(
@@ -218,6 +212,21 @@ PennCNV was then used to detect CNVs and also filter out low quality CNVs, which
 
 The three benchmark datasets were chosen to serve as the benchmark sets for the CNVs in GRCh38.
 
+Throughout this study a CNV is defined as a variant that changes the copy number of an interval of the reference assembly: a deletion (DEL), which lowers the copy number of a reference interval, or a duplication (DUP), which raises it.
+The definition is imposed by the detection method under evaluation rather than chosen for convenience.
+All three sequence-based callers infer copy number from sequencing depth over intervals of the reference, and the classification of a call as a true or false positive is decided by reciprocal overlap between two reference intervals.
+A variant is therefore only assessable if it occupies an interval of the reference whose copy number differs from two.
+Applying that criterion to the benchmark releases retains three record classes and excludes the rest.
+Deletions are retained, including the mobile-element deletion classes that 1000 Genomes phase 3 names separately (`DEL_ALU`, `DEL_LINE1`, `DEL_SVA`, and `DEL_HERV`), as each removes a reference interval and differs from a plain deletion only in the annotation of the sequence removed.
+Duplications are retained, including tandem and interspersed subclasses.
+Multi-allelic copy-number records, whose alternate alleles are absolute copy numbers relative to a diploid reference (`<CN0>`, `<CN1>`, `<CN3>`, and so on), are resolved separately for each alternate allele, so that a carrier of a `<CN0>` allele contributes a deletion and a carrier of a `<CN3>` allele at the same record contributes a duplication; the `<CN2>` allele is the reference copy number and contributes nothing.
+
+Three classes are excluded.
+Insertions of novel sequence, whether unclassified (`INS`) or attributed to a mobile element (`ALU`, `LINE1`, `SVA`, `MEI`, `HERV`), are excluded because they occupy no interval of the reference: the reference span of such a record is either a single base or absent altogether, so overlap against a read-depth call is undefined and no depth-based caller can be scored against them.
+This exclusion is consequential, since assembly-based variant representations of the kind used by HGSVC3 and ONT Vienna encode a tandem duplication as an insertion of the duplicated sequence at its own locus rather than as a copy-number gain over a reference interval, and the two cases are not separable from the released fields alone.
+Inversions and breakends are excluded as copy-number neutral.
+Records for which no end coordinate could be derived, from either the `END` or the `SVLEN` key of the `INFO` field, are excluded for want of a reference interval.
+
 The 1000 Genomes phase 3 #c[1000G 2015] SV annotations were downloaded from the IGSR FTP site (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/integrated_sv_map/supporting/GRCh38_positions/ALL.wgs.integrated_sv_map_v2_GRCh38.20130502.svs.genotypes.vcf.gz")) and contained 2504 samples.
 This benchmark is derived from a combination of low-coverage WGS, high-coverage WES, and microarray genotyping #c[Byrska-Bishop 2021].
 The SV set had positions that were originally identified on GRCh37 and lifted over to GRCh38 using the UCSC liftover tool, which consequently resulted in the removal of SVs that did not have a viable GRCh38 equivalent due to unmappability or significant size changes (>10%).
@@ -267,6 +276,31 @@ Once all connected components that passed the filters were retrieved, the nodes 
 Consensus CNV call graphs were generated for the benchmark sets to create a single merged benchmark set to serve as the primary truth source for downstream analysis.
 Consensus call graphs were also generated for the three sequence-based call sets derived from the calling tools of interest.
 Multiple versions of these two consensus call graphs were generated across different filtering parameters for downstream analysis of performance across the parameter field.
+
+== Null Model for Caller Agreement
+
+Consensus construction assigns every merged component to one of seven categories according to which of the three callers contributed a call to it.
+Those categories describe how the callers relate to one another, but on their own they do not distinguish callers that detect a common population of events at different rates from callers that detect different populations.
+To separate the two, we fit a null model in which a single population is assumed and identify where the model fails.
+
+Let $N$ be the number of events available to be detected, and let $p_i$ be the probability that caller $i$ detects any one of them, independently of the other two callers.
+Writing $n_A$ for the number of components detected by exactly the set of callers $A$, the model's expectation for each category is
+
+$ EE [n_A] = N product_(i in A) p_i product_(i in.not A) (1 - p_i) $
+
+The model has four parameters and the seven categories supply seven counts, so it is over-determined and can be fit on a subset of them.
+We fit it on the four categories in which at least two callers agree, which is the part of the data a single-population model is meant to describe.
+Writing $n_"all"$ for the all-three category and $n_(-i)$ for the pairwise category from which caller $i$ is absent, the two differ only in whether caller $i$ detected the event, so their ratio removes $N$ and both of the remaining rates,
+
+$ (EE [n_"all"]) / (EE [n_(-i)]) = p_i / (1 - p_i) $
+
+Each rate is therefore determined by a single observed ratio $r_i = n_"all" \/ n_(-i)$, and the pool size follows from the all-three category alone.
+
+$ hat(p)_i = r_i / (1 + r_i) wide hat(N) = n_"all" \/ product_i hat(p)_i $
+
+The three single-caller categories take no part in the fit.
+They are predicted rather than described, which leaves the model three degrees of freedom against which it can be rejected, and it is the size of the discrepancy in those three categories that carries the result.
+Category sizes, median interval sizes, and duplication shares were computed from the same merged components used for consensus call set construction, at 30x and at a 50% reciprocal overlap threshold.
 
 == Size Floor Filtering
 
@@ -398,10 +432,13 @@ Finally, we compared the individual tool call sets, the consensus call sets, and
 
 == Input Call Sets After Parsing
 
-All input call sets were normalised to a common per-sample BED representation before any comparison was made, and every call set was restricted to the same thirteen samples so that no statistic reported here reflects a difference in cohort composition.
+All input call sets were normalised to a common per-sample BED representation and every call set was restricted to the thirteen samples of interest to ensure no statistic reflected differences in cohort composition.
+Liftover was performed on the calls derived from the SNP Array from hg18 to hg38/GRCh38 to align coordinates with all other call sets.
 Table 1 summarises the resulting call sets: the three sequence-based callers at each of the four coverages, the SNP array control, and each of the three benchmark sources.
-Counts are given after removal of calls overlapping poorly mappable regions, since those are the call sets that enter every downstream analysis; the proportion removed by that filter is carried alongside because it varies by more than two orders of magnitude across the call sets and is informative in its own right.
+Counts are given after removal of calls overlapping poorly mappable regions by at least 1% of their total length.
 Pre-filter counts and the full liftover accounting are given in Supplementary Table S1, and the complete exclusion accounting -- bases removed against bases actually inside the mask, and the split by CNV type -- in Supplementary Table S2.
+The results from different stringencies for overlap with poorly mappable regions were tested and are given in Supplementary Table S3.
+1% was determined to be the most reasonable choice for downstream analysis on the physical grounds that increasing overlap percentage would permit more calls with unreliable breakpoints and decreasing overlap requirements would more often cause true calls to be removed; emperical results validated this.
 
 #v(0.5em)
 
@@ -432,9 +469,9 @@ Pre-filter counts and the full liftover accounting are given in Supplementary Ta
   table.hline(stroke: 0.3pt),
   [*SNP Array*], [1,659], [111], [19], [52.56], [7,554], [0.00],
   table.hline(stroke: 0.3pt),
-  [*1000G phase 3*], [47,751], [3,940], [899], [55.34], [477], [0.00],
-  [*HGSVC3*], [457,136], [34,905], [1,660], [37.83], [177], [0.65],
-  [*ONT Vienna*], [247,556], [17,918], [194], [42.45], [1], [1.98],
+  [*1000G phase 3*], [39,029], [3,536], [452], [98.98], [615], [0.00],
+  [*HGSVC3*], [172,922], [13,441], [813], [100.00], [146], [0.61],
+  [*ONT Vienna*], [105,089], [7,672], [152], [100.00], [118], [2.44],
 )
 ]
 
@@ -468,13 +505,29 @@ Delly, which applies its own mappability map during calling, is the least affect
 
 #v(0.3em)
 
-The three benchmark sources are far larger than any evaluated call set and are dominated by events well below the resolution of a 1 kb bin.
-Merging the three sources into a single truth set yielded 431,370 intervals with a median size of 142 bp, of which only 13.0% reach 1 kb and only 2.1% reach 10 kb.
-The composition differs sharply by source: 42.4% of 1000G phase 3 calls are at least 1 kb, against 13.2% for HGSVC3 and 3.6% for ONT Vienna.
-The ONT Vienna set requires particular care, as 142,467 of its 247,556 calls (57.5%) span a single base pair.
-These are insertion records, for which the assembly-based caller reports an END position equal to the start and the inserted sequence length in a separate field, and which our SVTYPE normalisation assigns to the duplication class.
-An insertion of this form occupies no reference-space interval and therefore cannot reach any reciprocal-overlap threshold against a read-depth call, so these records are guaranteed false negatives regardless of caller performance.
-They account for a substantial share of the sub-1 kb mass of the merged benchmark and are the principal reason a size floor is required before recall can be interpreted at all.
+Most of the content of the three benchmark releases is not a copy-number change, and applying the inclusion criteria of the Methods excluded 17,573 records from 1000 Genomes phase 3 (16,787 insertions and 786 inversions), 110,623 from HGSVC3, and 89,257 from ONT Vienna, the latter two consisting entirely of insertions.
+The retained records yielded 39,029, 172,922, and 105,089 calls respectively across the thirteen samples, making the benchmark sources the largest of the parsed call sets.
+
+#v(0.3em)
+
+The benchmark is dominated by events below the resolution of a 1 kb read-depth bin.
+Merging the three sources into a single truth set, with the zero-padding settings used on the truth side of every comparison below, yielded 178,838 intervals with a median size of 145 bp, of which 13.9% reach 1 kb and 2.8% reach 10 kb.
+Composition differs sharply by source: 40.7% of 1000 Genomes phase 3 intervals reach 1 kb, against 12.2% for HGSVC3 and 8.6% for ONT Vienna.
+The two assembly-based sources therefore supply most of the intervals but little of the mass in the size range the callers operate in, and the sub-1 kb remainder is beyond the reach of a read-depth call at any reciprocal-overlap threshold.
+This is the principal reason a size floor is required before recall can be interpreted at all, and it is taken up below.
+
+#v(0.3em)
+
+// TODO(lionel): this paragraph is written for the benchmark trio as parsed. If
+// the SVAN annotation on the ONT Vienna release is used to recover tandem
+// duplications, the counts and the final two sentences change.
+The composition of the merged truth set by CNV type constrains the rest of the analysis.
+It is 99.8% deletions: only 343 of its 178,838 intervals are duplications, and all 343 come from the multi-allelic copy-number records of 1000 Genomes phase 3.
+HGSVC3 and ONT Vienna contribute none.
+This reflects how those two releases represent variation rather than the populations they describe, since an assembly-based caller encodes a tandem duplication as an insertion at its own locus, which occupies no reference interval.
+Above a 1 kb floor the imbalance is unchanged, with 343 duplications among 24,820 intervals.
+Duplication-specific recall therefore cannot be estimated against this benchmark trio.
+All results below are reported over deletions and duplications combined and are in practice a measurement of deletion performance; duplication calls in the query sets are scored against a truth set that holds almost no duplication content, so the false positives they generate are not evidence that those calls are wrong.
 
 #v(0.3em)
 
@@ -482,37 +535,167 @@ The SNP array control contributed 1,659 calls across the thirteen samples, the s
 No array call overlapped an excluded region, which is expected given that the array's probes are not sited in the regions the mask covers.
 Sixty-one array calls (3.5%) were lost during liftover from hg18 to hg38, 18 because an endpoint failed to map and 43 because the interval changed length by more than 10% (Supplementary Table S1).
 
-== Consensus Call Set Construction
+== Sequence-based Consensus Call Set Construction
 
-// TODO(lionel): every number below predates the 13-sample re-parse and the
-// removal of the intersection/union split. Regenerate before use.
+All outputs from the sequence-based consensus call sets were aggregated into a single graph and edges between overlapping and adjacent calls were computed accordingly.
+Analysis of the consensus construction was required in order to determine the general behavior of each of the callers and if consensus analysis was a suitable approach to retrieve an informative population of calls.
+We therefore characterised the three callers relative to each other at 30x, where the evidence available to them is greatest, and then followed the same quantities down through the reduced coverages.
 
-When comparing calls from each caller, a majority of the CNVs identified by each of the callers are specific to the callers themselves (Figure 2).
-Of the categories corresponding to consensus between at least two callers, agreement between all three callers (3/3) is the largest, which suggests these calls as the subset that have the highest discoverability across algorithms and may indicate those of the highest probability to be true CNVs.
+Agreement between the callers is significant, but it is not distributed evenly across the multi-caller categories (Figure 2).
+Of the 24,123 components in the 30x 1/3 consensus call set, 19,287 (79.9%) carry a single caller, and CNVpytor alone accounts for 11,952 of them, just under half of the call set.
+Of the 4,836 components carrying at least two callers, the three pairwise-only categories hold 939, 868, and 629 components, while agreement between all three callers (3/3) holds 2,400.
+A component found by more than one caller is therefore about as likely to have been found by all three as by exactly two.
 
-#figplaceholder("image8 — Figure 2, three-way caller Venn diagram")
+#figure(
+  image("/results/consensus/caller_agreement_30x.png", width: 100%)
+)
 
 #cap("Figure 2:")[
-  Venn diagram of CNVs identified from 30x coverage WGS data by the following sequence-based CNV calling tools: CNVpytor, GATK-gCNV, and Delly.
-  The counts above were pulled from a 1/3 consensus call set derived from the outputs of the individual callers.
-  The counts deviate from the raw counts output from the individual callers because the 1/3 consensus algorithm performs merging to prevent double counting matches between individual callers and combinations of callers.
+  Venn diagram of source distribution for CNV call components.
+  Components were identified from 30x coverage WGS data by the following sequence-based CNV calling tools: CNVpytor, GATK-gCNV, and Delly.
+  The CNV components came from a 1/3 consensus call set generated with a 50% reciprocal overlap requirement between CNVs across tool outputs.
+  The total counts per caller slightly deviate from the original raw counts seen in Table 1; the aggregation of calls with one-to-many overlaps across tool outputs was required to prevent double-counting and is what causes the slight count disparity.
+  The size of each partition in the graph is not to scale, with a prioritization on readability.
 ]
 
 #v(0.8em)
 
-After establishing the baseline of CNV calls at 30x, we generated individual and consensus callsets at 6x, 4x, and 2x, mimicking the typical output of lcWGS from BGS (Supplemental Table Callsets).
-As coverage decreases, CNVpytor and Delly both experience a decrease in the number of calls, while GATK-gCNV yields slightly more calls going from 30x to 6x.
-GATK-gCNV furthermore has more calls at 2x than any other coverage, which may indicate that GATK-gCNV was not designed for lower coverages and lacks defensive measures to prevent calls in the scenario where the underlying evidence is limited (Supplemental Table Callsets).
-Similar to the 30x coverage call sets, GATK-gCNV consistently called the lowest number of duplication events across all coverages tested.
-As stringency for consensus increased (1/3 to 3/3), the percentage of duplication calls in the sequence-based call sets decreased dramatically, with higher coverages exhibiting more significant proportional decreases compared to lower coverages (Supplemental Table Callsets).
+The categories differ in what they contain as well as in how large they are (Table 2).
+Components carried by CNVpytor alone have a median size of 21,000 bp, an order of magnitude above the 2,000 bp of components carried by GATK-gCNV alone and the 2,148 bp of those carried by Delly alone, and well above the 6,186 bp of the components that all three callers share.
+Their spread differs by as much again, with a median absolute deviation of 17,000 bp for CNVpytor-only components against 1,000 bp for GATK-gCNV-only components.
+Duplications are the larger population in every category, exceeding deletions in median size by factors of 1.5 to 12.9, so the two directions are reported separately.
+The duplication share falls as agreement rises, from 28.7% of CNVpytor-only components to 4.8% of those found by all three, and the categories containing Delly carry the largest duplication shares at every level of agreement.
 
-The degree of caller agreement imposed during consensus construction had a major impact on call count.
-In general, more stringent caller agreement requirements yielded significantly smaller call sets.
-There is also a clear relationship between coverage and call count, concurring with the expectation that the limited evidence of lower coverages would yield less calls.
-However, when only requiring 1/3 callers for consensus, 2x coverage yields more CNVs than 4x coverage, with a quantity that is more comparable to the 6x coverage call set.
-This number drastically falls when requiring 2/3, indicating a high likelihood that a majority of CNVs in the 2x coverage-based 1/3 caller agreement set are caller-specific artifacts by individual callers that arose due to reduced caller confidence from lower coverages.
-Additionally, while CNV count differences followed similar trends between categories across all coverages, differences were exacerbated as coverage decreased: the percentage decrease in CNV count moving from 2/3 to 3/3 consensus was amplified as the coverage decreased (30x: 52.83% decrease from 2/3 to 3/3; 2x: 78.66% decrease from 2/3 to 3/3) (Supplemental Table Callsets).
-This disagreement may further indicate that as coverage decreases into ranges that these tools were not designed for, algorithmic biases and caller-specific artifacts could influence a larger proportion of the call sets.
+#v(0.5em)
+
+#block(width: 100%)[
+#set text(hyphenate: false, size: 9pt)
+#table(
+  columns: (1fr, auto, auto, auto, auto, auto, auto, auto, auto, auto),
+  align: (left, right, right, right, right, right, right, right, right, right),
+  table.header(
+    table.cell(rowspan: 2)[Agreement Category],
+    table.cell(rowspan: 2)[Compo-\ nents],
+    table.cell(colspan: 3)[Median Size (bp)],
+    table.cell(colspan: 3)[MAD Size (bp)],
+    table.cell(colspan: 2)[Composition],
+    [All], [DEL], [DUP], [All], [DEL], [DUP], [% DEL], [% DUP],
+  ),
+  [*All three callers*], [2,400], [6,186], [6,028], [19,174], [2,186], [2,028], [8,174], [95.2], [4.8],
+  [*CNVpytor + GATK-gCNV*], [939], [4,000], [4,000], [22,500], [1,000], [1,000], [8,000], [95.7], [4.3],
+  [*CNVpytor + Delly*], [868], [8,359], [4,752], [61,138], [5,699], [2,126], [33,614], [74.7], [25.3],
+  [*Delly + GATK-gCNV*], [629], [3,104], [2,910], [6,000], [1,150], [958], [1,867], [83.9], [16.1],
+  table.hline(stroke: 0.3pt),
+  [*CNVpytor only*], [11,952], [21,000], [12,000], [33,000], [17,000], [10,000], [13,000], [71.3], [28.7],
+  [*GATK-gCNV only*], [4,208], [2,000], [2,000], [3,000], [1,000], [1,000], [2,000], [84.9], [15.1],
+  [*Delly only*], [3,127], [2,148], [1,898], [3,402], [1,050], [752], [2,304], [50.8], [49.2],
+)
+]
+
+#cap("Table 2:")[
+  Size and composition of the caller-agreement categories in the 30x 1/3 consensus call set.
+  Categories in which at least two callers agree are given above the rule and single-caller categories below it.
+  Median and MAD are taken over component sizes, MAD being the median absolute deviation about the median, and are reported over all components in a category and separately for its deletions and duplications.
+  Deletion and duplication shares are complementary, as no other CNV type is represented in these call sets.
+]
+
+#v(0.8em)
+
+Whether these categories are consistent with the callers detecting one population of events can be tested directly.
+Fitting the null model of the Methods to the four categories in which at least two callers agree fixes the population at 5,738 events and the per-caller detection rates at 0.79, 0.73, and 0.72 for CNVpytor, GATK-gCNV, and Delly respectively.
+The three single-caller categories take no part in the fit and are therefore predicted, and the model predicts 813 components across all of them against the 19,287 total that is observed (Table 3).
+The whole visible output of the fitted model is 5,649 components, against the 24,123 the call set contains.
+Caller agreement at 30x is therefore better described by two populations than by one: a core of events that every caller reaches at a comparable rate, and a caller-private component an order of magnitude larger whose extent is set by the assumptions of the individual caller.
+Whether that private component consists of artefacts or of genuine calls beyond the reach of the other callers cannot be settled from agreement alone, and is taken up in the comparison against the benchmark.
+The 3/3 category, although limited compared to the full aggregate call set, is nonetheless the subset with the highest discoverability across algorithms and may indicate the calls with the highest probability of being genuine CNVs.
+
+#v(0.5em)
+
+#block(width: 100%)[
+#set text(hyphenate: false, size: 10pt)
+#table(
+  columns: (1fr, auto, auto, auto),
+  align: (left, right, right, right),
+  table.header(
+    [Agreement Category], [Components], [Predicted], [Excess],
+  ),
+  [*All three callers*], [2,400], [2,400], [--],
+  [*CNVpytor + GATK-gCNV*], [939], [939], [--],
+  [*CNVpytor + Delly*], [868], [868], [--],
+  [*Delly + GATK-gCNV*], [629], [629], [--],
+  table.hline(stroke: 0.3pt),
+  [*CNVpytor only*], [11,952], [340], [11,612],
+  [*GATK-gCNV only*], [4,208], [246], [3,962],
+  [*Delly only*], [3,127], [227], [2,900],
+  table.hline(stroke: 0.3pt),
+  [*Total*], [24,123], [5,649], [18,474],
+)
+]
+
+#cap("Table 3:")[
+  Observed caller-agreement categories against the counts predicted by the single-population null model.
+  The model's four parameters were fixed on the four categories above the rule, which therefore reproduce their observed counts exactly and carry no excess.
+  The three single-caller categories below the rule are predicted rather than fitted, and are where the model is tested.
+  Fitted detection rates were 0.79 for CNVpytor, 0.72 for Delly, and 0.73 for GATK-gCNV, over an implied population of 5,738 events; the predicted total of 5,649 is smaller than that population because a further 89 events are expected to escape all three callers and so never appear as components.
+]
+
+#v(0.8em)
+
+Extending the same construction to 6x, 4x, and 2x, the agreement requirement separates the coverages more sharply than the individual caller yields do.
+The 1/3 call set inherits the non-linear coverage-to-call count relationship in GATK-gCNV, holding 19,146 components at 2x against 14,646 at 4x, whereas the 2/3 and 3/3 call sets fall monotonically with coverage, from 4,836 to 721 and from 2,400 to 177 components respectively (Supplemental Table Callsets).
+The fraction of the call set that survives the requirement of higher consensus falls with coverage throughout: requiring two callers removes 80.0% of the 30x call set and 96.2% of the 2x call set, and requiring all three removes a further 50.4% and 75.5% respectively.
+The 2x 1/3 call set is therefore both the second largest of the four and the one that loses the most to any agreement requirement, which suggests that much of it consists of caller-specific artefacts arising from reduced confidence at low coverage rather than of calls that the remaining callers failed to reach.
+
+#v(0.3em)
+
+Refitting the null model at each coverage shows that the two populations respond to depth in opposite ways (Table 4).
+For the concordant population, the fitted core's total events (predicted number of calls given the null model holds) falls from 5,738 at 30x to 1,436 at 2x, and the detection rates per caller fall alongside it, from 0.79 to 0.59 for CNVpytor, from 0.72 to 0.45 for Delly, and from 0.73 to 0.46 for GATK-gCNV.
+The two contribute in similar measure, since holding the rates at their 30x values while shrinking the core to its 2x size would leave 1,210 concordant components against the 721 observed.
+The caller-private population does not follow.
+The ratio of private to concordant components consequently rises as coverage decreases, from 4.0 at 30x to 25.6 at 2x.
+This trend holds despite the total number of private calls not demonstrating a clear trend in depth, with call count being larger at 2x than at 4x.
+This is evidence to support the proposed mechanism behind the losses to the agreement requirement described above: what additional depth supplies is primarily agreement between callers, while private calls from a caller are produced about as readily at 2x as at 30x.
+Whether that private population is artefactual cannot be settled from its coverage response alone, although a population whose size is largely independent of the evidence available to produce it is difficult to attribute to the underlying genetic data.
+The per-category counts behind this fit at each of the reduced coverages are given in Supplemental Table Agreement Categories.
+
+#v(0.5em)
+
+#block(width: 100%)[
+#set text(hyphenate: false, size: 9pt)
+#table(
+  columns: (auto, auto, auto, auto, auto, auto, auto, auto, auto),
+  align: (left, right, right, right, right, center, right, right, right),
+  table.header(
+    table.cell(rowspan: 2)[Coverage],
+    table.cell(colspan: 3)[Components],
+    table.cell(colspan: 2)[Fitted Core],
+    table.cell(colspan: 3)[Detection Rate],
+    [Concordant], [Private], [Ratio], [Events], [95% CI],
+    [CNVpytor], [Delly], [GATK-gCNV],
+  ),
+  [*30x*], [4,836], [19,287], [4.0], [5,738], [5,571--5,904], [0.79], [0.72], [0.73],
+  [*6x*], [1,708], [16,993], [9.9], [2,276], [2,150--2,411], [0.72], [0.61], [0.69],
+  [*4x*], [1,119], [13,527], [12.1], [1,956], [1,775--2,174], [0.64], [0.57], [0.43],
+  [*2x*], [721], [18,425], [25.6], [1,436], [1,251--1,675], [0.59], [0.45], [0.46],
+)
+]
+
+#cap("Table 4:")[
+  The two populations of caller agreement, fit separately at each coverage.
+  Concordant components are those carrying at least two callers and private components those carrying one; Ratio is the second divided by the first.
+  Fitted Core is the population of events implied by the null model, and Detection Rate the probability that each caller recovers one of them.
+  Intervals are the 2.5th and 97.5th percentiles of 2,000 multinomial resamples of the seven category counts, with the model refit on each draw.
+]
+
+#v(0.8em)
+
+#v(0.3em)
+
+Composition moves with the agreement requirement as well as with call count.
+Within each coverage, raising the requirement lowers the duplication share of the call set, but by an amount that shrinks as coverage falls: at 30x the share falls from 25.2% at 1/3 to 4.8% at 3/3, while at 2x it moves only from 48.3% to 44.6%.
+Median component size moves in the opposite direction, rising within the 3/3 call sets from 6,186 bp at 30x to 55,487 bp at 2x.
+The calls that survive the strictest agreement requirement at low coverage are consequently few, large, and no longer preferentially deletions, and at 177 components the 2x 3/3 call set is too small to support a finer breakdown than that.
+
 
 == Choosing a Detectable Size Domain
 
@@ -532,7 +715,7 @@ We swept a size floor applied symmetrically to both sides and examined how the c
   (D) F1, with each call set's maximum marked.
   The shaded band marks 1--5 kb, spanning every F1 maximum; the dashed vertical line marks the 1 kb floor adopted for all subsequent analyses.
   In panels C and D, each curve is drawn only while the call set behind it retains at least 100 intervals, since precision estimated from a few dozen calls is not comparable with precision estimated from thousands.
-  After the exclusion of insertion records the merged benchmark is 99.8% deletions, so these curves describe deletion detection.
+  The merged benchmark is 99.8% deletions, so these curves describe deletion detection.
 ]
 
 #v(0.8em)

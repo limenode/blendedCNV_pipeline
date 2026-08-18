@@ -50,28 +50,24 @@ BENCHMARK_PADDING = 0       # truth side: padding only, bridges touching interva
 CLASSIFY_THRESHOLD = 0.5
 
 CONSENSUS_LEVELS = (1, 2, 3)
-# Where F1 peaks across the six query sets (see the printed peak table below).
-# This is read off the sweep rather than assumed: an earlier draft shaded
-# 10-100 kb, which is where precision has already collapsed for four of the six.
+# Where F1 peaks across the six query sets
 RECOMMENDED_DOMAIN = (1_000, 5_000)
 REFERENCE_FLOOR = 1_000
 
-# Above a large floor a call set can be down to a few dozen calls, and a
-# precision estimated from 34 calls is noise drawn with the same weight as one
-# estimated from 16,000. Curves are cut where they fall below this.
+# Curves are cut where they fall below this to reduce noise.
 MIN_QUERY_CALLS = 100
 
 SURFACE, INK, INK_2, MUTED = "#fcfcfb", "#0b0b0b", "#52514e", "#8a8983"
-# Two families, two hue ranges. Consensus level is ordinal, so it gets a
-# sequential map (cool, dark to green), truncated at 0.65 because viridis turns
-# pale yellow at the top and would disappear against SURFACE. The individual
-# callers are nominal and get warm hues, so family is readable before identity
-# is. The benchmark is the reference rather than a query set, so it is ink.
-LEVEL_COLORS = dict(
-    zip(CONSENSUS_LEVELS, plt.get_cmap("viridis")(np.linspace(0.05, 0.65, len(CONSENSUS_LEVELS))))
-)
+# Three members of the Okabe-Ito qualitative palette (Wong 2011, Nat Methods)
+# -- blue, vermillion, and bluish  green are its most separable trio under both
+# deuteranopia and protanopia, and it is the palette most journals' figure
+# guidance points at.
+# Consensus level is ordinal, so it takes a sequential ramp instead; ColorBrewer
+# Purples sits clear of all three caller hues and stays dark enough to read on SURFACE
+# at the light end. The benchmark is the reference rather than a query set, so it is ink.
+LEVEL_COLORS = dict(zip(CONSENSUS_LEVELS, ("#9e9ac8", "#6a51a3", "#3f007d")))
 LEVEL_LABELS = {level: f"{level}/3" for level in CONSENSUS_LEVELS}
-CALLER_COLORS = {"cnvpytor": "#b3312c", "delly": "#d97706", "gatk": "#b5179e"}
+CALLER_COLORS = {"cnvpytor": "#0072B2", "delly": "#D55E00", "gatk": "#009E73"}
 TRUTH_SIDE = INK
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -396,3 +392,85 @@ fig.subplots_adjust(left=0.10, right=0.83, top=0.945, bottom=0.05, hspace=0.26)
 for ax, entries in pending_labels:
     label_line_ends(ax, size_floors, entries)
 fig.savefig(RESULTS_DIR / "size_floor" / "detectable_size_domain.png", dpi=300, facecolor=SURFACE)
+# %% Venn diagram: which callers stand behind each 1/3 consensus call
+from matplotlib_venn import venn3
+from matplotlib_venn.layout.venn3 import DefaultLayoutAlgorithm
+
+from consensuscnv.callsets.registry import SOURCES
+
+# The 1/3 set is every component.
+one_of_three = query_sets[LEVEL_LABELS[1]]
+
+# `source_bits` is the "unique combination of sources" for a component
+caller_bit = {caller: 1 << SOURCES.get(caller) for caller in CALLERS}
+caller_mask = sum(caller_bit.values())
+
+assert not (one_of_three.source_bits & ~caller_mask).any(), "non-caller source in query set"
+
+mask_counts = np.bincount(one_of_three.source_bits, minlength=caller_mask + 1)
+
+# venn3 keys read left to right over `CALLERS`, but SOURCES ids are assigned in
+# first-appearance order, so the mask is rebuilt from the key
+VENN_KEYS = ("100", "010", "110", "001", "101", "011", "111")
+venn_regions = {
+    key: int(mask_counts[sum(caller_bit[c] for c, on in zip(CALLERS, key) if on == "1")])
+    for key in VENN_KEYS
+}
+assert sum(venn_regions.values()) == len(one_of_three)
+
+venn_frame = pd.DataFrame(
+    [
+        {
+            "callers": "|".join(c for c, on in zip(CALLERS, key) if on == "1"),
+            "n_callers": key.count("1"),
+            "n_calls": count,
+            "pct_of_consensus": 100 * count / len(one_of_three),
+        }
+        for key, count in venn_regions.items()
+    ]
+).sort_values(["n_callers", "n_calls"], ascending=[True, False])
+
+os.makedirs(str(RESULTS_DIR / "consensus"), exist_ok=True)
+venn_frame.to_csv(RESULTS_DIR / "consensus" / "caller_agreement_30x.tsv", sep="\t", index=False)
+print(venn_frame.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
+
+# Per-caller totals are component counts
+for index, caller in enumerate(CALLERS):
+    total = sum(v for k, v in venn_regions.items() if k[index] == "1")
+    print(f"  {caller:>8}: {total:,} components carry this caller")
+
+# %% Draw it
+# Area-proportional layout puts the 3/3 region at 1/5 the area of cnvpytor-only,
+# which is legible; if the ratio ever widens, pass
+# layout_algorithm=DefaultLayoutAlgorithm(fixed_subset_sizes=(1,) * 7) to fall
+# back to equal circles and let the printed numbers carry the magnitudes.
+fig, ax = plt.subplots(figsize=(7.2, 6.0), facecolor=SURFACE)
+ax.set_facecolor(SURFACE)
+
+diagram = venn3(
+    subsets=venn_regions,
+    set_labels=("CNVpytor", "Delly", "GATK-gCNV"),
+    set_colors=tuple(CALLER_COLORS[c] for c in CALLERS),
+    alpha=0.42,
+    ax=ax,
+    subset_label_formatter=lambda v: f"{int(v):,}",
+    layout_algorithm=DefaultLayoutAlgorithm(),
+)
+for label in diagram.set_labels:
+    if label is not None:
+        label.set_fontsize(11)
+        label.set_color(INK)
+for label in diagram.subset_labels:
+    if label is not None:
+        label.set_fontsize(9.5)
+        label.set_color(INK)
+        label.set_path_effects([path_effects.withStroke(linewidth=2.4, foreground=SURFACE)])
+
+ax.set_title(
+    f"Caller agreement across {len(one_of_three):,} consensus CNV components, 30x, 13 samples",
+    loc="center", fontsize=12, color=INK, pad=12,
+)
+fig.savefig(
+    RESULTS_DIR / "consensus" / "caller_agreement_30x.png", dpi=300,
+    facecolor=SURFACE, bbox_inches="tight",
+)
