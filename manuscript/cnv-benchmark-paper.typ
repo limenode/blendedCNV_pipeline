@@ -302,19 +302,6 @@ The three single-caller categories take no part in the fit.
 They are predicted rather than described, which leaves the model three degrees of freedom against which it can be rejected, and it is the size of the discrepancy in those three categories that carries the result.
 Category sizes, median interval sizes, and duplication shares were computed from the same merged components used for consensus call set construction, at 30x and at a 50% reciprocal overlap threshold.
 
-== Size Floor Filtering
-
-All three sequence-based callers were run with a 1 kb bin size and consequently cannot resolve CNVs below that width, whereas the merged benchmark is dominated by events an order of magnitude smaller.
-Comparing the two sets without a size restriction therefore charges the callers with failing to detect variants that the chosen bin size places outside their resolution, which depresses recall for a reason that has nothing to do with sequencing depth.
-
-A size floor was applied to the query and truth call sets *symmetrically*, that is, both sides were restricted to intervals of at least the floor before any matching was performed.
-Filtering only the query side would leave sub-floor benchmark intervals in the denominator of recall and move the attainable maximum for a non-biological reason; filtering only the truth side would do the reverse to precision.
-
-The floor was fixed at 1 kb on physical grounds, being the bin size common to all three callers, and was chosen before any performance metric was consulted.
-To confirm that this choice is not merely convenient, the floor was swept over \[1 bp, 100 kb\] at 80 logarithmically spaced points, with precision, recall, and F1 evaluated at every point for each of the six 30x query call sets.
-Alongside the metrics we tracked the number of intervals surviving in each call set and the maximum attainable recall, defined as the ratio of query calls to truth intervals and capped at one.
-That ratio is the largest recall achievable if every query call were to match a distinct truth interval, so it bounds recall from above independently of how well the callers perform, and it identifies the regime in which a call set has become larger than the truth set it is being scored against.
-
 == Binary Classification
 
 CNV calls derived from either the sequence-based CNV calling tools or the SNP array, including both the raw calls from the tools and the consensus calls across the sequence-based tools, were defined as query call sets.
@@ -338,34 +325,70 @@ From the counts of these metrics, the Precision, Recall/Sensitivity, and $F_beta
 A beta value of 1 was used for the F-score.
 CNV calls present in the benchmark set that were not identified in any sample in any of the CNV call sets were excluded from the false negatives for the binary classification, as these were deemed as undiscoverable by the data and calling algorithms that we used.
 
-Various graphs were generated across all tested binary classification metrics using the `matplotlib` Python package.
-Generated plots include density distributions showing the probability density of CNVs across different CNV sizes, cumulative distribution functions (CDFs) showing the proportion of CNVs ≤ each size threshold, and complementary cumulative distribution functions (CCDFs) showing the proportion of CNVs ≥ each size threshold.
-Additionally, Venn diagrams and plots for the distribution of query calls that had one-to-many relationships with truth calls and vice versa were also created.
-
 Figures were generated with matplotlib \[v3.11.1\].
-Three families of plots summarise the classification.
+Two families of plots summarise the classification.
 Size-resolved performance is shown as kernel-smoothed density curves over CNV size, together with cumulative and complementary cumulative distribution functions giving the proportion of CNVs at or below, and at or above, each size threshold.
 Query-to-truth matching structure is summarised by the number of query calls matching more than one truth call and vice versa; because matching is many-to-many, true-positive counts on the query and truth sides do not necessarily coincide.
-Finally, each of the three primary pipeline parameters -- the query consensus reciprocal-overlap threshold, the benchmark padding, and the classification reciprocal-overlap threshold -- was varied, with the effects of variation plotted against precision, recall, and F1 score and against the number of calls that enter the comparison.
-These one-at-a-time analysis profiles motivate the parameter ranges used in the joint analysis below.
+
+== Parameter Selection
+
+Four parameters govern the comparison between the query and truth call sets.
+The benchmark padding decides when records from different benchmark sets describe the same event based on their proximity to each other.
+The size floor decides the smallest event the comparison is allowed to score, and therefore which intervals enter it from the query or truth side.
+The query consensus reciprocal-overlap threshold decides when calls from different callers describe the same event, and affects which calls from the sequence-based caller outputs propagate into the consensus call sets.
+The classification reciprocal-overlap threshold decides when a query call and a benchmark interval describe the same event.
+
+Each parameter was then profiled over its range with the other three held at the values adopted for the pipeline.
+Precision, recall, and F1 were recorded at every point, together with the number of intervals entering the comparison on each side and the match topology, so that a change in a metric can be attributed to a change in total set size rather than reported as a change in performance.
+
+=== Benchmark padding
+
+Padding is applied to both ends of every interval, so a padding of $p$ increases an interval's span by $2p$ and bridges any two intervals separated by no more than $p$.
+Its intended role is to absorb the breakpoint imprecision between benchmark sets built from different technologies and assemblies, and it carries that meaning only while $p$ remains small relative to the intervals it acts on.
+Once $p$ approaches their typical span, bridging no longer joins two descriptions of one variant and begins fusing descriptions of distinct ones.
+A second consequence follows from the order of operations, the size floor being applied after merging rather than before it: fusion can carry a run of sub-floor fragments across the floor as a single interval.
+This is intended to aggregate these runs of near-adjacent fragments into larger intervals such as those sequence-based callers with limited, short read-based evidence are more likely to identify.
+Padding was profiled over \[0, 100 kb\], a range wide enough to reach the regime in which it dominates the intervals it is applied to, and the transitions are reported with the results.
+For subsequent performance comparisons, padding was capped at 1 kb; this is the bin size common to all three callers and therefore the largest boundary error the comparison can be asked to tolerate.
+
+=== Size floor
+
+All three sequence-based callers were run with a 1 kb bin size and consequently cannot resolve a CNV narrower than that, whereas the merged benchmark is dominated by events an order of magnitude smaller.
+Comparing the two sets without a size restriction therefore results in callers failing to detect variants that the chosen bin size places outside their resolution, which reduces recall for a reason that has nothing to do with sequencing depth.
+
+The floor is applied after both call sets have been merged rather than before, which is what allows the padding of the preceding subsection to carry a run of sub-floor benchmark records across it.
+It was applied to the query and truth call sets symmetrically, both sides being restricted to intervals of at least the floor before any matching was performed.
+
+The floor was profiled over \[1 bp, 100 kb\] at 80 logarithmically spaced points for each of the six 30x query call sets, and takes the values \[0, 250, 500, 1000, 2000, 5000, 10000\] within the joint grid.
+Alongside the metrics we tracked the number of intervals surviving in each call set and the maximum attainable recall, defined as the ratio of query calls to truth intervals and capped at one.
+That ratio is the largest recall achievable if every query call were to match a distinct truth interval, so it bounds recall from above independently of how well the callers perform, and it identifies the regime in which a call set has become larger than the truth set it is being scored against.
+
+=== Query consensus reciprocal overlap
+
+A consensus component is the transitive closure of the pairwise overlaps that pass this threshold, so the threshold dictates what degree of agreement between calls is required for calls to propagate.
+At the permissive end of requiring only one base pair overlap between calls, entire locuses are collapsed into a single component whose span exceeds that of any call within it; the consensus level then records co-location rather than agreement about an event.
+At the stringent end only calls with nearly coincident coordinates merge, so two callers that detect the same variant but place its breakpoints by different conventions are recorded as disagreeing.
+The threshold was examined over \[0.05--0.95\] in steps of 0.05.
+
+=== Classification reciprocal overlap
+
+The same geometry applies between a query call and a benchmark interval, with one consequence specific to matching.
+At a threshold of 0.5 or above a query call cannot cover half of each of two benchmark intervals unless those intervals themselves overlap, so the matching is forced one-to-one whenever both sets are internally disjoint; below 0.5 it becomes genuinely many-to-many, and a single call can be credited against several benchmark intervals at once.
+Match topology was therefore recorded alongside the metrics, since it is what distinguishes a threshold that admits more correct matches from one that admits the same match repeatedly.
+A threshold of exactly zero admits a single shared base pair as a match and is excluded from the grid on that basis, with the analysis including it reported in the supplementals.
+The threshold was examined over \[0.05--0.95\] in steps of 0.05.
 
 == Variance-based sensitivity analysis and Pareto front
 
-=== Parameter Sweep
-
-The three parameters of interest were varied jointly over a factorial grid: the query consensus reciprocal-overlap threshold and the classification reciprocal-overlap threshold each over \[0.05-0.95, in steps of 0.05\], and the benchmark padding over \[0, 10, 25, 50, 100, 200, 400, 700, 1000\].
-Cumulative precision, recall, and F1 were evaluated at every setting combination, together with the number of query and truth calls entering each comparison.
-
-Two bounds require justification.
-Padding is applied to both interval ends, so a padding of $p$ increases an interval's span by $2p$; with a median benchmark interval of 144 bp (IQR of \[66-355\] bp), padding of 1 kb already inflates the median interval approximately 14-fold.
-Padding was therefore capped at 1 kb, beyond which the operation no longer represents tolerance for boundary imprecision, and instead progressively fuses neighboring distinct benchmark intervals (\[\~546k calls unpadded vs. \~464k calls at 1kb padding vs. 395k at 10kb padding).
-Second, a reciprocal-overlap threshold of exactly zero permits calls with an overlap of at least 1 bp to be admitted as true positive.
-This produces distinct results from the range of reciprocal overlap threshold values tested and is excluded from the main grid, but included in the full grid for which analysis is shown in the supplementals.
+The profiles above vary one parameter at a time.
+They describe the pipeline completely only if the effect of moving one parameter does not depend on where the other three are held, which is an assumption about the shape of the metric field rather than something the profiles themselves can show.
+All four parameters were therefore also varied jointly, over the full factorial grid of the ranges fixed above with padding taking \[0, 10, 25, 50, 100, 200, 400, 700, 1000\] and the size floor taking \[0, 250, 500, 1000, 2000, 5000, 10000\], and precision, recall, and F1 were evaluated at every combination together with the number of query and truth intervals entering it.
+What follows asks how much of the variation in each metric the one-at-a-time reading accounts for, and where a joint reading is required instead.
 
 === Sensitivity Indices
 
 The contribution of each parameter was quantified by variance-based sensitivity analysis (Sobol', 1993).
-Writing $Y$ for a metric (precision, recall, f1) and $x_1, x_2, x_3$ for the parameters, the first order Sobol index $S_i$ of parameter $i$ is the fraction of the metric's variance attributable to that parameter acting alone.
+Writing $Y$ for a metric (precision, recall, f1) and $x_1, ..., x_4$ for the parameters, the first order Sobol index $S_i$ of parameter $i$ is the fraction of the metric's variance attributable to that parameter acting alone.
 
 $ S_i = ("Var" (EE [Y | X_i])) / ("Var" (Y)) $
 
@@ -375,7 +398,7 @@ $ S_(T i) = 1 - ("Var" (EE [Y | bold(X)_(tilde i)])) / ("Var" (Y)) $
 
 The difference $S_(T i) - S_i$ is the variance a parameter contributes only jointly with others.
 Because the design is a complete factorial grid, each conditional expectation is a marginal mean over the grid and both indices were computed exactly.
-The complete decomposition, comprising all first-, second-, and third-order terms, sum to one, and this was verified numerically.
+The complete decomposition, comprising every term up to fourth order, sums to one, and this was verified numerically.
 
 === Additivity
 
@@ -383,7 +406,7 @@ The same decomposition expresses the metric field as a grand mean plus one univa
 
 $ Y approx mu + sum_i f_i (X_i) wide "with" wide f_i (x) = EE [Y | X_i = x] - mu $
 
-The coefficient of determination of this additive model equals the sum of the first-order indices, and quantifies the extent to which the one-parameter profiles (See Figures A-B) describe the joint behavior of the pipeline.
+The coefficient of determination of this additive model equals the sum of the first-order indices, and so quantifies directly the extent to which the one-at-a-time profiles of the preceding section describe the joint behavior of the pipeline.
 
 === Dependence on the swept ranges
 
@@ -697,24 +720,90 @@ Median component size moves in the opposite direction, rising within the 3/3 cal
 The calls that survive the strictest agreement requirement at low coverage are consequently few, large, and no longer preferentially deletions, and at 177 components the 2x 3/3 call set is too small to support a finer breakdown than that.
 
 
-== Choosing a Detectable Size Domain
+== Parameterizing the Comparison
 
-The merged benchmark contains 178,838 intervals across the thirteen samples, with a median size of 145 bp; only 13.9% reach 1 kb and 2.8% reach 10 kb.
-The six 30x query call sets -- as shown in Figure 4 -- are between 7 and 75 times smaller and, because every caller was run at a 1 kb bin size, hold almost nothing below that width.
-Scoring the query sets against the benchmark without a size restriction therefore primarily measures the mismatch in resolution between the benchmark and the callers rather than an effect of sequencing depth, which is what this study set out to isolate.
-We swept a size floor applied symmetrically to both sides and examined how the comparison behaves as the size floor rises (Figure 4).
+Four user-defined parameters govern the comparison: the padding applied to the benchmark records before the three benchmark sets are merged, the size floor below which no event is scored on either side, the reciprocal-overlap threshold at which calls from different callers are merged into a consensus call, and the reciprocal-overlap threshold at which a query call is credited against a benchmark interval.
+Each was bounded on geometric grounds in the Methods.
+What follows reports what each one does to the comparison across its range, taking them in the order the pipeline applies them and holding the other three at their adopted values throughout: zero padding, a 1 kb floor, and a reciprocal overlap of 0.5 for both consensus construction and classification.
+
+=== Benchmark Padding
+
+The merged benchmark is built from three sets produced by different technologies and assemblies, so their breakpoints for the same variant do not coincide exactly, and padding is a standard remedy for that.
+The merged benchmark has a median interval of 145 bp (IQR \[74--342\] bp), so padding of even a few hundred base pairs is comparable in size to the intervals it is meant to reconcile.
+We swept padding from 0 to 100 kb and re-evaluated the comparison at every point (Figure 4).
+
+#figure(
+  image("/results/parameterization/benchmark_padding.png", width: 100%)
+)
+
+#cap("Figure 4:")[
+  Effect of benchmark padding on the truth set and on the comparison, swept from 0 to 100 kb.
+  Padding is applied to both ends of every benchmark record before the three benchmark sets are merged, and the 1 kb size floor is applied afterwards.
+  (A) Benchmark intervals: all merged intervals, those reaching 1 kb, the manufactured subset of the latter, and those found by the 30x 2-of-3 consensus call set.
+  An interval is manufactured when the longest benchmark record within it is itself shorter than 1 kb, so that it clears the floor only through fusion.
+  (B) Percentage of benchmark intervals found by the same call set, with native and manufactured intervals scored separately.
+  (C) Departures from one-to-one matching, at a permissive 0.1 classification threshold.
+  The fixed 0.5 threshold was not used for this comparison because a query call cannot reach half of two benchmark intervals that do not themselves overlap.
+  (D) Precision, recall, and F1 for the 30x 2-of-3 consensus at the 0.5 threshold.
+  The dotted vertical line marks the 1 kb cap applied to padding in the joint parameter grid.
+  Panels C and D are drawn for the 2-of-3 consensus; the same profiles for all six 30x call sets, together with the benchmark size distribution across the sweep, are given in Supplemental Figure Benchmark Padding Profiles.
+]
+
+#v(0.8em)
+
+The truth set moves in two directions at once (Figure 4A).
+Counted over all sizes the merged benchmark shrinks, from 178,838 intervals unpadded to 157,380 at 1 kb of padding and 79,071 at 100 kb, as records are absorbed into their neighbours.
+Counted at or above the 1 kb floor it grows, from 24,820 intervals to 27,634 and then to 34,012 across the same range.
+The second movement is the consequential one, since it is the intervals that clear the floor which form the recall denominator, and the growth is not a discovery of additional variants.
+It is runs of sub-kilobase records fused into single intervals long enough to clear the 1 kb floor.
+
+Those intervals can be counted directly.
+An interval was labelled manufactured when the longest benchmark record inside it is itself shorter than 1 kb, so that the interval exists in the truth set only because padding joined the run.
+Manufactured intervals are 337 of the 24,820 intervals in the unpadded truth set (1.4%), 3,911 of 27,634 at 1 kb of padding (14.2%), and 18,088 of 34,012 at 100 kb (53.2%).
+They are also almost never recovered.
+At 1 kb of padding the 30x 2-of-3 consensus finds 17.1% of the native intervals and 0.10% of the manufactured ones, a separation of more than two orders of magnitude that holds across the whole sweep (Figure 4B).
+Padding therefore adds to the recall denominator a population that is by construction outside the resolution of every caller in this study.
+
+The effect on the metrics follows from that arithmetic alone (Figure 4D).
+Between zero padding and the 1 kb cap, the number of benchmark intervals the 2-of-3 consensus recovers rises from 4,042 to 4,062, an increase of 0.5%, while the denominator rises from 24,820 to 27,634, an increase of 11.3%.
+Recall falls from 0.163 to 0.147 and F1 from 0.273 to 0.250 as a result, with no change in detection behind either.
+Recall and F1 sit at their maxima at the bottom of the range for all six 30x call sets and decline monotonically above roughly 100 bp of padding (Supplemental Figure Benchmark Padding Profiles).
+
+Precision behaves differently, and it is the one place in the sweep where padding does what it is intended to do.
+It improves slightly over the first kilobase, reaching 0.841 at 1,543 bp of padding against 0.836 unpadded for the 2-of-3 consensus, because fusing benchmark fragments into single intervals converts a small number of boundary near-misses into matches.
+The maxima for the other five call sets fall between 935 bp and 1,823 bp of padding, so the effect is real and consistently located, but it is worth less than one percentage point of precision.
+Above a few kilobases precision falls with everything else, reaching 0.448 at 100 kb.
+
+The matching itself is unaffected throughout.
+At the 0.5 classification threshold used in this study, no query call matched more than one benchmark interval and no benchmark interval was split across more than one query call at any padding in the sweep, as the geometry of the threshold requires.
+The matching is therefore strictly one-to-one over the entire range, and none of the movement above is an artefact of a single call being credited against several intervals at once.
+Structure appears only in the permissive regime, and there it reverses direction (Figure 4C).
+At a 0.1 threshold the number of query calls spanning more than one benchmark interval falls from 50 to 5 as fragments fuse into single partners, while the number of benchmark intervals split across more than one query call rises from 20 to a maximum of 38, both against totals of between 2,873 and 4,268 matched pairs.
+
+Padding was therefore set to zero rather than capped.
+There is no interior optimum available to select: recall and F1 are maximal at the bottom of the range, and the sub-percentage-point gain in precision available at a kilobase is bought with a 1.6 percentage point loss of recall.
+Zero padding is not the same as disabling the operation, since it still bridges intervals that touch exactly; that difference amounts to 70 intervals out of 178,908, and it is retained because two benchmark records abutting at a shared coordinate describe one variant rather than two.
+Padding is nonetheless carried through the joint parameter grid over \[0, 1 kb\], so that its interaction with the other three parameters is measured rather than assumed.
+
+=== Size Floor
+
+With padding fixed at zero, the merged benchmark holds 178,838 intervals across the thirteen samples, of which only 13.9% reach 1 kb and 2.8% reach 10 kb.
+The preceding subsection took the 1 kb floor as given in order to isolate the effect of padding; this one asks whether that value is the right one.
+The six 30x query call sets are between 7 and 75 times smaller than the benchmark and, because every caller was run at a 1 kb bin size, hold almost nothing below that width (Figure 5).
+Scoring them against the benchmark without a size restriction therefore primarily measures the mismatch in resolution between the benchmark and the callers rather than an effect of sequencing depth, which is what this study set out to isolate.
+We swept the floor symmetrically over both sides and examined how the comparison behaves as it rises (Figure 5).
 
 #figure(
   image("/results/size_floor/detectable_size_domain_pub.png", width: 100%)
 )
 
-#cap("Figure 4:")[
+#cap("Figure 5:")[
   Effect of a size floor applied symmetrically to 30x WGS-derived query call sets and the merged benchmark call set, swept over \[1 bp, 100 kb\] at 80 logarithmically spaced points.
   (A) Number of intervals surviving the floor in each call set, with the merged benchmark as a dashed black line.
   (B) Recall, with the maximum attainable recall (query calls divided by truth intervals, capped at one) as a dashed line of the same colour.
   (C) Precision.
   (D) F1, with each call set's maximum marked.
-  The shaded band marks 1--5 kb, spanning every F1 maximum; the dashed vertical line marks the 1 kb floor adopted for all subsequent analyses.
+  The shaded band marks 1--5 kb, spanning every F1 maximum; the dotted vertical line marks the 1 kb floor adopted for all subsequent analyses.
   In panels C and D, each curve is drawn only while the call set behind it retains at least 100 intervals, since precision estimated from a few dozen calls is not comparable with precision estimated from thousands.
   The merged benchmark is 99.8% deletions, so these curves primarily describe deletion detection.
 ]
@@ -724,24 +813,24 @@ We swept a size floor applied symmetrically to both sides and examined how the c
 Three features of this sweep together identify the usable domain.
 
 First, the benchmark loses intervals far faster than any query call set.
-Below roughly 500 bp the truth set outnumbers the largest query set by an order of magnitude, but it falls below the 1-of-3 consensus set above a 1,460 bp floor and below CNVpytor above 2,616 bp (Figure 4A).
+Below roughly 500 bp the truth set outnumbers the largest query set by an order of magnitude, but it falls below the 1-of-3 consensus set above a 1,460 bp floor and below CNVpytor above 2,616 bp (Figure 5A).
 Above those points the comparison has inverted: the callers report more CNVs than the benchmark contains, and precision is bounded by the size of the truth set rather than by the accuracy of the calls.
 
-Second, recall is constrained by a ceiling that is a property of the two call set sizes rather than of detection (Figure 4B).
+Second, recall is constrained by a ceiling that is a property of the two call set sizes rather than of detection (Figure 5B).
 At an unrestricted floor (size floor = 0 bp) the maximum attainable recall is 0.135 for the 1-of-3 set and 0.013 for the 3-of-3 set, so even a caller that matched a distinct benchmark interval with every single one of its calls could not exceed those values.
 Raising the floor lifts the ceiling for every call set, but it does so unevenly: the 1-of-3 and CNVpytor sets saturate at 1.0 above floors of 1,460 bp and 2,616 bp respectively, while Delly, GATK-gCNV, and the 2-of-3 and 3-of-3 consensus sets never approach it, reaching maxima of 0.55, 0.36, 0.31, and 0.18.
 Recall is therefore interpretable as a detection measurement only below the point at which a given call set saturates.
 
-Third, precision is flat from 1 bp to approximately 1 kb for every call set and declines above it (Figure 4C).
+Third, precision is flat from 1 bp to approximately 1 kb for every call set and declines above it (Figure 5C).
 The flat region is the direct consequence of the bin size: over that range the floor removes benchmark intervals almost exclusively, because the callers had produced essentially nothing there to remove, so the query sets and their precision are unchanged while the truth set falls from 178,838 intervals to 24,820.
 Above 1 kb the floor begins to remove query calls as well, and precision falls for every set, steeply for CNVpytor and the 1-of-3 consensus (0.318 to 0.052 and 0.317 to 0.051 between the unrestricted case and a 100 kb floor) and more gradually for GATK-gCNV, which is the most size-stable of the callers (0.566 to 0.448 over the same range, the upper end of which lies beyond the 64.6 kb floor at which its curve is cut for low counts).
 
 Taken together, these place the usable domain immediately above the bin size.
 We fixed the floor at 1 kb, chosen on the physical grounds that no caller in this study can resolve a CNV narrower than its bin.
-The sweep supports that choice: F1 reaches its maximum between 1,689 bp and 4,051 bp for all six call sets, with the 2-of-3 consensus highest at 0.348 (Figure 4D).
+The sweep supports that choice: F1 reaches its maximum between 1,689 bp and 4,051 bp for all six call sets, with the 2-of-3 consensus highest at 0.348 (Figure 5D).
 A 1 kb floor therefore sits just below the empirical optimum for every call set simultaneously.
 
-This floor is applied to every call set and to the benchmark for all analyses that follow, at all four coverages.
+This floor is applied to every call set and to the benchmark for all analyses that follow, at all four coverages, and it is the value at which the floor is held while the two overlap thresholds are profiled below.
 It was selected using 30x data only, which is the arm with the finest resolution and therefore the most permissive: a floor set there admits calls at 2x that fall below the resolution attainable at that depth, biasing the comparison against the low-coverage hypothesis rather than in its favour.
 
 == CNV Size Distribution Characteristics
