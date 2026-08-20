@@ -700,46 +700,46 @@ The calls that survive the strictest agreement requirement at low coverage are c
 == Choosing a Detectable Size Domain
 
 The merged benchmark contains 178,838 intervals across the thirteen samples, with a median size of 145 bp; only 13.9% reach 1 kb and 2.8% reach 10 kb.
-The six 30x query call sets are between 7 and 75 times smaller and, because every caller was run at a 1 kb bin size, hold almost nothing below that width.
-Scoring the two against each other without a size restriction therefore measures the mismatch in resolution between the benchmark and the callers rather than the effect of sequencing depth, which is what this study set out to isolate.
-We swept a size floor applied symmetrically to both sides and examined how the comparison behaves as the floor rises (Figure 4).
+The six 30x query call sets -- as shown in Figure 4 -- are between 7 and 75 times smaller and, because every caller was run at a 1 kb bin size, hold almost nothing below that width.
+Scoring the query sets against the benchmark without a size restriction therefore primarily measures the mismatch in resolution between the benchmark and the callers rather than an effect of sequencing depth, which is what this study set out to isolate.
+We swept a size floor applied symmetrically to both sides and examined how the comparison behaves as the size floor rises (Figure 4).
 
-#figplaceholder("results/size_floor/detectable_size_domain.png — Figure 4, choosing a detectable size domain", height: 9cm)
+#figure(
+  image("/results/size_floor/detectable_size_domain_pub.png", width: 100%)
+)
 
 #cap("Figure 4:")[
-  Effect of a size floor applied symmetrically to the query and benchmark call sets, swept over \[1 bp, 100 kb\] at 80 logarithmically spaced points.
-  All curves are derived from 30x coverage data.
-  (A) Number of intervals surviving the floor in each call set.
+  Effect of a size floor applied symmetrically to 30x WGS-derived query call sets and the merged benchmark call set, swept over \[1 bp, 100 kb\] at 80 logarithmically spaced points.
+  (A) Number of intervals surviving the floor in each call set, with the merged benchmark as a dashed black line.
   (B) Recall, with the maximum attainable recall (query calls divided by truth intervals, capped at one) as a dashed line of the same colour.
   (C) Precision.
   (D) F1, with each call set's maximum marked.
   The shaded band marks 1--5 kb, spanning every F1 maximum; the dashed vertical line marks the 1 kb floor adopted for all subsequent analyses.
   In panels C and D, each curve is drawn only while the call set behind it retains at least 100 intervals, since precision estimated from a few dozen calls is not comparable with precision estimated from thousands.
-  The merged benchmark is 99.8% deletions, so these curves describe deletion detection.
+  The merged benchmark is 99.8% deletions, so these curves primarily describe deletion detection.
 ]
 
 #v(0.8em)
 
 Three features of this sweep together identify the usable domain.
 
-First, the benchmark loses intervals far faster than any query call set, and does not simply remain the larger of the two.
+First, the benchmark loses intervals far faster than any query call set.
 Below roughly 500 bp the truth set outnumbers the largest query set by an order of magnitude, but it falls below the 1-of-3 consensus set above a 1,460 bp floor and below CNVpytor above 2,616 bp (Figure 4A).
 Above those points the comparison has inverted: the callers report more CNVs than the benchmark contains, and precision is bounded by the size of the truth set rather than by the accuracy of the calls.
 
 Second, recall is constrained by a ceiling that is a property of the two call set sizes rather than of detection (Figure 4B).
-At an unrestricted floor the maximum attainable recall is 0.135 for the 1-of-3 set and 0.013 for the 3-of-3 set, so even a caller that matched a distinct benchmark interval with every single one of its calls could not exceed those values.
-Raising the floor lifts the ceiling for every call set, but it does so unevenly: the 1-of-3 and CNVpytor sets saturate at 1.0 above floors of roughly 2 kb and 5 kb respectively, while Delly, GATK-gCNV, and the 2-of-3 and 3-of-3 consensus sets never approach it, reaching maxima of 0.55, 0.36, 0.31, and 0.19.
+At an unrestricted floor (size floor = 0 bp) the maximum attainable recall is 0.135 for the 1-of-3 set and 0.013 for the 3-of-3 set, so even a caller that matched a distinct benchmark interval with every single one of its calls could not exceed those values.
+Raising the floor lifts the ceiling for every call set, but it does so unevenly: the 1-of-3 and CNVpytor sets saturate at 1.0 above floors of 1,460 bp and 2,616 bp respectively, while Delly, GATK-gCNV, and the 2-of-3 and 3-of-3 consensus sets never approach it, reaching maxima of 0.55, 0.36, 0.31, and 0.18.
 Recall is therefore interpretable as a detection measurement only below the point at which a given call set saturates.
 
 Third, precision is flat from 1 bp to approximately 1 kb for every call set and declines above it (Figure 4C).
 The flat region is the direct consequence of the bin size: over that range the floor removes benchmark intervals almost exclusively, because the callers had produced essentially nothing there to remove, so the query sets and their precision are unchanged while the truth set falls from 178,838 intervals to 24,820.
-Above 1 kb the floor begins to remove query calls as well, and precision falls for every set, steeply for CNVpytor and the 1-of-3 consensus (0.318 to 0.052 and 0.317 to 0.051 between the unrestricted case and a 100 kb floor) and more gradually for GATK-gCNV, which is the most size-stable of the callers (0.566 to 0.448 over the same range).
+Above 1 kb the floor begins to remove query calls as well, and precision falls for every set, steeply for CNVpytor and the 1-of-3 consensus (0.318 to 0.052 and 0.317 to 0.051 between the unrestricted case and a 100 kb floor) and more gradually for GATK-gCNV, which is the most size-stable of the callers (0.566 to 0.448 over the same range, the upper end of which lies beyond the 64.6 kb floor at which its curve is cut for low counts).
 
 Taken together, these place the usable domain immediately above the bin size.
-We fixed the floor at 1 kb, chosen on the physical grounds that no caller in this study can resolve a CNV narrower than its bin, and fixed before any performance metric was examined.
-The sweep supports that choice without having determined it: F1 reaches its maximum between 1,689 bp and 4,051 bp for all six call sets, with the 2-of-3 consensus highest at 0.348 (Figure 4D).
-A 1 kb floor therefore sits just below the empirical optimum for every call set simultaneously, which is the conservative side of it.
-Selecting the floor at the F1 maximum would have tuned a parameter on the same quantity subsequently reported as a result, and we avoided doing so; that the physically motivated floor and the empirical optimum agree to within a factor of four across six call sets of very different size and precision is stronger evidence than either argument alone.
+We fixed the floor at 1 kb, chosen on the physical grounds that no caller in this study can resolve a CNV narrower than its bin.
+The sweep supports that choice: F1 reaches its maximum between 1,689 bp and 4,051 bp for all six call sets, with the 2-of-3 consensus highest at 0.348 (Figure 4D).
+A 1 kb floor therefore sits just below the empirical optimum for every call set simultaneously.
 
 This floor is applied to every call set and to the benchmark for all analyses that follow, at all four coverages.
 It was selected using 30x data only, which is the arm with the finest resolution and therefore the most permissive: a floor set there admits calls at 2x that fall below the resolution attainable at that depth, biasing the comparison against the low-coverage hypothesis rather than in its favour.
