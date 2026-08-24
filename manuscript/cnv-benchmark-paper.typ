@@ -111,6 +111,24 @@
   Email: #link("mailto:jinchuan.xing@rutgers.edu")[jinchuan.xing\@rutgers.edu]
 ]
 
+= Recent additions to the manuscript:
+- Note: You can click on the blue text to move directly to the location of interest in the manuscript.
+- Changed #link(<m_benchmark_prep>)[Benchmark Dataset Preparation].
+  - Wrote down explicit logic for which variant types from the VCF files were extracted into the BED files and while variant types were left behind.
+  - Have not chosen to add any new sets yet to fill in the lack of DUP records that we now have until further discussion.
+- Changed #link(<m_cnv_overlap>)[CNV Overlap and Adjacency Graph Building] and #link(<m_consensus_calling>)[Consensus CNV Calling].
+  - Reflect the graph-based approach that we now take to parse and merge the calls.
+- Added #link(<m_null_model>)[Null Model for Caller Agreement].
+  - This proposes that if all of the calls in the aggregate call set were all part of a single population with a predefined probability of being detected by a caller, then you should be able to model the single-caller counts from the two-caller and three-caller consensus counts.
+  - Rejecting this allows us to propose that there exists at least two populations of calls with different behaviors, with one being primarily composed of calls that are detectable independent of caller algorithm, and the other being primarily composed of calls that were identified due to caller specific effects, whether that be incorrect calls, artifact capture, algorithmic differences, etc.
+- Expanded call set parsing and analysis sections of Results, see #link(<r_input_call_sets>)[Input Call Sets After Parsing] and #link(<r_sequence_consensus>)[Sequence-based Consensus Call Set Construction].
+  - Before, these sections were combined into one and much shorter because of how trivial our old operations were. Now we have considerably more information so I decided to split the sections up between statistics on the raw counts from all call set sources after the initial parsing step, and the consensus calling which now includes the new null model for identifying the populations of calls within the consensus set.
+  - The Venn diagram for the Consensus section has been updated, and now there are tables for the breakdown of all 7 parts of the Venn diagram (3 for single-callers, 3 for pairwise combinations, and 1 for all callers).
+- Added parameterization section, see #link(<r_parameterizing>)[Parameterizing the Comparison].
+  - This includes four subsections: Benchmark Padding, Size Floor, Consensus reciprocal overlap threshold, and Classification reciprocal overlap threhsold.
+  - The performance of the query/benchmark comparison is analyzed across the the appropriate range for each parameter of interest.
+  - This is coupled with a subsequent section on the Variance-based sensitivity analysis to show that the combined effects of parameter combinations are not significant enough to warrent a combinatorial analysis, and that analyzing each parameter one at a time is sufficient enough.
+
 = Abstract
 
 // [To be written.]
@@ -164,7 +182,7 @@ Before subsampling, centromere, telomere, short arms, heterochromatin regions, a
 Each chromosome was subsampled individually to ensure even coverage.
 The subsampling was done with a defined set of subsample seeds for reproducibility.
 
-== Sequence-based CNV Calling
+== Sequence-based CNV Calling <m_sequence_based_cnv_calling>
 
 Three tools were used to call CNVs on sequencing data across all coverage types: CNVpytor #c[Suvakov 2021], GATK-gCNV #c[Babadi 2023], and Delly #c[Rausch 2012].
 To ensure appropriate comparison and consensus merging across callers, each tool was set to use a 1000 bp bin size.
@@ -208,7 +226,7 @@ The signal intensity files for 2,141 samples were extracted from the Broad signa
 A .pfb file was compiled using all samples' signal intensity files.
 PennCNV was then used to detect CNVs and also filter out low quality CNVs, which was performed using `filter_cnv.pl` with the default settings specified by the tool.
 
-== Benchmark Dataset Preparation
+== Benchmark Dataset Preparation <m_benchmark_prep>
 
 The three benchmark datasets were chosen to serve as the benchmark sets for the CNVs in GRCh38.
 
@@ -240,7 +258,7 @@ The Oxford Nanopore Technology (ONT) Vienna #c[Schloissnig 2024] dataset include
 The dataset contains annotations for variants derived from sequences aligned to GRCh38.
 The SVIM HG38 annotation file under release v.1.1 was downloaded from the data collections on the IGSR FTP server (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1KG_ONT_VIENNA/release/v1.1/svim-asm-hg38/svim.asm.hg38.bcf")).
 
-== BED File Conversion
+== BED File Conversion <m_bed_file_conversion>
 
 Sequenced-based CNV calls, SNP Array CNV calls, and benchmark CNV calls were all converted from their native formats into BED format using Python.
 One BED file per sample was generated and contained the following information: chromosome number, start position, end position, the two structural variant types (DEL or DUP), and the source of the CNV call.
@@ -256,7 +274,7 @@ After liftover, any calls deemed artifactual due to overlapping with poorly mapp
 An 1% overlap with a poorly mappable region was the criteria to remove a call, with other more and less stringent criteria also being tested for comparison.
 The behavior of this filtering on the number of calls removed as well as the number of bases overlapping unmappable regions, the number of bases removed in total, and the ratio between the two were plotted and analyzed.
 
-== CNV Overlap and Adjacency Graph Building
+== CNV Overlap and Adjacency Graph Building <m_cnv_overlap>
 
 After retrieving all CNV call sets of interest and converting them to a standardized BED format, the CNV data was loaded into Python to generate a graph representation of call sets.
 Individual graphs were generated for 1) All benchmark calls, 2) Sequence-based CNV calls per tool, 3) Sequence-based CNV calls aggregated across all tools, and 4) SNP array CNV calls.
@@ -266,7 +284,7 @@ An empty connected component is initialized for each unique partition of tuple (
 For each sequential node, it checks whether or not there exists overlap between itself and any nodes in the appropriate partition's connected component: If there is, create an "overlap edge" between nodes with the reciprocal overlap as the weight; otherwise, create a "gap edge" between the nodes with their distance from each other as the weight and reset the connected component to only contain the current node.
 This continues until all edges are built.
 
-== Consensus CNV Calling
+== Consensus CNV Calling <m_consensus_calling>
 
 Merging sub-networks of the graphs according to different edge and network filtering parameters was also performed in order to derive consensus CNV call sets.
 Edges were filtered by minimum reciprocal overlap threshold or by maximum distance between calls, in a mutually exclusive manner.
@@ -277,7 +295,7 @@ Consensus CNV call graphs were generated for the benchmark sets to create a sing
 Consensus call graphs were also generated for the three sequence-based call sets derived from the calling tools of interest.
 Multiple versions of these two consensus call graphs were generated across different filtering parameters for downstream analysis of performance across the parameter field.
 
-== Null Model for Caller Agreement
+== Null Model for Caller Agreement <m_null_model>
 
 Consensus construction assigns every merged component to one of seven categories according to which of the three callers contributed a call to it.
 Those categories describe how the callers relate to one another, but on their own they do not distinguish callers that detect a common population of events at different rates from callers that detect different populations.
@@ -453,7 +471,7 @@ Using the 30x data as a reference, we then characterized how the performance res
 We confirmed that this response held across all four coverages and across every individual consensus call set, then fixed a single parameter set on physical and empirical grounds and applied it to all coverages to improve downstream analysis and interpretability.
 Finally, we compared the individual tool call sets, the consensus call sets, and the SNP-array control call set against the benchmark set to evaluate the performance of the lcWGS for CNV calling.
 
-== Input Call Sets After Parsing
+== Input Call Sets After Parsing <r_input_call_sets>
 
 All input call sets were normalised to a common per-sample BED representation and every call set was restricted to the thirteen samples of interest to ensure no statistic reflected differences in cohort composition.
 Liftover was performed on the calls derived from the SNP Array from hg18 to hg38/GRCh38 to align coordinates with all other call sets.
@@ -558,7 +576,7 @@ The SNP array control contributed 1,659 calls across the thirteen samples, the s
 No array call overlapped an excluded region, which is expected given that the array's probes are not sited in the regions the mask covers.
 Sixty-one array calls (3.5%) were lost during liftover from hg18 to hg38, 18 because an endpoint failed to map and 43 because the interval changed length by more than 10% (Supplementary Table S1).
 
-== Sequence-based Consensus Call Set Construction
+== Sequence-based Consensus Call Set Construction <r_sequence_consensus>
 
 All outputs from the sequence-based consensus call sets were aggregated into a single graph and edges between overlapping and adjacent calls were computed accordingly.
 Analysis of the consensus construction was required in order to determine the general behavior of each of the callers and if consensus analysis was a suitable approach to retrieve an informative population of calls.
@@ -720,7 +738,7 @@ Median component size moves in the opposite direction, rising within the 3/3 cal
 The calls that survive the strictest agreement requirement at low coverage are consequently few, large, and no longer preferentially deletions, and at 177 components the 2x 3/3 call set is too small to support a finer breakdown than that.
 
 
-== Parameterizing the Comparison
+== Parameterizing the Comparison <r_parameterizing>
 
 Four user-defined parameters govern the comparison: the padding applied to the benchmark records before the three benchmark sets are merged, the size floor below which no event is scored on either side, the reciprocal-overlap threshold at which calls from different callers are merged into a consensus call, and the reciprocal-overlap threshold at which a query call is credited against a benchmark interval.
 Each was bounded on geometric grounds in the Methods.
@@ -834,10 +852,77 @@ This floor is applied to every call set and to the benchmark for all analyses th
 It was selected using 30x data only, which is the arm with the finest resolution and therefore the most permissive: a floor set there admits calls at 2x that fall below the resolution attainable at that depth, biasing the comparison against the low-coverage hypothesis rather than in its favour.
 
 === Consensus reciprocal overlap threshold
+A consensus component is a union of all pairwise overlaps that clear the reciprocal overlap threshold.
+We swept the threshold from 0.05 to 0.95 in steps of 0.05 (Figure 6).
 
+#figure(
+  image("/results/parameterization/consensus_overlap.png", width: 100%)
+)
 
+#cap("Figure 6:")[
+  Effect of the query consensus reciprocal-overlap threshold on the three 30x consensus call sets, swept from 0.05 to 0.95.
+  The benchmark is held at zero padding, the size floor at 1 kb on both sides, and the classification threshold at 0.5.
+  (A) Consensus calls surviving the 1 kb floor.
+  (B) Precision.
+  (C) Recall, whose denominator is the same 24,820 benchmark intervals at every point.
+  (D) F1.
+  The dotted vertical line marks the adopted value of 0.5.
+]
+
+#v(0.8em)
+
+The behavior for the number of calls greater than 1kb in length differs across consensus stringencies (Figure 6A).
+Raising the threshold splits components between callers that fail to meet threshold requirements. Each split adds a call to lower stringency sets while removing the agreement that contributed to the counts in the levels above it.
+Between 0.05 and 0.95 the 1-of-3 set grows from 21,847 to 28,413 calls above the floor, while the 2-of-3 set falls from 5,623 to 2,369 and the 3-of-3 set from 2,666 to 369.
+
+Taking the ratio of a component's span to the span of the longest single call inside it, the median is 1.00 at every threshold and for every level, the 95th percentile never exceeds 1.16, and the largest ratio anywhere in the sweep is 2.83.
+Components at the permissive end are therefore sets of calls that agree, not loci collapsed into intervals no caller reported.
+
+What the threshold does instead is trade the two sides of the comparison against each other (Figure 6B, C).
+For the 2-of-3 consensus, precision rises from 0.749 to 0.907 across the range while recall falls from 0.170 to 0.087.
+For the 3-of-3 consensus precision is already near its ceiling and barely moves, from 0.912 to a maximum of 0.959 at 0.75, while recall falls from 0.098 to 0.014.
+The 1-of-3 set is the exception: its recall is roughtly flat 0.285 to 0.293 throughout; its precision falls to a minimum of 0.307 at 0.45 before rising to 0.392.
+
+Over the lower half of the range those two movements cancel (Figure 6D).
+Between 0.05 and 0.50 the F1 of the 2-of-3 consensus varies by 0.006, from 0.2785 at 0.30 to 0.2726 at 0.50, while its precision gains 8.7 percentage points.
+The F1 maxima themselves are shallow and disagree between levels, falling at 0.30 for the 2-of-3 set, at 0.05 for the 3-of-3 set, and at the top of the range for the 1-of-3 set.
+
+We chose to adopt a threhold of 0.5 for subsequent analyses.
+It is the conventional reciprocal criterion, it is the smallest threshold at which neither member of a merged pair can be more than twice the size of the other, and it costs the 2-of-3 consensus 2.1% of its attainable F1 while gaining 8.7 of the 15.8 percentage points of precision available across the whole range.
 
 === Classification reciprocal overlap threshold
+
+Unlike the other three parameters this one changes neither call set, and instead strictly influences binary classification calcuations.
+We swept the classification reciprocal overlap threhsold, which defines the overlap required to register matches between query and truth sets as valid, from 0 to 0.99 in steps of 0.01 (Figure 7).
+
+#figure(
+  image("/results/parameterization/classification_overlap.png", width: 100%)
+)
+
+#cap("Figure 7:")[
+  Effect of the classification reciprocal-overlap threshold, swept from 0 to 0.99.
+  The benchmark is held at zero padding, the size floor at 1 kb on both sides, and the consensus threshold at 0.5.
+  (A) Precision, recall, and F1 for the 30x 2-of-3 consensus.
+  (B) Query calls credited against more than one benchmark interval, and (C) benchmark intervals credited to more than one query call, for all six 30x call sets; both axes are symmetric-log so that zero has a position.
+  (D) F1 for the same six call sets.
+  Panels B--D share the legend in D.
+  The dotted vertical line marks the adopted value of 0.5.
+]
+
+#v(0.8em)
+
+All three metrics decline monotonically and the parameter has no interior optimum (Figure 7A).
+For the 2-of-3 consensus, precision falls from 0.876 at a threshold of zero to 0.836 at 0.5 and 0.410 at 0.9, and F1 from 0.291 to 0.273 to 0.134.
+The choice is therefore not between values that perform differently but between definitions of what a match is required to mean, and the informative quantity is the match topology rather than the metrics.
+
+At a threshold of zero a single shared base pair is a match, and one query call is credited against as many as 14 benchmark intervals, depending on the call set.
+The number of query calls with more than one partner falls to zero between 0.41 and 0.47 depending on the call set, ahead of the 0.5 at which the geometry requires one-to-one matching (Figure 7B).
+The merged benchmark is internally disjoint within each sample, chromosome, and variant type, so no query call can cover half of two of its intervals; the query sets carry no such guarantee, because components built at a reciprocal overlap of 0.5 may still overlap one another below that threshold.
+The 1-of-3 consensus is the case in which that matters: it still splits 119 benchmark intervals across two query calls at a threshold of 0.5, and the count reaches zero only at 0.70 (Figure 7C).
+For the other five call sets the matching is strictly one-to-one at 0.5, and the query-side and truth-side true-positive counts coincide exactly; for the 2-of-3 consensus they are both 4,042 at 0.5.
+
+According to F1 scores, the 1-of-3 consensus is the highest-scoring set at every threshold up to 0.66 and the 2-of-3 consensus at every threshold above it, and the 3-of-3 set is the lowest until 0.90 (Figure 7D).
+We adopted 0.5, the conventional reciprocal-overlap criterion, which is also the smallest threshold at which no query call can be credited against two benchmark intervals at once.
 
 == Variance-based sensisitivity analysis
 
@@ -1258,149 +1343,3 @@ Use #link("https://www.sciencedirect.com/science/article/pii/S0888754324001836?v
 CNV detection tools from NGS data: #link("https://pmc.ncbi.nlm.nih.gov/articles/PMC12218993/") \
 2020 detection tool comparison paper: #link("https://pmc.ncbi.nlm.nih.gov/articles/PMC7059689/") \
 WES and WGS paper: #link("https://www.tandfonline.com/doi/full/10.1586/14737159.2015.1053467")
-
-#pagebreak()
-
-= Leftovers
-
-#emph[
-  The remaining sections are working notes carried over from the draft, not manuscript text.
-]
-
-== Comments
-
-Comment on BGE: \
-Add a few sentences describing how the data is being used (imputation) with some references. \
-Then leads into using BGE for CNV detection, cites individual papers, then proposes the unknown: "However, the performance of lcWGS-based CNV detection is unknown...".
-See the 2nd to last paragraph of the nanopore SV paper (#link("https://link.springer.com/article/10.1186/s13059-019-1858-1")) for an example.
-
-were determined to perform well with our lcWGS data while maintaining a significant potential for scaling up to larger sample sizes and different coverages.
-
-A majority of the benchmark set calls were smaller structural variations, and filtering all the call sets for CNVs within the 500 bp--1 Mb window significantly reduced the number of calls in the benchmark set while incurring minimal to no losses in CNV calls from the evaluated sets.
-Out of the evaluated call sets, the SNP Array-based call set experienced the greatest difference when restricting to the analysis window, with the loss of 51 calls (3.1%).
-
-== Abstract
-
-#link("https://pubmed.ncbi.nlm.nih.gov/31076843/") #c[Lauer 2019] \
-An evolving view of copy number variants
-
-WGS has shown to improve disorder diagnosis by a significant margin over WES, but performing WGS incurs a significant additional sequencing cost #c[Ewans 2022].
-
-After performing CNV calling across all of the coverages included in this study, we performed a post-processing step and removed artifactual calls made in genomic regions that were previously excluded from the input sequences due to their poor mapability (See Supplementals \[Excluded Regions Graph\]).
-
-== Counts
-
-Requiring support by at least one callers greatly increased the number of reported CNVs (e.g. 30x coverage: 33,449 for 1/3 vs 5,048 for 2/3; 6x coverage: 19,476 total calls for 1/3 vs 1,781 for 2/3), consistent with the expectation that permissive strategies across callers increase sensitivity but also propagate caller-specific artifacts and inflate the false discovery rate #c[Ho 2020] #c[Liu 2022].
-
-In contrast, requiring 3/3 caller agreement produced substantially smaller call sets (e.g., 6x coverage: 703 total calls; 30x coverage: 2,464 total calls), reflecting a stringent agreement strategy that improves confidence at the cost of sensitivity and excludes variants that are detectable but not consistently recovered across algorithms #c[Ho 2020] #c[Liu 2022].
-
-#v(0.5em)
-
-#table(
-  columns: (auto, auto, auto, auto),
-  align: (left, right, right, right),
-  table.header(
-    [], [1/3 Consensus], [2/3 Consensus], [3/3 Consensus],
-  ),
-  [*30x Coverage*], [25872], [5048], [2381],
-  [*6x Coverage*], [19476], [1781], [678],
-  [*4x Coverage*], [15240], [1147], [284],
-  [*2x Coverage*], [19740], [745], [159],
-)
-
-#cap("Table 2:")[
-  CNV call set counts for all consensus-based call sets across coverages with different caller agreement requirements.
-  Counts are color mapped with higher values in green and lower values in yellow.
-  Call sets only include CNVs that fall within the analysis window of \[500 bp, 1 Mb\].
-]
-
-#v(0.8em)
-
-The only deviation from this trend described above is with the 30x coverage, and in general as the coverage decreases the difference in median between consensuses increases.
-This aligned well with the following expectation: at higher coverage, callers have higher agreement between each other particularly in the several kilobase regime as a result of having more substantial genomic evidence for calling small CNVs and/or operating at coverages that these tools were designed to excel with.
-
-#v(0.5em)
-
-#table(
-  columns: (auto, auto, auto, auto),
-  align: (left, right, right, right),
-  table.header(
-    [], [_1/3 Consensus_], [_2/3 Consensus_], [_3/3 Consensus_],
-  ),
-  [_30x Coverage_], [_6000_], [_5000_], [_5000_],
-  [_6x Coverage_], [_8000_], [_10485_], [_11042.5_],
-  [_4x Coverage_], [_15000_], [_17000_], [_22000_],
-  [_2x Coverage_], [_9000_], [_26000_], [_39000_],
-)
-
-#cap("Table 4:")[
-  Median CNV size counts for all consensus-based call sets across coverages with different caller agreement requirements.
-  Counts are color mapped with higher values in green and lower values in yellow.
-  Call sets only include CNVs that fall within the analysis window of \[500 bp, 1 Mb\].
-]
-
-#v(0.8em)
-
-== Statistical Distribution Figures
-
-#cap("Figure 6:")[
-  Probability density graph for the precision, recall, and f1-scores of CNVs identified from all tested CNV calling methodologies against the merged benchmark CNV call set derived from 1000G phase 3, HGSVC3, and ONT Vienna.
-  Solid lines represent distributions including both Deletions and Duplications; dashed lines represent distributions only including Deletions, and dotted lines represent distributions only including Duplications.
-  100 log-spaced interval points between 500bp and 1 Mb were used to estimate the probability distribution shown, and the values of the points are visualized as hollow points scattered throughout the graph with colors corresponding to the respective tested call set.
-  Individual points are only shown for the distribution lines including Deletion and Duplication records; the points for the individual SV type distributions were computed separately but omitted from the graph for clarity.
-  The distribution curves shown were derived from Gaussian kernel smoothing (σ=5.0) of the points.
-]
-
-== Post-Processing And Removal of Artifactual CNV Calls
-
-#figplaceholder("image20 — Figure 2, percent change in calls after excluding problematic regions")
-
-#cap("Figure 2:")[
-  Percent change in the amount of CNV calls from each of the three CNV calling tools tested (CNVpytor, Delly, GATK-gCNV) after excluding calls that had at least 50% of their length contained within problematic regions.
-  The percent change is in reference to the original number of calls output by each caller.
-  This was performed separately for each coverage type and for Deletion (top row) and Duplication (bottom row) CNV records.
-  Problematic regions considered for exclusion included centromeres, telomeres, heterochromatin, short-arms, decoy contigs, and alternative contigs.
-]
-
-#v(0.8em)
-
-After CNV calling across all coverage types, we applied a post-processing filter to remove CNV intervals overlapping genomic regions that had been excluded during caller preparation (centromeres, telomeres, short arms, heterochromatin, decoy/alternate contigs).
-This step succeeded in ensuring that misinterpretation of the lack of reads in these genomic regions did not propagate into false CNV calls by the tools used.
-Each caller demonstrates a different behavior in generating these erroneous calls, which is illustrated in Figure 2.
-The identification and removal of artifactual calls in this step ensured more reliable downstream results.
-
-== Sequencing-based call sets yield more CNVs than the SNP-array call set, with strong size-distribution differences from the benchmark
-
-To assess the quality of the Sequencing-based call sets, we compared them to the benchmark set and SNP-array call set.
-
-benchmark set and SNP-array call set description
-
-We therefore focused downstream analyses on the 2/3 consensus call sets as a pragmatic middle ground: support by at least two independent callers reduces the likelihood that retained CNVs reflect characteristic behavior of any single algorithm, while preserving substantially more signal than a 3/3 policy.
-This concordance principle is commonly used in SV/CNV integration workflows to balance sensitivity and precision under algorithmic limitations along with realistic breakpoint and representation variability #c[Ho 2020] #c[Liu 2022].
-
-== 2/3 consensus call set comparison/evaluation
-
-#figplaceholder("image21 — Figure 4, distribution of caller sources in 2/3 consensus calls")
-
-#cap("Figure 4:")[
-  Distribution of the sources from all CNV calls that had consensus between at least 2 of the 3 CNV calling tools used (CNVpytor, Delly, and GATK-gCNV).
-  Distributions were generated using the 13 input samples from sequencing data of differing coverage (30x, 6x, 4x, 2x).
-  Analysis was performed separately for Deletion (top row) and Duplication (bottom row) CNV records, and separately for the raw caller incidence (left column) and caller combination incidence (right column).
-]
-
-#v(0.8em)
-
-For most call categories, caller contributions to consensus CNVs were broadly similar, with overlapping interquartile ranges across many categories.
-Higher coverage consensus calls (30x and 6x) yielded significantly higher contributions from GATK-gCNV, and exhibited greater agreement between all three callers.
-Conversely, 2x and 4x coverage had much less contribution from GATK-gCNV and instead attributed a more significant percentage of consensus calls from agreement between only CNVpytor and Delly.
-
-Across coverage types, duplication calls exhibited fewer average calls per sample and greater variability in caller contribution than the deletion calls.
-The medians of the duplication records are more similar across coverage types than the deletion calls, and additionally do not show any clear trends between coverage degree and caller results.
-
-To capture different aspects of classification performance, we report F-scores across beta values of ½, 1, and 2, which place progressively greater weight on recall relative to precision.
-The F₁/₂ score is most directly relevant for cytogenetic applications, where false positives carry higher operational cost than false negatives; however, because the relative performance rankings of the evaluated call sets remained consistent across all three beta values, the choice of F-score does not materially alter the conclusions drawn from the data.
-
-= To-do
-
-- #box(width: 0.9em, height: 0.9em, stroke: 0.6pt) Fix legend ordering of all graphs in main section and supplementals
-- #box(width: 0.9em, height: 0.9em, stroke: 0.6pt) Fix titles for all graphs in main section and supplementals
