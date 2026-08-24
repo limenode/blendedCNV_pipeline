@@ -58,13 +58,8 @@ REFERENCE_FLOOR = 1_000
 MIN_QUERY_CALLS = 100
 
 SURFACE, INK, INK_2, MUTED = "#fcfcfb", "#0b0b0b", "#52514e", "#8a8983"
+
 # Three members of the Okabe-Ito qualitative palette (Wong 2011, Nat Methods)
-# -- blue, vermillion, and bluish  green are its most separable trio under both
-# deuteranopia and protanopia, and it is the palette most journals' figure
-# guidance points at.
-# Consensus level is ordinal, so it takes a sequential ramp instead; ColorBrewer
-# Purples sits clear of all three caller hues and stays dark enough to read on SURFACE
-# at the light end. The benchmark is the reference rather than a query set, so it is ink.
 LEVEL_COLORS = dict(zip(CONSENSUS_LEVELS, ("#9e9ac8", "#6a51a3", "#3f007d")))
 LEVEL_LABELS = {level: f"{level}/3" for level in CONSENSUS_LEVELS}
 CALLER_COLORS = {"cnvpytor": "#0072B2", "delly": "#D55E00", "gatk": "#009E73"}
@@ -84,11 +79,7 @@ query_callset_dict = {
     for name, query_dir in QUERY_DIRS.items()
 }
 
-# Merged once, at the default min_sources=1. `merge_components` builds components
-# from the edge selection alone and only afterwards drops those below min_sources,
-# so the components themselves do not depend on it: selecting rows with
-# n_sources >= k off the unfiltered result is exactly the set min_sources=k would
-# have returned.
+# Merge at default of min_sources=1, derive higher stringency from that.
 query_merged_dict = {
     name: IntervalSet.from_merged(
         merge_components(callset, min_reciprocal_overlap=CONSENSUS_THRESHOLD)
@@ -102,11 +93,7 @@ def consensus_view(intervals: IntervalSet, min_sources: int) -> IntervalSet:
     """Merged calls supported by at least `min_sources` distinct callers."""
     return intervals.select(intervals.n_sources >= min_sources)
 
-
-# Each caller is read from its own directory and passed through raw, with no
-# merging at all. Selecting a caller's bit out of `query_merged` instead would
-# return consensus components that caller took part in, whose extents were set
-# partly by the other two callers -- a different quantity.
+# Individual caller views are derived from their own bed files.
 caller_views = {
     caller: IntervalSet.from_callset(
         collect_callsets(read_bed_calls(bed) for bed in bed_paths(QUERY_DIRS["30x"], (caller,)))
@@ -118,7 +105,7 @@ query_sets = {
     **{LEVEL_LABELS[level]: consensus_view(query_merged, level) for level in CONSENSUS_LEVELS},
 }
 QUERY_COLORS = {**CALLER_COLORS, **{LEVEL_LABELS[k]: LEVEL_COLORS[k] for k in CONSENSUS_LEVELS}}
-# Consensus sets carry the argument, so they are drawn heavier than the callers.
+# Consensus sets are drawn heavier than the callers.
 QUERY_WIDTHS = {**{c: 1.5 for c in CALLERS}, **{LEVEL_LABELS[k]: 2.2 for k in CONSENSUS_LEVELS}}
 
 print(f"{len(truth_merged):,} benchmark intervals")
@@ -160,36 +147,18 @@ def size_domain_sweep(floors, query: IntervalSet, truth: IntervalSet = truth_mer
         out["f1"].append(summary.f1)
         out["n_truth"].append(summary.n_truth)
         out["n_query"].append(summary.n_query)
-        # The most recall attainable: every query call matching a distinct truth
-        # interval. Recall cannot exceed this however good the callers are, and
-        # it cannot exceed 1 either. The cap earns its place once the larger
-        # query sets are on the plot: above a 10 kb floor they hold more calls
-        # than the benchmark holds intervals, and past 1 the ratio is no longer
-        # a ceiling.
         ceiling = summary.n_query / summary.n_truth if summary.n_truth else np.nan
         out["ceiling"].append(min(ceiling, 1.0))
     return {k: np.asarray(v) for k, v in out.items()}
 
 
-# Floors 0 and 1 are identical (no interval is shorter than 1 bp), so the curve
-# starts at 1 and its leftmost point is the unrestricted case. A log x-axis
-# cannot show 0.
 size_floors = np.unique(np.concatenate(([1], np.logspace(0, 5, 80).astype(np.int64))))
 size_curves = {name: size_domain_sweep(size_floors, view) for name, view in query_sets.items()}
 
-# n_truth is a function of the benchmark and the floor alone, so it has to come
-# out identical for every query set. If it ever does not, the floor is being
-# applied asymmetrically and the ceiling means nothing.
 reference_n_truth = size_curves[next(iter(size_curves))]["n_truth"]
 for curve in size_curves.values():
     assert np.array_equal(curve["n_truth"], reference_n_truth)
 
-# recall / ceiling is (n_truth_found / n_truth) / (n_query / n_truth), which is
-# n_truth_found / n_query; precision is n_true_positive / n_query. The two agree
-# exactly wherever the matching is 1:1, so the fraction-of-attainable-recall
-# panel was redrawing the precision panel. Report the largest gap so the claim
-# on panel C is quantified rather than asserted: it opens up only where matching
-# goes many-to-many, or where the ceiling hit its cap at 1.
 ceiling_fractions = {name: c["recall"] / c["ceiling"] for name, c in size_curves.items()}
 for name, fraction in ceiling_fractions.items():
     gap = np.abs(size_curves[name]["precision"] - fraction)
@@ -239,17 +208,11 @@ for name, curve in size_curves.items():
     peak = int(np.nanargmax(curve["f1"]))
     print(f"  {name:>8}: F1 = {curve['f1'][peak]:.3f} at a {size_floors[peak]:,} bp floor")
 
-# The benchmark starts an order of magnitude larger than any query set and ends
-# below the largest of them, so there is a crossing. Reporting it keeps panel A's
-# title honest -- the benchmark does not simply "collapse first".
 for name, curve in size_curves.items():
     below = np.flatnonzero(reference_n_truth < curve["n_query"])
     if below.size:
         print(f"  benchmark falls below {name} above a {size_floors[below[0]]:,} bp floor")
 
-# Every duplication in the merged benchmark, for the caption: after the parser
-# stopped folding insertions into DUP this set is almost entirely deletions, so
-# the figure is a deletion benchmark and should say so.
 from consensuscnv.callsets.registry import SVTYPES
 
 n_dup = int((truth_merged.svtype_idx != SVTYPES.get("DEL")).sum())
@@ -275,25 +238,13 @@ def dress_size_axis(ax, title, ylabel, last=False):
         ax.set_xlabel("Minimum CNV size applied to both call sets (bp)", fontsize=9, color=INK_2)
 
 
-def trimmed(values, curve):
-    """`values` with the low-count tail blanked out.
-
-    A curve is only drawn while the query set behind it still holds at least
-    MIN_QUERY_CALLS calls. Blanking rather than slicing keeps every array the
-    same length as `size_floors`, so one x vector serves all of them.
-    """
+def trimmed(values: np.ndarray, curve: dict):
+    """Returns `values` with low-count tails set to np.nan."""
     return np.where(curve["n_query"] >= MIN_QUERY_CALLS, values, np.nan)
 
 
 def label_line_ends(ax, x, entries, min_gap=10.5):
-    """Right-edge labels, pushed apart so six converging lines stay readable.
-
-    Identity is never carried by colour alone, but at a 100 kb floor several of
-    these curves land within a few pixels of each other, so the labels are
-    separated in display space and then converted back to point offsets. Curves
-    trimmed for low counts end early, so each label is anchored to that curve's
-    last finite point rather than to the right edge of the axis.
-    """
+    """Right-edge labels, pushed apart so six converging lines stay readable."""
     ax.figure.canvas.draw()
     anchored = []
     for y, text, color in entries:
@@ -319,9 +270,7 @@ def label_line_ends(ax, x, entries, min_gap=10.5):
         )
 
 
-# Colour carries the call set and line style carries the metric, so the two
-# encodings never compete for the same channel. Panel order runs from the cause
-# (the benchmark thinning out) to the effect (the metrics it moves).
+# Colour carries the call set and line style carries the metric.
 fig, axes = plt.subplots(4, 1, figsize=(9, 15.5), facecolor=SURFACE, sharex=True)
 pending_labels = []
 
@@ -368,10 +317,7 @@ pending_labels.append(
     (ax, [(trimmed(c["precision"], c), n, QUERY_COLORS[n]) for n, c in size_curves.items()])
 )
 
-# The panel the shaded domain is read off. Every set peaks in the same narrow
-# band, which is a stronger argument for the floor than any single set's curve:
-# six call sets of very different size and precision agree on where the floor
-# should sit.
+# F1 curve
 ax = axes[3]
 for name, curve in size_curves.items():
     f1 = trimmed(curve["f1"], curve)
@@ -439,18 +385,14 @@ for index, caller in enumerate(CALLERS):
     total = sum(v for k, v in venn_regions.items() if k[index] == "1")
     print(f"  {caller:>8}: {total:,} components carry this caller")
 
-# %% Draw it
-# Area-proportional layout puts the 3/3 region at 1/5 the area of cnvpytor-only,
-# which is legible; if the ratio ever widens, pass
-# layout_algorithm=DefaultLayoutAlgorithm(fixed_subset_sizes=(1,) * 7) to fall
-# back to equal circles and let the printed numbers carry the magnitudes.
+# %% Draw the Venn diagram
 fig, ax = plt.subplots(figsize=(7.2, 6.0), facecolor=SURFACE)
 ax.set_facecolor(SURFACE)
 
 diagram = venn3(
-    subsets=venn_regions,
+    subsets=venn_regions,  # pyright: ignore[reportArgumentType]
     set_labels=("CNVpytor", "Delly", "GATK-gCNV"),
-    set_colors=tuple(CALLER_COLORS[c] for c in CALLERS),
+    set_colors=tuple(CALLER_COLORS[c] for c in CALLERS),  # pyright: ignore[reportArgumentType]
     alpha=0.42,
     ax=ax,
     subset_label_formatter=lambda v: f"{int(v):,}",

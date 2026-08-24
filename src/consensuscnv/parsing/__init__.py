@@ -12,7 +12,7 @@ from consensuscnv.parsing.penncnv_parser import (
 )
 from consensuscnv.parsing.vcf_parser import (
     expand_pattern,
-    parse_experimental_map,
+    get_experimental_sets_from_config,
     process_vcfs_to_beds,
     sample_id_from_vcf,
 )
@@ -22,7 +22,7 @@ __all__ = [
     "expand_pattern",
     "iter_penncnv_records",
     "load_sample_list",
-    "parse_experimental_map",
+    "get_experimental_sets_from_config",
     "parse_input_files",
     "process_benchmarks_to_beds",
     "process_penncnv_to_beds",

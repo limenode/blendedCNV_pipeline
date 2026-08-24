@@ -73,8 +73,6 @@ def process_penncnv_to_beds(
 
     layout = config.layout
 
-    samples_of_interest = discover_samples_of_interest(config, samples, common_only)
-
     liftover_stats: dict = {}
 
     for control_name, control_path in config.control.items():
@@ -98,8 +96,6 @@ def process_penncnv_to_beds(
             for chrom, start, end, svtype, sample_id in iter_penncnv_records(
                 control_path
             ):
-                if samples_of_interest is not None and sample_id not in samples_of_interest:
-                    continue
                 if config.valid_chromosomes and chrom not in config.valid_chromosomes:
                     continue
 

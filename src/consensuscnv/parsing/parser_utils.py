@@ -33,12 +33,7 @@ def discover_samples_of_interest(
     samples: frozenset[str] | None = None,
     common_only: bool = True,
 ) -> frozenset[str] | None:
-    """Which samples the control and benchmark parsers should keep. ``None`` means all.
-
-    An explicit `samples` allowlist wins outright and needs no disk scan. Without
-    one, fall back to whatever the VCF parser already wrote, which makes the
-    result depend on parse order -- prefer the allowlist.
-    """
+    """Which samples the control and benchmark parsers should keep. ``None`` means all."""
     if samples is not None:
         return samples
     if not common_only:

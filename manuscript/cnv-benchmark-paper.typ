@@ -833,6 +833,14 @@ A 1 kb floor therefore sits just below the empirical optimum for every call set 
 This floor is applied to every call set and to the benchmark for all analyses that follow, at all four coverages, and it is the value at which the floor is held while the two overlap thresholds are profiled below.
 It was selected using 30x data only, which is the arm with the finest resolution and therefore the most permissive: a floor set there admits calls at 2x that fall below the resolution attainable at that depth, biasing the comparison against the low-coverage hypothesis rather than in its favour.
 
+=== Consensus reciprocal overlap threshold
+
+
+
+=== Classification reciprocal overlap threshold
+
+== Variance-based sensisitivity analysis
+
 == CNV Size Distribution Characteristics
 
 #figplaceholder("image9 — Figure 3, KDE of CNV size distributions at 30x")

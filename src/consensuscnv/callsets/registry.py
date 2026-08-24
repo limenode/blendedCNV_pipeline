@@ -47,9 +47,9 @@ class Registry:
 
         return index
 
-    def get(self, name:str) -> int | None:
+    def get(self, name: str) -> int:
         """Return the id for `name`, or None if it is not present."""
-        return self._ids.get(name)
+        return self._ids.get(name, -1)
 
     @property
     def names(self) -> list[str]:

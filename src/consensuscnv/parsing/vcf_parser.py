@@ -277,7 +277,7 @@ def _process_single_vcf_to_df(
     return df, dict(stats)
 
 
-def parse_experimental_map(
+def get_experimental_sets_from_config(
     config: PipelineConfig, samples: frozenset[str] | None = None
 ) -> dict[str, dict[str, dict[str, Path]]]:
     """Expand every experimental set's tool patterns into {sample_id: file_path} maps.
@@ -317,7 +317,7 @@ def process_vcfs_to_beds(
 
     all_statistics = []
 
-    experimental_map = parse_experimental_map(config, samples)
+    experimental_map = get_experimental_sets_from_config(config, samples)
     liftover_map = config.liftover
 
     for experimental_name, tools in experimental_map.items():
