@@ -384,23 +384,25 @@ That ratio is the largest recall achievable if every query call were to match a 
 === Query consensus reciprocal overlap
 
 A consensus component is the transitive closure of the pairwise overlaps that pass this threshold, so the threshold dictates what degree of agreement between calls is required for calls to propagate.
-At the permissive end of requiring only one base pair overlap between calls, entire locuses are collapsed into a single component whose span exceeds that of any call within it; the consensus level then records co-location rather than agreement about an event.
+At the permissive end, where a single shared base pair is sufficient to record two calls as equivalent and merge them, transitivity allows admittion of chains of calls that each overlap a neighbour without overlapping one another, and a component's span can then exceed that of any call within it; where that happens the consensus level records co-location rather than agreement about an event.
+Whether it happens is a property of the call sets, so every component was summarised by the ratio of its span to the span of the longest single call within it, with a ratio of one indicating a component whose extent is set by a call some caller actually reported.
 At the stringent end only calls with nearly coincident coordinates merge, so two callers that detect the same variant but place its breakpoints by different conventions are recorded as disagreeing.
 The threshold was examined over \[0.05--0.95\] in steps of 0.05.
 
 === Classification reciprocal overlap
 
 The same geometry applies between a query call and a benchmark interval, with one consequence specific to matching.
-At a threshold of 0.5 or above a query call cannot cover half of each of two benchmark intervals unless those intervals themselves overlap, so the matching is forced one-to-one whenever both sets are internally disjoint; below 0.5 it becomes genuinely many-to-many, and a single call can be credited against several benchmark intervals at once.
-Match topology was therefore recorded alongside the metrics, since it is what distinguishes a threshold that admits more correct matches from one that admits the same match repeatedly.
-A threshold of exactly zero admits a single shared base pair as a match and is excluded from the grid on that basis, with the analysis including it reported in the supplementals.
-The threshold was examined over \[0.05--0.95\] in steps of 0.05.
+At a threshold of 0.5 or above a query call cannot cover half of each of two benchmark intervals unless those intervals themselves overlap; below 0.5 the matching becomes genuinely many-to-many, and a single call can be credited against several benchmark intervals at once.
+A benchmark merged at zero padding is disjoint within every sample, chromosome and variant type by construction, so above 0.5 no query call can be credited twice; a query set merged on reciprocal overlap is not, since two components can overlap one another below the threshold at which they were built, so a benchmark interval may still be split between query calls.
+Match topology was therefore recorded on both sides alongside the metrics, since it is what distinguishes a threshold that admits more correct matches from one that admits the same match repeatedly.
+A threshold of exactly zero admits a single shared base pair as a match; it is retained in the profile, where it bounds the topology, and excluded from the joint grid.
+The threshold was profiled over \[0--0.99\] in steps of 0.01.
 
 == Variance-based sensitivity analysis and Pareto front
 
 The profiles above vary one parameter at a time.
 They describe the pipeline completely only if the effect of moving one parameter does not depend on where the other three are held, which is an assumption about the shape of the metric field rather than something the profiles themselves can show.
-All four parameters were therefore also varied jointly, over the full factorial grid of the ranges fixed above with padding taking \[0, 10, 25, 50, 100, 200, 400, 700, 1000\] and the size floor taking \[0, 250, 500, 1000, 2000, 5000, 10000\], and precision, recall, and F1 were evaluated at every combination together with the number of query and truth intervals entering it.
+All four parameters were therefore also varied jointly, over the full factorial grid of the ranges fixed above with padding taking \[0, 10, 25, 50, 100, 200, 400, 700, 1000\], the size floor taking \[0, 250, 500, 1000, 2000, 5000, 10000\], and both reciprocal-overlap thresholds taking \[0.05--0.95\] in steps of 0.05, and precision, recall, and F1 were evaluated at every combination together with the number of query and truth intervals entering it.
 What follows asks how much of the variation in each metric the one-at-a-time reading accounts for, and where a joint reading is required instead.
 
 === Sensitivity Indices
@@ -436,6 +438,11 @@ As such, indices were additionally computed over an intentionally over-wide grid
 
 Because precision and recall span very different ranges across the grid, F1 is close to a monotone function of recall alone and obscures the trade-off between the two.
 Parameter settings were therefore also summarised by their Pareto front: a setting is dominated if another attains at least equal precision and recall and strictly exceeds it on one, and the front comprises the non-dominated settings.
+The front answers a different question from an optimum.
+It separates settings that buy precision at a real cost in recall from settings that are simply worse on both, so a dominated setting has no argument in its favour.
+Dominance compares measured performance, so it is informative only between settings that score the same events under the same definition of a match.
+Three of the four parameters do not satisfy that: the padding and the floor change which intervals enter the comparison, and the classification threshold changes what counts as a match, so for these the front records a change in the comparison rather than an improvement in the pipeline.
+Fronts were therefore computed over the whole grid and again with the classification threshold, and then the size floor, held at the values adopted for the pipeline.
 
 === Implementation
 
@@ -924,7 +931,52 @@ For the other five call sets the matching is strictly one-to-one at 0.5, and the
 According to F1 scores, the 1-of-3 consensus is the highest-scoring set at every threshold up to 0.66 and the 2-of-3 consensus at every threshold above it, and the 3-of-3 set is the lowest until 0.90 (Figure 7D).
 We adopted 0.5, the conventional reciprocal-overlap criterion, which is also the smallest threshold at which no query call can be credited against two benchmark intervals at once.
 
-== Variance-based sensisitivity analysis
+== Variance-based sensitivity analysis and Pareto front
+
+The preceding subsections move one parameter with the other three held fixed.
+To ask whether that reading survives elsewhere in the parameter field, all four were varied jointly over the full factorial grid of 22,743 settings and evaluated for each of the three consensus call sets at 30x.
+The 2-of-3 consensus is reported here; the other two levels are given in Supplementary Table X.
+
+#figure(
+  image("/results/parameterization/sensitivity.png", width: 100%)
+)
+
+#cap("Figure 8:")[
+  Joint behavior of the four parameters over the full factorial grid, for the 30x 2-of-3 consensus call set.
+  (A) Sobol' first-order indices (solid) and total-order indices (pale extension) for precision, recall and F1, with the variance carried only by interactions at the right.
+  (B) Marginal F1 of each parameter under the additive model, against position within that parameter's swept range; the dotted line is the grand mean.
+  (C) Precision and recall at every setting in the grid (grey), the Pareto front (black), the adopted setting (star), and the setting attaining the highest F1 (diamond).
+  (D) The same plane with the classification threshold held at 0.5, colored by size floor.
+]
+
+#v(0.8em)
+
+The four parameters act very nearly independently (Figure 8A).
+Their first-order indices sum to 0.94 for precision, 0.95 for recall and 0.95 for F1, so an additive model, a grand mean plus one curve per parameter, reproduces the joint field to within 5% of its variance.
+The largest single interaction anywhere is between the size floor and the classification threshold, at 3.0% of the variance in F1 and 3.8% in precision.
+The one-at-a-time profiles of the preceding subsections are therefore not artifacts of where the remaining parameters were held.
+
+The variance is not shared evenly (Figure 8A, B).
+The size floor carries 77.2% of the variance in F1 and 78.2% in recall, and the classification threshold carries 67.6% of the variance in precision.
+The benchmark padding accounts for no more than 0.1% of the variance in any of the three metrics.
+The same ordering holds at the 1-of-3 and 3-of-3 consensus levels, with one shift: the consensus threshold's share of the variance in F1 rises from 0.6% for the 1-of-3 set to 14.7% for the 3-of-3 set, which follows the intuition that for higher stringencies, changes in the threshold more readily remove calls.
+
+These shares per parameter describe the region examined, and are influenced by the ranges we evaluate.
+Recomputed over the deliberately over-wide grid, in which the padding and the floor extend to $10^6$ bp, the padding's share of the variance in F1 rises from 0.1% to 24.6% and the share carried by interactions rises from 4.7% to 25.9% (Supplementary Table X).
+The padding's apparent inertness and the additivity of the field are properties of the ranges used, and are physically contrained around the values that we use for the subsequence analyses.
+
+Across the grid, precision is between four and five times recall, and F1 is close to a monotone function of recall alone.
+The Pareto front comprises 80 of the 22,743 settings, spanning recall from 0.033 to 0.241 and precision from 0.734 to 0.927 (Figure 8C).
+Every setting on the front uses a classification threshold of 0.05, the loosest value tested in the grid.
+The setting attaining the highest F1 of 0.363 uses zero padding and a 2 kb floor with consensus and classification thresholds of 0.05.
+Both metrics decline monotonically in the classification threshold, so every value above the smallest is dominated; what this records is that a looser definition of a match credits more calls, not that the pipeline performs better under it.
+The front is read with the crediting rule fixed for that reason.
+
+Held at a classification threshold of 0.5, the front comprises 62 of the 1,197 remaining settings, and only two of them dominate the adopted setting: both raise the size floor to 2 kb, reaching a precision of 0.837 against the adopted 0.836 and a recall of 0.171 against 0.163 (Figure 8D).
+Both therefore buy their advantage by scoring a smaller and larger-bodied set of events rather than by scoring the same events better.
+With the floor also held at the 1 kb the caller resolution fixes and the front comprises 33 of the 171 settings that remain.
+That front is traced almost entirely by the consensus threshold; the padding takes only three of its nine values along it, and moving from zero padding to 200 bp at the adopted consensus threshold gains 0.002 in precision for 0.002 in recall.
+The choice of an operating point on this front is therefore a choice of consensus stringency, and the rate at which the two metrics exchange turns at the adopted value: raising the threshold from 0.05 to 0.50 gains 8.7 percentage points of precision for 0.7 of recall, while raising it from 0.50 to 0.95 gains a further 7.1 for 7.6.
 
 == CNV Size Distribution Characteristics
 
