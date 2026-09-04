@@ -205,6 +205,14 @@ assert np.allclose(one_to_one["recall_over_ceiling"], one_to_one["precision"])
 assert by_stratum["n_query"].sum() == overall.loc["1/3", "n_query"]
 assert by_stratum["n_false_positive"].sum() == overall.loc["1/3", "n_false_positive"]
 
+# Candidate pairs never cross variant class, so the two class-restricted
+# classifications partition the unrestricted one exactly. This is what lets
+# Table 9 carry deletion precision as a decomposition of its precision column
+# rather than as a separate measurement.
+for column in ("n_query", "n_true_positive", "n_false_positive"):
+    totals = per_class[column].groupby("call set").sum().reindex(overall.index)
+    assert (totals == overall[column]).all(), column
+
 TABLES.mkdir(parents=True, exist_ok=True)
 overall.to_csv(TABLES / "consensus_levels_30x.csv")
 per_class.to_csv(TABLES / "consensus_levels_30x_by_class.csv")
