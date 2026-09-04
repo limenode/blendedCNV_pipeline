@@ -132,6 +132,13 @@
   - This includes the equations for deriving the first-order Sobol index, and how this corresponds to the contribution that each parameter has to a given performance metric.
   - The aggregation of the first order Sobol indices is a measure of the extent to which the one-at-a-time profiles describe the behavior of the pipeline compared to the joint effects of multiple parameters. If the first order Sobol indices add to close to 1, that means that the combined affects of parameters are negligible and that the one-at-a-time profiles are reasonable methods to determine individual parameter optimums.
   - The Pareto front shows all of the parameter combinations that yield the best performance assuming that a subset of other parameters are leaved fixed. This discards all combinations that are strictly worse than others, and yields a "front" of combinations. We show the Pareto front on a Precision vs. Recall graph, which points corresponding to one combination of four different parameters (benchmark padding, size floor, consensus reciprocal overlap, classification reciprocal overlap).
+== CNV coverage data results sections
+- Added #link(<r_adopted_parameters>)[Adopted Parameters], which is a summary of the parameterization results.
+  - If we are moving the parameterization text to supplementals or to another text, then we can tweak this text a bit and have it serve as a standalone part to familiarize the reader with the parameters that we use for the downstream results and analysis.
+- Added #link(<r_size_distributions>)[CNV Size Distribution Characteristics], #link(<r_consensus_levels>)[Consensus Level Selection], and #link(<r_coverage_performance>)[Performance of 2-of-3 Consensus Call Sets across Coverages] sections.
+  - All three of these are updated versions of the text that I had in the old manuscript.
+  - Due to all of the refinements that we have made, the data ended up being a lot stronger in favor of lpWGS being an effective replacement for SNP Arrays for CNV detection.
+  - The performance of the sequence-based call sets are much better than the SNP Array, and most of the CNVs (>=90%) that were detected by the SNP Array were accurately discovered by the 2-of-3 consensus call set.
 
 = Abstract
 
