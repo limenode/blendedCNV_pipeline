@@ -759,7 +759,7 @@ The calls that survive the strictest agreement requirement at low coverage are c
 == Parameterizing the Comparison <r_parameterizing>
 
 Four user-defined parameters govern the comparison: the padding applied to the benchmark records before the three benchmark sets are merged, the size floor below which no event is scored on either side, the reciprocal-overlap threshold at which calls from different callers are merged into a consensus call, and the reciprocal-overlap threshold at which a query call is credited against a benchmark interval.
-Each was bounded on geometric grounds in the Methods.
+Each was bounded on physical grounds in the Methods.
 What follows reports what each one does to the comparison across its range, taking them in the order the pipeline applies them and holding the other three at their adopted values throughout: zero padding, a 1 kb floor, and a reciprocal overlap of 0.5 for both consensus construction and classification.
 
 === Benchmark Padding
