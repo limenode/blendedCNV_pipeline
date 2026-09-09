@@ -1,3 +1,5 @@
+# === STANDARD OPERATION ===
+
 # Input datasets
 experimental:
   "Low Coverage":
@@ -15,11 +17,14 @@ output_dir: "/path/to/output"
 # Reference genome file
 genome_file: "/path/to/genome.txt"
 
+# Sample allowlist [optional] - one sample ID per line, blank lines and '#' comments ignored.
+sample_list_file: "/path/to/samples.txt"
+
 # Excluded regions file [optional]
 excluded_regions_file: "/path/to/excluded_regions_hg38.bed"
 
-# Sample allowlist [optional] - one sample ID per line, blank lines and '#' comments ignored.
-sample_list_file: "/path/to/samples.txt"
+
+# === BENCHMARKING ===
 
 # Control datasets [optional, used with --run-benchmark]
 control:
@@ -36,18 +41,3 @@ liftover:
   "SNP Array":
     "from": "hg18"
     "to": "hg38"
-
-# Reciprocal overlap threshold for generating consensus calls [optional] (default: 0.5)
-consensus_reciprocal_threshold: 0.5
-
-# Reciprocal overlap threshold for matching calls to benchmarks [optional] (default: 0.5)
-matching_reciprocal_threshold: 0.5
-
-# Gap (in bases) within which benchmark calls are merged, equivalent to
-# `bedtools merge -d` [optional] (default: 0)
-benchmark_merge_padding: 500
-
-# Analysis plots configuration file [optional, used with --run-benchmark]
-# Defines plot groupings, Venn diagram specs, and samples of interest for the analysis phase.
-# If omitted, the analysis phase will skip all plot generation.
-analysis_plots_config: "/path/to/analysis_plots.yaml"

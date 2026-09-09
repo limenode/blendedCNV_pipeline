@@ -96,7 +96,7 @@ def process_penncnv_to_beds(
             for chrom, start, end, svtype, sample_id in iter_penncnv_records(
                 control_path
             ):
-                if config.valid_chromosomes and chrom not in config.valid_chromosomes:
+                if chrom not in config.chromosomes:
                     continue
 
                 if lifter:

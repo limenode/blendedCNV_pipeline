@@ -30,135 +30,94 @@ class LiftoverStatus(Enum):
     UNMAPPED = "unmapped"        # an endpoint failed to map (unknown chrom / empty result)
     SIZE_CHANGE = "size_change"  # length drifted past the allowed threshold
 
+def read_genome_file(path: Path) -> tuple[str, ...]:
+    """Ordered, de-duplicated chromosome names from a genome/faidx-style file.
+
+    Reads column 0 of each line. Blank lines and lines whose first non-whitespace
+    character is ``#`` are skipped, so commenting a chromosome out of the genome
+    file is the supported way to drop it from the analysis.
+    """
+    names: dict[str, None] = {}  # insertion-ordered, and de-duplicates
+    with open(path) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            names[line.split()[0]] = None
+
+    if not names:
+        raise ValueError(f"No chromosomes found in genome file: {path}")
+    return tuple(names)
+
+
 @dataclass(frozen=True)
 class PipelineConfig:
-    """Parsed, validated pipeline configuration. Built once in ``parse_args()``."""
+    """Parsed, validated pipeline configuration. Built once in ``build_config()``."""
 
     # --- Required ---
     experimental: dict[str, dict[str, str]]                # call_set -> {tool_label: glob_pattern}
     output_dir: Path
-    genome_file: str                  # passed to shell scripts as a path string
+    genome_file: Path
     layout: OutputLayout              # derived from output_dir
+    # The analysis domain, ordered, derived from `genome_file`. Parsers drop any
+    # record on a contig outside it; `build_callset` sorts into this order.
+    chromosomes: tuple[str, ...]
 
     # --- Optional sections (empty/None if absent) ---
     control: dict[str, str] = field(default_factory=dict)
     benchmark: dict[str, str] = field(default_factory=dict)
     liftover: dict[str, dict[str, str]] = field(default_factory=dict)
-    valid_chromosomes: set = field(default_factory=set)
-    chromosome_order: list[str] = field(default_factory=list)
     excluded_regions_file: str | None = None
     sample_list_file: str | None = None   # newline-separated allowlist; None keeps all samples
-    analysis_plots_config: str | None = None
-
-    # --- Thresholds ---
-    consensus_reciprocal_threshold: float = 0.5
-    matching_reciprocal_threshold: float = 0.5
-
-    # --- Benchmark merging ---
-    benchmark_merge_padding: int = 0  # bases; merges benchmark calls within this gap (bedtools -d)
-
-    # --- Phase gating (resolved from CLI flags in parse_args) ---
-    do_processing: bool = True
-    do_computation: bool = False
-    do_analysis: bool = False
 
     @classmethod
-    def from_raw(cls, raw: dict, *, do_processing: bool,
-                 do_computation: bool, do_analysis: bool) -> "PipelineConfig":
+    def from_raw(cls, raw: dict) -> "PipelineConfig":
         output_dir = Path(raw['output_dir'])
+        genome_file = Path(raw['genome_file'])
         return cls(
             experimental=raw.get('experimental', {}),
             output_dir=output_dir,
-            genome_file=raw['genome_file'],
+            genome_file=genome_file,
             layout=OutputLayout(output_dir),
+            chromosomes=read_genome_file(genome_file),
+
             control=raw.get('control', {}),
             benchmark=raw.get('benchmark', {}),
             liftover=raw.get('liftover', {}),
-            valid_chromosomes=raw.get('valid_chromosomes', set()),
-            chromosome_order=raw.get('chromosome_order', []),
             excluded_regions_file=raw.get('excluded_regions_file') or None,
             sample_list_file=raw.get('sample_list_file') or None,
-            analysis_plots_config=raw.get('analysis_plots_config'),
-            consensus_reciprocal_threshold=raw.get('consensus_reciprocal_threshold', 0.5),
-            matching_reciprocal_threshold=raw.get('matching_reciprocal_threshold', 0.5),
-            benchmark_merge_padding=raw.get('benchmark_merge_padding', 0),
-            do_processing=do_processing,
-            do_computation=do_computation,
-            do_analysis=do_analysis,
         )
 
-def build_config(
-    config_path: Path,
-    *,
-    do_processing: bool = True,
-    do_computation: bool = True,
-    do_analysis: bool = True
-) -> PipelineConfig:
+def build_config(config_path: Path) -> PipelineConfig:
     """Load a config YAML and build a PipelineConfig.
 
-    Parses the YAML at `config_path`, resolves benchmark URLs and valid
-    chromosomes, and applies the caller-supplied phase flags. `parse_args` wraps
-    this for CLI use; tests can call it directly with an explicit path.
+    The chromosome domain is derived from `genome_file` in `PipelineConfig.from_raw`.
+    `parse_args` wraps this for CLI use; callers can use it directly with a path.
     """
-    # Load configuration from YAML file
     print(f"Loading configuration from: {config_path}")
-    with open(config_path, 'r') as f:
+    with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    # Process benchmark to handle URLs
+    # Resolve benchmark URLs to local files.
+    # TODO(PLAN.md Step 1): this belongs on the benchmark path, not in config
+    # loading -- building a config for a consensus run should not start a download.
     if config.get('benchmark'):
-        # Get project root (parent of the config file's directory or workspace root)
         project_root = Path(config_path).parent
         tmp_dir = project_root / 'tmp'
         tmp_dir.mkdir(exist_ok=True)
 
         for benchmark_name, benchmark_path in config['benchmark'].items():
             if isinstance(benchmark_path, str) and _is_url(benchmark_path):
-                # print(f"Downloading {benchmark_name} from {benchmark_path}...")
                 local_path = _download_benchmark(benchmark_path, tmp_dir, benchmark_name)
                 config['benchmark'][benchmark_name] = str(local_path)
-                # print(f"Saved to: {local_path}")
 
-    # Read genome.txt and store set of valid chromosomes
-    # Get first column of genome file as set of valid chromosomes
-    if config.get('genome_file'):
-        genome_file = Path(config['genome_file'])
-        if genome_file.exists():
-            with open(genome_file, 'r') as f:
-                ordered_chromosomes = [line.split()[0] for line in f if line.strip()]
-            config['valid_chromosomes'] = set(ordered_chromosomes)
-            config['chromosome_order'] = ordered_chromosomes
-            # print(f"Loaded {len(ordered_chromosomes)} valid chromosomes from {genome_file}")
-        else:
-            print(f"Warning: Genome file {genome_file} not found. Chromosome validation will be skipped.")
-
-    return PipelineConfig.from_raw(
-        config,
-        do_processing=do_processing,
-        do_computation=do_computation,
-        do_analysis=do_analysis,
-    )
+    return PipelineConfig.from_raw(config)
 
 
 def parse_args() -> PipelineConfig:
     parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
     parser.add_argument('config', type=Path, help='Path to configuration YAML file')
-    parser.add_argument('--run-benchmark', action='store_true', help='Whether to run benchmarking after processing')
-    parser.add_argument('--only-process', action='store_true', help='Only run the processing pipeline without computation or analysis')
-    parser.add_argument('--only-compute', action='store_true', help='Only run the computation pipeline without processing or analysis')
-    parser.add_argument('--only-analyze', action='store_true', help='Only run the analysis pipeline without processing or computation')
-    args = parser.parse_args()
-
-    do_processing  = not (args.only_compute or args.only_analyze)
-    do_computation = args.run_benchmark and not (args.only_process or args.only_analyze)
-    do_analysis    = args.run_benchmark and not (args.only_process or args.only_compute)
-
-    return build_config(
-        args.config,
-        do_processing=do_processing,
-        do_computation=do_computation,
-        do_analysis=do_analysis,
-    )
+    return build_config(parser.parse_args().config)
 
 def _is_url(path: str) -> bool:
     """Check if a path is a URL."""

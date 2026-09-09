@@ -152,7 +152,7 @@ def process_benchmarks_to_beds(
         try:
             for record in vcf:
                 chrom = ensure_chr_prefix(record.CHROM)
-                if chrom not in config.valid_chromosomes:
+                if chrom not in config.chromosomes:
                     continue
 
                 if not record.ALT or len(record.ALT) == 0:

@@ -1,7 +1,7 @@
 import glob
 import re
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 
 import pandas as pd
@@ -16,8 +16,6 @@ from consensuscnv.utils import (
     lift_interval,
     sanitize_svtype,
 )
-
-valid_chromosomes = [f"chr{i}" for i in range(1, 23)]
 
 # Every counter `_process_single_vcf_to_df` reports. Removal counters are counted
 # against `total_call_count`, which is tallied before any filtering.
@@ -196,6 +194,7 @@ def determine_svtype_method(record) -> Callable:
 def _process_single_vcf_to_df(
     vcf_path: Path,
     excluded_regions: ExclusionMask,
+    chromosomes: Collection[str],
     lifter: ChainFile | None = None,
     size_change_treshold: float = 0.1,
     max_excluded_fraction: float = 0.0,
@@ -218,7 +217,7 @@ def _process_single_vcf_to_df(
             continue
 
         chrom = ensure_chr_prefix(record.CHROM)
-        if chrom not in valid_chromosomes:
+        if chrom not in chromosomes:
             continue
 
         # Check first valid record to determine SVTYPE extraction method
@@ -351,6 +350,7 @@ def process_vcfs_to_beds(
                 df, statistics = _process_single_vcf_to_df(
                     vcf_path,
                     excluded_regions,
+                    config.chromosomes,
                     lifter,
                     max_excluded_fraction=max_excluded_fraction,
                 )
