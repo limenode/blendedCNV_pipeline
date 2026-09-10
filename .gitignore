@@ -6,21 +6,39 @@ pixi.toml
 
 # python cache files
 __pycache__/
+.ruff_cache/
+
+# python packaging build artifacts
+*.egg-info/
+*.egg
+build/
+dist/
 
 # user directories
 in/
 out/
 tmp/
 test/
+figures/
+results/
+
+# marimo
+__marimo__/
 
 # user-defined config
 internal.config*
 
 # tests
-test.ipynb
 
 # vscode settings
 .vscode/
+*.code-workspace
 
 # Claude
 CLAUDE.md
+
+# manuscript pdf
+manuscript/cnv-benchmark-paper.pdf
+
+# Plan files
+PLAN.md

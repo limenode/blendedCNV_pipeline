@@ -1,3 +1,5 @@
+# === STANDARD OPERATION ===
+
 # Input datasets
 experimental:
   "Low Coverage":
@@ -12,35 +14,74 @@ experimental:
 # Output directory
 output_dir: "/path/to/output"
 
-# Reference genome file
+# Reference genome file [required] - two columns, name<TAB>length. A .fa.fai works.
+# This defines the analysis domain: a chromosome commented out with '#' is
+# excluded from the run, and calls on it are dropped at parse time. It also fixes
+# the order rows are written in. See data/genome_autosome_hg38.txt, which is
+# data/genome_primary_hg38.txt with chrX and chrY commented out.
 genome_file: "/path/to/genome.txt"
+
+# Sample allowlist [optional] - one sample ID per line, blank lines and '#' comments ignored.
+sample_list_file: "/path/to/samples.txt"
 
 # Excluded regions file [optional]
 excluded_regions_file: "/path/to/excluded_regions_hg38.bed"
 
-# Control datasets [optional, used with --run-benchmark]
-control:
-  "SNP Array": "/path/to/array/data.cnv"
+# How much of a call may lie inside an excluded region before the whole call is
+# dropped, as a fraction of its length. 0.0 drops on any overlap. Default: 0.01
+max_excluded_fraction: 0.01
 
-# Benchmark datasets [required when using --run-benchmark] (accepts URLs or paths)
+# Consensus calling parameters [optional]
+consensus:
+  # Reciprocal overlap required for two calls to be treated as the same event.
+  # A list: one consensus run is produced per value, each in its own directory
+  # (out/consensus/<call set>/overlap_0.50/). 0.0 means "any shared base".
+  # A single number is accepted too. Default: [0.5]
+  reciprocal_overlap: [0.0, 0.25, 0.5, 0.75]
+
+  # Drop merged consensus calls shorter than this, in base pairs. Default: 1000
+  min_size: 1000
+
+# Every consensus level is written, from 1 up to the number of tools configured
+# for a call set: three input tools gives 1of3.bed, 2of3.bed and 3of3.bed.
+
+
+# === BENCHMARKING ===
+
+# Control datasets [optional, used by `consensuscnv benchmark`]
+control:
+  "Example SNP Array": "/path/to/array/data.cnv"
+
+# Benchmark datasets [required by `consensuscnv benchmark`]
+# Each value is a local path or a URL. URLs are downloaded on first use into
+# <output_dir>/downloads/ and reused afterwards; that directory is safe to delete.
 benchmark:
   "1000G": "/path/to/hgsvc2/benchmark.vcf"
   "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
   "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
 
+# Evaluation parameters [optional] - only read by `consensuscnv benchmark`
+evaluation:
+  # Padding that bridges neighbouring benchmark records when the truth set is
+  # merged, in base pairs. 0 still bridges exactly-touching records; `null`
+  # disables distance merging entirely. Default: 0
+  benchmark_padding: 0
+
+  # Reciprocal overlap a call must clear against a benchmark interval to be
+  # credited as a match. This is the crediting rule, and it is independent of
+  # consensus.reciprocal_overlap. Default: 0.5
+  reciprocal_overlap: 0.5
+
+# The analysis size domain is consensus.min_size above, applied to the truth set
+# as well, so both sides of every comparison cover the same range.
+
 # Liftover specifications [optional]
+# Each key names the dataset whose files are in a different build to the target build.
+# Valid keys are an experimental call set, a tool label inside one, a control name, or a benchmark
+# name. For an experimental file the tool label is checked first and the call set
+# second, so naming a tool lifts that caller wherever it appears, naming a call set
+# lifts everything in it, and naming both lets the tool take precedence.
 liftover:
-  "SNP Array":
+  "Example SNP Array":
     "from": "hg18"
     "to": "hg38"
-
-# Reciprocal overlap threshold for generating consensus calls [optional] (default: 0.5)
-consensus_reciprocal_threshold: 0.5
-
-# Reciprocal overlap threshold for matching calls to benchmarks [optional] (default: 0.5)
-matching_reciprocal_threshold: 0.5
-
-# Analysis plots configuration file [optional, used with --run-benchmark]
-# Defines plot groupings, Venn diagram specs, and samples of interest for the analysis phase.
-# If omitted, the analysis phase will skip all plot generation.
-analysis_plots_config: "/path/to/analysis_plots.yaml"

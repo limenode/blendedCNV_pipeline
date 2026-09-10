@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "consensuscnv"
+version = "0.2.0"
+description = "Graph-based consensus copy-number-variant calling from low-pass WGS, with optional benchmarking against gold-standard call sets."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Lionel Sequeira", email = "lionelsequeira@gmail.com" },
+]
+keywords = [
+    "CNV",
+    "copy-number-variant",
+    "consensus-calling",
+    "structural-variant",
+    "bioinformatics",
+    "WGS",
+    "blended-genome-exome",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+# Runtime. Everything the parse -> overlap graph -> consensus -> BED path needs,
+# plus the classification the `benchmark` subcommand runs.
+# Mirrors pixi.toml in the development environment
+dependencies = [
+    "cyvcf2>=0.34.0,<0.35",
+    "liftover>=1.4.1,<2",
+    "numpy>=2.5.1,<3",
+    "pandas>=3.0.5,<4",
+    "PyYAML>=6.0.3,<7",
+    "requests>=2.34.2,<3",
+    "scipy>=1.18.0,<2",
+]
+
+# Local development.
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1,<10",
+    "ruff>=0.16.1,<0.17",
+]
+
+[project.urls]
+Repository = "https://github.com/limenode/blendedCNV_pipeline"
+Issues = "https://github.com/limenode/blendedCNV_pipeline/issues"
+
+[project.scripts]
+consensuscnv = "consensuscnv.cli:main"
+
+# --- Packaging -------------------------------------------------------------
+# All sources live under a single package, src/consensuscnv/, and import each
+# other by absolute path (e.g. `from consensuscnv.utils import ...`).
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["consensuscnv*"]
+
+# --- Tests -----------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# --strict-markers and --strict-config turn a typo in a marker or a setting into
+# an error rather than a silently ignored line.
+addopts = "-q --strict-markers --strict-config"
+
+# --- Ruff ------------------------------------------------------------------
+[tool.ruff]
+src = ["src"]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint.isort]
+known-first-party = ["consensuscnv"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
