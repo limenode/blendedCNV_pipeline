@@ -90,7 +90,6 @@ def _resolve_chromosome_order(chromosome_order: Iterable[str] | None) -> tuple[s
 
     `None` means "whatever `seed_chromosomes` put in the registry", which is the
     genome file's order and the same order `write_merged_bed` will sort ids into.
-    Snapshotted, because interning during the build appends to that list.
     """
     if chromosome_order is not None:
         return tuple(chromosome_order)

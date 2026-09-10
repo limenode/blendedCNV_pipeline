@@ -98,14 +98,19 @@ def extract_id(path: str, id_regex: re.Pattern, pattern: str) -> str:
 
 
 def sample_id_from_vcf(path: str) -> str:
-    """Read the first sample name from a VCF header, falling back to the stem."""
+    """Read the first sample name from a VCF header, falling back to the stem.
+
+    cyvcf2 raises plain `OSError` for every way opening can fail -- missing file,
+    unreadable, empty, or not valid VCF/BCF -- and every one of those is a file we
+    can still name from its path. Anything else is a real bug and should surface.
+    """
     try:
-        vcf = VCF(path)
-        if vcf.samples:
-            return vcf.samples[0]
+        with VCF(path) as vcf:
+            if vcf.samples:
+                return vcf.samples[0]
         print(f"Warning: no samples found in {path}")
-    except Exception as e:
-        print(f"Error reading VCF {path}: {e}")
+    except OSError as error:
+        print(f"Error reading VCF {path}: {error}")
     return Path(path).stem
 
 
@@ -305,7 +310,6 @@ def process_vcfs_to_beds(
     config: PipelineConfig,
     excluded_regions: ExclusionMask,
     common_only: bool = True,
-    max_excluded_fraction: float = 0.0,
     samples: frozenset[str] | None = None,
 ) -> list[dict]:
     """Convert all experimental VCFs to BED format, applying liftover if needed.
@@ -348,7 +352,7 @@ def process_vcfs_to_beds(
                     excluded_regions,
                     config.chromosomes,
                     liftover.lifter if liftover else None,
-                    max_excluded_fraction=max_excluded_fraction,
+                    max_excluded_fraction=config.max_excluded_fraction,
                 )
 
                 statistics["experimental_name"] = experimental_name

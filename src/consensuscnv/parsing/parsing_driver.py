@@ -8,10 +8,11 @@ from consensuscnv.parsing.vcf_parser import process_vcfs_to_beds
 from consensuscnv.utils import PipelineConfig
 
 
-def parse_input_files(config: PipelineConfig, max_excluded_fraction: float = 0.01) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Runs parsers for experimental control, and benchmark datasets.
-    Does not parse any records that fall within an interval in the exclusion mask by
-    at least {max_excluded_fraction} percentage of a call's length.
+def parse_input_files(config: PipelineConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Runs parsers for experimental, control, and benchmark datasets.
+
+    A record is dropped when it falls inside the exclusion mask by more than
+    `config.max_excluded_fraction` of its length.
     """
 
     excluded_regions = ExclusionMask.load(config.excluded_regions_file)
@@ -20,17 +21,17 @@ def parse_input_files(config: PipelineConfig, max_excluded_fraction: float = 0.0
 
     print("\nProcessing experimental datasets...")
     vcf_statistics_list = process_vcfs_to_beds(
-        config, excluded_regions, max_excluded_fraction=max_excluded_fraction, samples=samples
+        config, excluded_regions, samples=samples
     )
 
     print("\nProcessing control datasets...")
     penncnv_statistics = process_penncnv_to_beds(
-        config, excluded_regions, max_excluded_fraction=max_excluded_fraction, samples=samples
+        config, excluded_regions, samples=samples
     )
 
     print("\nProcessing benchmark datasets...")
     benchmark_statistics = process_benchmarks_to_beds(
-        config, excluded_regions, max_excluded_fraction=max_excluded_fraction, samples=samples
+        config, excluded_regions, samples=samples
     )
 
     # Parse statistics to dataframes

@@ -1,5 +1,6 @@
 import os
 from collections import Counter
+from contextlib import ExitStack
 from typing import TextIO
 
 from cyvcf2 import VCF
@@ -118,7 +119,6 @@ def process_benchmarks_to_beds(
     config: PipelineConfig,
     excluded_regions: ExclusionMask | None = None,
     common_only: bool = True,
-    max_excluded_fraction: float = 0.0,
     samples: frozenset[str] | None = None,
 ) -> dict:
     """Convert benchmark VCFs to per-benchmark, per-sample BED files."""
@@ -150,7 +150,7 @@ def process_benchmarks_to_beds(
 
         stats: Counter[str] = Counter(dict.fromkeys(BENCHMARK_STAT_KEYS, 0))
         handles: dict[str, TextIO] = {}  # sample_id -> open file
-        try:
+        with ExitStack() as stack:
             for record in vcf:
                 chrom = ensure_chr_prefix(record.CHROM)
                 if chrom not in config.chromosomes:
@@ -218,7 +218,7 @@ def process_benchmarks_to_beds(
                     stats[f"total_{svtype.lower()}_call_count"] += len(sample_ids)
 
                 # After liftover, so the mask sees target-assembly coordinates.
-                if excluded_regions.is_excluded(chrom, start, end, max_excluded_fraction):
+                if excluded_regions.is_excluded(chrom, start, end, config.max_excluded_fraction):
                     masked = excluded_regions.overlap_bp(chrom, start, end)
                     stats["records_removed_excluded"] += 1
                     stats["calls_removed_excluded"] += n_calls
@@ -233,12 +233,9 @@ def process_benchmarks_to_beds(
                     for sample_id in sample_ids:
                         fh = handles.get(sample_id)
                         if fh is None:
-                            fh = open(output_dir / f"{sample_id}.bed", "w")
+                            fh = stack.enter_context(open(output_dir / f"{sample_id}.bed", "w"))
                             handles[sample_id] = fh
                         fh.write(f"{chrom}\t{start}\t{end}\t{svtype}\t{source}\n")
-        finally:
-            for fh in handles.values():
-                fh.close()
 
         if liftover:
             print(

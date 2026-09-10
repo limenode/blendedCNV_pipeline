@@ -1,6 +1,7 @@
 import os
 from collections import Counter
 from collections.abc import Iterator
+from contextlib import ExitStack
 from typing import TextIO
 
 from consensuscnv.parsing.parser_utils import ExclusionMask, build_lifter
@@ -60,7 +61,6 @@ def process_penncnv_to_beds(
     config: PipelineConfig,
     excluded_regions: ExclusionMask | None = None,
     common_only: bool = True,
-    max_excluded_fraction: float = 0.0,
     samples: frozenset[str] | None = None,
 ) -> dict:
     """Convert control PennCNV datasets to per-sample DEL/DUP BED files."""
@@ -84,7 +84,7 @@ def process_penncnv_to_beds(
 
         stats: Counter[str] = Counter(dict.fromkeys(PENNCNV_STAT_KEYS, 0))
         handles: dict[str, TextIO] = {}  # (sample_id) -> open file
-        try:
+        with ExitStack() as stack:
             for chrom, start, end, svtype, sample_id in iter_penncnv_records(
                 control_path
             ):
@@ -110,7 +110,7 @@ def process_penncnv_to_beds(
                     stats[f"total_{kind}_call_count"] += 1
 
                 # After liftover, so the mask sees target-assembly coordinates.
-                if excluded_regions.is_excluded(chrom, start, end, max_excluded_fraction):
+                if excluded_regions.is_excluded(chrom, start, end, config.max_excluded_fraction):
                     stats["calls_removed_excluded"] += 1
                     stats["bases_removed_excluded"] += size
                     stats["bases_masked_excluded"] += excluded_regions.overlap_bp(
@@ -123,12 +123,9 @@ def process_penncnv_to_beds(
                 # Open one handle per (sample_id) lazily, so no empty files are made.
                 fh = handles.get(sample_id)
                 if fh is None:
-                    fh = open(output_dir / f"{sample_id}.bed", "w")
+                    fh = stack.enter_context(open(output_dir / f"{sample_id}.bed", "w"))
                     handles[sample_id] = fh
                 fh.write(f"{chrom}\t{start}\t{end}\t{svtype}\t{source}\n")
-        finally:
-            for fh in handles.values():
-                fh.close()
 
         if liftover:
             print(

@@ -2,6 +2,7 @@
 Interned ids (chrom_idx, svtype_idx, sample_idx, source_bits) come from
 process-wide registries in `registry`, not from the CallSet.
 
+    seed_chromosomes(read_genome_file(genome_file))  # registry, once, first
     calls = read_bed_calls(path)                     # bed_io
     callset = collect_callsets([...])                # callset
     selection = filter_edges(callset, 0.5)           # edges
@@ -24,10 +25,9 @@ from consensuscnv.callsets.callset import (
 )
 from consensuscnv.callsets.edges import EdgeSelection, filter_edges
 from consensuscnv.callsets.merging import MergedCallSet, merge_components
-from consensuscnv.callsets.registry import DEFAULT_CHROMOSOME_ORDER, Registry
+from consensuscnv.callsets.registry import Registry, seed_chromosomes
 
 __all__ = [
-    "DEFAULT_CHROMOSOME_ORDER",
     "Call",
     "CallSet",
     "CallSource",
@@ -39,6 +39,7 @@ __all__ = [
     "filter_edges",
     "merge_components",
     "read_bed_calls",
+    "seed_chromosomes",
     "sort_into_genome_order",
     "source_strings_for",
     "write_merged_bed",

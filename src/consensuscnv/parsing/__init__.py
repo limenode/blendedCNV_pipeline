@@ -20,9 +20,9 @@ from consensuscnv.parsing.vcf_parser import (
 __all__ = [
     "discover_samples_of_interest",
     "expand_pattern",
+    "get_experimental_sets_from_config",
     "iter_penncnv_records",
     "load_sample_list",
-    "get_experimental_sets_from_config",
     "parse_input_files",
     "process_benchmarks_to_beds",
     "process_penncnv_to_beds",

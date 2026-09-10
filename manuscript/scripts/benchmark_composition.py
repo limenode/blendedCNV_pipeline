@@ -25,10 +25,15 @@ import numpy as np
 import pandas as pd
 
 from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
-from consensuscnv.callsets.registry import SVTYPES
+from consensuscnv.callsets.registry import SVTYPES, seed_chromosomes
 from consensuscnv.classification.intervals import IntervalSet
+from consensuscnv.utils import read_genome_file
 
 ROOT = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline")
+
+# Chromosome ids have to order the genome rather than the order the BEDs
+# happen to be read in, so the registry is seeded before any CallSet is built.
+seed_chromosomes(read_genome_file(ROOT / "data" / "genome_primary_hg38.txt"))
 BENCHMARKS = ("1000G", "HGSVC3", "ont_vienna")
 DEST = ROOT / "results" / "manuscript"
 
