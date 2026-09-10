@@ -14,7 +14,11 @@ experimental:
 # Output directory
 output_dir: "/path/to/output"
 
-# Reference genome file
+# Reference genome file [required] - two columns, name<TAB>length. A .fa.fai works.
+# This defines the analysis domain: a chromosome commented out with '#' is
+# excluded from the run, and calls on it are dropped at parse time. It also fixes
+# the order rows are written in. See data/genome_autosome_hg38.txt, which is
+# data/genome_primary_hg38.txt with chrX and chrY commented out.
 genome_file: "/path/to/genome.txt"
 
 # Sample allowlist [optional] - one sample ID per line, blank lines and '#' comments ignored.
@@ -32,6 +36,7 @@ consensus:
   # Reciprocal overlap required for two calls to be treated as the same event.
   # A list: one consensus run is produced per value, each in its own directory
   # (out/consensus/<call set>/overlap_0.50/). 0.0 means "any shared base".
+  # A single number is accepted too. Default: [0.5]
   reciprocal_overlap: [0.0, 0.25, 0.5, 0.75]
 
   # Drop merged consensus calls shorter than this, in base pairs. Default: 1000

@@ -3,7 +3,7 @@ authors = ["Lionel Sequeira <lionelsequeira@gmail.com>"]
 channels = ["conda-forge", "bioconda"]
 name = "blendedCNV_pipeline"
 platforms = ["linux-64"]
-version = "0.1.0"
+version = "0.2.0"
 
 [tasks]
 

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "consensuscnv"
-version = "0.1.0"
-description = "Graph-based consensus copy-number-variant calling from low-pass (Blended Genome-Exome) WGS, with optional benchmarking against gold-standard call sets."
+version = "0.2.0"
+description = "Graph-based consensus copy-number-variant calling from low-pass WGS, with optional benchmarking against gold-standard call sets."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
@@ -60,7 +60,7 @@ Repository = "https://github.com/limenode/blendedCNV_pipeline"
 Issues = "https://github.com/limenode/blendedCNV_pipeline/issues"
 
 [project.scripts]
-consensuscnv = "consensuscnv.main:main"
+consensuscnv = "consensuscnv.cli:main"
 
 # --- Packaging -------------------------------------------------------------
 # All sources live under a single package, src/consensuscnv/, and import each
