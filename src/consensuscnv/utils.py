@@ -1,4 +1,3 @@
-import argparse
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -220,11 +219,31 @@ class PipelineConfig:
             )
 
 
-def build_config(config_path: Path) -> PipelineConfig:
+def merge_overrides(raw: dict, overrides: dict) -> dict:
+    """Overlay overrides on a raw config, merging one level deep.
+
+    A nested value like ``{"consensus": {"min_size": 500}}`` updates only the keys
+    it names, leaving the rest of that block as the file wrote it. Applied before
+    `PipelineConfig.from_raw`, so an overridden value goes through exactly the same
+    validation as one written in the YAML.
+    """
+    merged = dict(raw)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    return merged
+
+
+def build_config(config_path: Path, *, overrides: dict | None = None) -> PipelineConfig:
     """Load a config YAML and build a PipelineConfig."""
     print(f"Loading configuration from: {config_path}")
     with open(config_path) as f:
         config = yaml.safe_load(f)
+
+    if overrides:
+        config = merge_overrides(config, overrides)
 
     parsed = PipelineConfig.from_raw(config)
 
@@ -236,11 +255,6 @@ def build_config(config_path: Path) -> PipelineConfig:
 
     return parsed
 
-
-def parse_args() -> PipelineConfig:
-    parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
-    parser.add_argument('config', type=Path, help='Path to configuration YAML file')
-    return build_config(parser.parse_args().config)
 
 # Define metric functions
 def precision(tp: int, fp: int, fn: int) -> float:
