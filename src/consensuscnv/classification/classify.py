@@ -15,11 +15,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
 
 from consensuscnv.classification.intervals import IntervalSet
 from consensuscnv.classification.pairs import CandidateSet, PairSelection, filter_candidates
-from consensuscnv.utils import DistributionType
 
 
 class ClassLabel(Enum):
@@ -307,141 +305,13 @@ def _summary_from_counts(
         max_padding=classification.max_padding,
     )
 
-def group_metrics(
-    classification: Classification,
-    by: str = "sample_idx"
-) -> dict[int, ClassificationSummary]:
-    """Break the metrics down by an interend column, keyed by its registry id."""
-
-    query_group = getattr(classification.query, by)
-    truth_group = getattr(classification.truth, by)
-    width = int(max(query_group.max(initial=-1), truth_group.max(initial=-1)) + 1)
-
-    counts = _counts_by_group(classification, query_group, truth_group, width)
-    n_query, n_truth = counts[0], counts[1]
-
-    return {
-        group_id: _summary_from_counts(counts, group_id, classification)
-        for group_id in range(width)
-        if n_query[group_id] > 0 or n_truth[group_id] > 0
-    }
-
-
-@dataclass(frozen=True, slots=True)
-class SizeBinning:
-    """Row -> size-bin assignment for one query/truth pair.
-
-    Depends only on the interval sizes, never on a classification threshold, so
-    one SizeBinning serves every parameter point -- the same hoist that makes
-    `CandidateSet` reusable across a sweep.
-
-    Bin ``k`` covers ``[lower_edges[k], lower_edges[k + 1])``: bin 0 is
-    everything below ``edges[0]`` and bin ``len(edges)`` everything at or above
-    ``edges[-1]``.
-    """
-
-    edges: np.ndarray
-    query_bin: np.ndarray = field(repr=False)
-    truth_bin: np.ndarray = field(repr=False)
-
-    def __len__(self) -> int:
-        return len(self.edges) + 1
-
-    @property
-    def lower_edges(self) -> np.ndarray:
-        """Left edge of each bin -- the natural x values for a plot."""
-        return np.concatenate(([0], self.edges))
-
-    @classmethod
-    def from_candidates(cls, candidates: CandidateSet, edges: np.ndarray) -> "SizeBinning":
-        edges = np.asarray(edges)
-        return cls(
-            edges=edges,
-            query_bin=np.searchsorted(edges, candidates.query.lengths, side="right"),
-            truth_bin=np.searchsorted(edges, candidates.truth.lengths, side="right"),
-        )
-
-    @classmethod
-    def at_every_size(cls, candidates: CandidateSet) -> "SizeBinning":
-        """Bin at every distinct size present in either set.
-
-        The metrics are step functions that can only change where a row's size
-        actually falls, so this resolution is exact -- it reproduces a
-        sort-and-step sweep point for point. Distinct sizes are far fewer than
-        rows, and `bincount` is flat in the number of bins, so it is also cheap.
-        """
-        return cls.from_candidates(
-            candidates,
-            np.union1d(np.unique(candidates.query.lengths), np.unique(candidates.truth.lengths)),
-        )
-
-@dataclass(frozen=True, slots=True)
-class SizeMetrics:
-    """Classification metrics as a function of CNV size.
-
-    Columnar rather than a list of summaries, because these are meant to be
-    plotted. `precision` / `recall` / `f1` are NaN where the corresponding
-    denominator is empty, so a plot breaks the line instead of drawing a drop to
-    zero that would read as a real collapse. Index into it for a
-    `ClassificationSummary` of one bin, which keeps the scalar 0.0 convention.
-    """
-
-    lower_edges: np.ndarray
-    n_query: np.ndarray
-    n_truth: np.ndarray
-    n_pairs: np.ndarray
-    n_true_positive: np.ndarray
-    n_truth_found: np.ndarray
-
-    distribution: DistributionType
-    min_reciprocal_overlap: float
-    max_padding: int | None
-
-    def __len__(self) -> int:
-        return len(self.lower_edges)
-
-    def __getitem__(self, index: int) -> ClassificationSummary:
-        return ClassificationSummary(
-            n_query=int(self.n_query[index]),
-            n_truth=int(self.n_truth[index]),
-            n_pairs=int(self.n_pairs[index]),
-            n_true_positive=int(self.n_true_positive[index]),
-            n_false_positive=int(self.n_query[index] - self.n_true_positive[index]),
-            n_truth_found=int(self.n_truth_found[index]),
-            n_false_negative=int(self.n_truth[index] - self.n_truth_found[index]),
-            min_reciprocal_overlap=self.min_reciprocal_overlap,
-            max_padding=self.max_padding,
-        )
-
-    @property
-    def n_false_positive(self) -> np.ndarray:
-        return self.n_query - self.n_true_positive
-
-    @property
-    def n_false_negative(self) -> np.ndarray:
-        return self.n_truth - self.n_truth_found
-
-    @property
-    def precision(self) -> np.ndarray:
-        """Share of query calls of this size that matched something."""
-        return _safe_ratio(self.n_true_positive, self.n_query)
-
-    @property
-    def recall(self) -> np.ndarray:
-        """Share of truth calls of this size that were found."""
-        return _safe_ratio(self.n_truth_found, self.n_truth)
-
-    def f_beta(self, beta: float = 1.0) -> np.ndarray:
-        p, r = self.precision, self.recall
-        beta_squared = beta**2
-        return _safe_ratio((1 + beta_squared) * p * r, beta_squared * p + r)
-
-    @property
-    def f1(self) -> np.ndarray:
-        return self.f_beta(beta=1.0)
-
 def _safe_ratio(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
-    """Elementwise division, NaN where the denominator is zero or undefined."""
+    """Elementwise division, NaN where the denominator is zero or undefined.
+
+    NaN rather than 0.0: a plot then breaks the line instead of drawing
+    a drop to zero that reads as a real collapse. The scalar
+    `ClassificationSummary` keeps the 0.0 convention.
+    """
     numerator = np.asarray(numerator, dtype=np.float64)
     denominator = np.asarray(denominator, dtype=np.float64)
     valid = denominator > 0
@@ -449,52 +319,6 @@ def _safe_ratio(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
     np.divide(numerator, denominator, out=out, where=valid)
     return out
 
-def size_metrics(
-    classification: Classification,
-    bins: "SizeBinning | np.ndarray",
-    *,
-    distribution: DistributionType = DistributionType.DENSITY,
-) -> SizeMetrics:
-    """Classification metrics stratified by CNV size.
-
-    Query rows are binned by query size and truth rows by truth size, so
-    `precision` at a size is over calls of that size and `recall` is over truth
-    events of that size. They are different populations by construction -- there
-    is no single "number of CNVs of size s" that both share.
-
-    `distribution` selects how bins accumulate:
-        DENSITY                  -- calls whose size falls in the bin
-        CUMULATIVE               -- calls at or below the bin's upper edge
-        COMPLEMENTARY_CUMULATIVE -- calls at or above the bin's lower edge
-
-    Both cumulative forms are exact at their edges: they are the same running
-    totals a sort-and-step sweep produces, evaluated at the chosen sizes rather
-    than at every distinct one. Use `SizeBinning.at_every_size` for the full
-    curve. Pass a prebuilt `SizeBinning` to reuse the assignment across a sweep;
-    an array of edges is binned on the spot.
-    """
-    if not isinstance(bins, SizeBinning):
-        bins = SizeBinning.from_candidates(classification.candidates, bins)
-
-    counts = _counts_by_group(classification, bins.query_bin, bins.truth_bin, len(bins))
-
-    if distribution is DistributionType.CUMULATIVE:
-        counts = tuple(np.cumsum(column) for column in counts)
-    elif distribution is DistributionType.COMPLEMENTARY_CUMULATIVE:
-        counts = tuple(np.cumsum(column[::-1])[::-1] for column in counts)
-
-    n_query, n_truth, n_tp, n_found, n_pairs = counts
-    return SizeMetrics(
-        lower_edges=bins.lower_edges,
-        n_query=n_query,
-        n_truth=n_truth,
-        n_pairs=n_pairs,
-        n_true_positive=n_tp,
-        n_truth_found=n_found,
-        distribution=distribution,
-        min_reciprocal_overlap=classification.min_reciprocal_overlap,
-        max_padding=classification.max_padding,
-    )
 
 @dataclass(frozen=True, slots=True)
 class SizeDensityCurve:
@@ -576,6 +400,8 @@ def size_density_curve(
     grid = np.linspace(low, high, n_points)
     step = (high - low) / (n_points - 1)
     sigma = bandwidth / step
+
+    from scipy.ndimage import gaussian_filter1d
 
     def smooth(log_sizes: np.ndarray, matched: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         index = np.clip(np.rint((log_sizes - low) / step).astype(np.int64), 0, n_points - 1)

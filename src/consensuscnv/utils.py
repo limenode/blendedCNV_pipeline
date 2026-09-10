@@ -1,29 +1,46 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import numpy as np
 import yaml
-from liftover import ChainFile
 
 from consensuscnv.output_layout import RESERVED_NAMES, OutputLayout, overlap_slug, slug
 
+if TYPE_CHECKING:  # `liftover` costs ~100 ms to import and is only a type here
+    from liftover import ChainFile
 
-class DistributionType(Enum):
-    DENSITY = "density"
-    CUMULATIVE = "cumulative"
-    COMPLEMENTARY_CUMULATIVE = "complementary_cumulative"
-
-class SVType(Enum):
-    DEL = "DEL"
-    DUP = "DUP"
-    ALL = "ALL"
 
 class LiftoverStatus(Enum):
     """Outcome of lifting one interval to another genome build."""
     OK = "ok"                    # lifted successfully
     UNMAPPED = "unmapped"        # an endpoint failed to map (unknown chrom / empty result)
     SIZE_CHANGE = "size_change"  # length drifted past the allowed threshold
+
+def load_sample_list(path: str | Path | None) -> frozenset[str] | None:
+    """Read a newline-separated sample allowlist.
+
+    Returns ``None`` when no list was requested, which every parser reads as
+    "keep every sample". Blank lines and ``#`` comments are ignored.
+    """
+    if path is None:
+        return None
+
+    path = Path(path)
+    if not path.exists():
+        print(f"Warning: sample list {path} does not exist. All samples will be kept.")
+        return None
+
+    samples = frozenset(
+        stripped
+        for line in path.read_text().splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    )
+    print(f"Loaded sample list: {len(samples)} samples from {path}")
+    return samples
+
 
 def read_genome_file(path: Path) -> tuple[str, ...]:
     """Ordered, de-duplicated chromosome names from a genome/faidx-style file.
@@ -60,7 +77,7 @@ class ConsensusParams:
     min_size: int = 1_000
 
     @classmethod
-    def from_raw(cls, raw: dict | None) -> "ConsensusParams":
+    def from_raw(cls, raw: dict | None) -> ConsensusParams:
         raw = raw or {}
         overlaps = raw.get("reciprocal_overlap", cls.reciprocal_overlaps)
         if isinstance(overlaps, (int, float)):  # a bare scalar is a list of one
@@ -108,7 +125,7 @@ class EvaluationParams:
     reciprocal_overlap: float = 0.5
 
     @classmethod
-    def from_raw(cls, raw: dict | None) -> "EvaluationParams":
+    def from_raw(cls, raw: dict | None) -> EvaluationParams:
         raw = raw or {}
         padding = raw.get("benchmark_padding", cls.benchmark_padding)
         return cls(
@@ -156,7 +173,7 @@ class PipelineConfig:
     sample_list_file: str | None = None   # newline-separated allowlist; None keeps all samples
 
     @classmethod
-    def from_raw(cls, raw: dict) -> "PipelineConfig":
+    def from_raw(cls, raw: dict) -> PipelineConfig:
         output_dir = Path(raw['output_dir'])
         genome_file = Path(raw['genome_file'])
         return cls(
@@ -293,49 +310,6 @@ def build_config(config_path: Path, *, overrides: dict | None = None) -> Pipelin
 
     return parsed
 
-
-# Define metric functions
-def precision(tp: int, fp: int, fn: int) -> float:
-    """Calculate precision: TP / (TP + FP)"""
-    return tp / (tp + fp) if (tp + fp) > 0 else 0
-
-def recall(tp: int, fp: int, fn: int) -> float:
-    """Calculate recall/sensitivity: TP / (TP + FN)"""
-    return tp / (tp + fn) if (tp + fn) > 0 else 0
-
-def f_beta_score(tp: int, fp: int, fn: int, beta: float = 1.0) -> float:
-    """Calculate F-beta score: (1 + beta^2) * (precision * recall) / (beta^2 * precision + recall)"""
-    p = precision(tp, fp, fn)
-    r = recall(tp, fp, fn)
-    beta_squared = beta ** 2
-    return ((1 + beta_squared) * p * r) / (beta_squared * p + r) if (beta_squared * p + r) > 0 else 0
-
-def f1_score(tp: int, fp: int, fn: int) -> float:
-    """Calculate F1 score: 2 * (precision * recall) / (precision + recall)"""
-    return f_beta_score(tp, fp, fn, beta=1.0)
-
-def f0_5_score(tp: int, fp: int, fn: int) -> float:
-    """Calculate F0.5 score: (1 + 0.5^2) * (precision * recall) / (0.5^2 * precision + recall)"""
-    return f_beta_score(tp, fp, fn, beta=0.5)
-
-def f2_score(tp: int, fp: int, fn: int) -> float:
-    """Calculate F2 score: (1 + 2^2) * (precision * recall) / (2^2 * precision + recall)"""
-    return f_beta_score(tp, fp, fn, beta=2.0)
-
-def generate_size_intervals(
-    start: float,
-    end: float,
-    n_points: int,
-) -> list[tuple[float, float]]:
-    """
-    Generate size intervals for different distribution analyses.
-    """
-    points = np.logspace(np.log10(start), np.log10(end), n_points)
-    intervals = []
-    for i in range(len(points) - 1):
-        intervals.append((points[i], points[i + 1]))
-
-    return intervals
 
 def ensure_chr_prefix(chrom: str) -> str:
     """Ensure chromosome name has 'chr' prefix."""

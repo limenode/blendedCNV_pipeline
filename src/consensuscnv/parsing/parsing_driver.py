@@ -2,10 +2,10 @@ import pandas as pd
 
 from consensuscnv.parsing.benchmark_parser import process_benchmarks_to_beds
 from consensuscnv.parsing.exclusion_report import exclusion_summary, format_exclusion_summary
-from consensuscnv.parsing.parser_utils import ExclusionMask, load_sample_list
+from consensuscnv.parsing.parser_utils import ExclusionMask
 from consensuscnv.parsing.penncnv_parser import process_penncnv_to_beds
 from consensuscnv.parsing.vcf_parser import process_vcfs_to_beds
-from consensuscnv.utils import PipelineConfig
+from consensuscnv.utils import PipelineConfig, load_sample_list
 
 
 def parse_input_files(config: PipelineConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:

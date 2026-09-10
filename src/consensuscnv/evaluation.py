@@ -36,8 +36,7 @@ from consensuscnv.classification.labels import write_labels
 from consensuscnv.classification.pairs import build_candidates
 from consensuscnv.consensus import iter_consensus_sets
 from consensuscnv.output_layout import overlap_slug, slug
-from consensuscnv.parsing.parser_utils import load_sample_list
-from consensuscnv.utils import PipelineConfig
+from consensuscnv.utils import PipelineConfig, load_sample_list
 
 METRICS_FILE = "metrics.csv"
 

@@ -35,29 +35,6 @@ def build_lifter(config: PipelineConfig, *names: str) -> Liftover | None:
     return Liftover(spec["from"], spec["to"], get_lifter(spec["from"], spec["to"]))
 
 
-def load_sample_list(path: str | Path | None) -> frozenset[str] | None:
-    """Read a newline-separated sample allowlist.
-
-    Returns ``None`` when no list was requested, which every parser reads as
-    "keep every sample". Blank lines and ``#`` comments are ignored.
-    """
-    if path is None:
-        return None
-
-    path = Path(path)
-    if not path.exists():
-        print(f"Warning: sample list {path} does not exist. All samples will be kept.")
-        return None
-
-    samples = frozenset(
-        stripped
-        for line in path.read_text().splitlines()
-        if (stripped := line.strip()) and not stripped.startswith("#")
-    )
-    print(f"Loaded sample list: {len(samples)} samples from {path}")
-    return samples
-
-
 def discover_samples_of_interest(
     config: PipelineConfig,
     samples: frozenset[str] | None = None,

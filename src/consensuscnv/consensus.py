@@ -29,9 +29,7 @@ from consensuscnv.callsets import (
 )
 from consensuscnv.callsets.merging import MergedCallSet
 from consensuscnv.callsets.registry import SAMPLES, seed_chromosomes
-from consensuscnv.parsing.parser_utils import ExclusionMask, load_sample_list
-from consensuscnv.parsing.vcf_parser import process_vcfs_to_beds
-from consensuscnv.utils import PipelineConfig
+from consensuscnv.utils import PipelineConfig, load_sample_list
 
 
 @dataclass(frozen=True)
@@ -98,6 +96,9 @@ def parse_experimental(config: PipelineConfig) -> None:
     Only the experimental sets: controls and benchmarks belong to the evaluation
     path.
     """
+    from consensuscnv.parsing.parser_utils import ExclusionMask
+    from consensuscnv.parsing.vcf_parser import process_vcfs_to_beds
+
     print("\nParsing experimental datasets...")
     process_vcfs_to_beds(
         config,
