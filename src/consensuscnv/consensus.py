@@ -14,6 +14,7 @@ level.
 from __future__ import annotations
 
 import glob
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from consensuscnv.callsets import (
     read_bed_calls,
     write_merged_bed,
 )
+from consensuscnv.callsets.merging import MergedCallSet
 from consensuscnv.callsets.registry import SAMPLES, seed_chromosomes
 from consensuscnv.parsing.parser_utils import ExclusionMask, load_sample_list
 from consensuscnv.parsing.vcf_parser import process_vcfs_to_beds
@@ -52,49 +54,71 @@ class ConsensusRun:
         return f"{self.level}of{self.n_sources}"
 
 
-def tool_bed_paths(config: PipelineConfig, call_set: str) -> list[str]:
+@dataclass(frozen=True)
+class ConsensusSet:
+    """A consensus set.
+
+    `run_consensus` writes these; the benchmark path classifies them. Sharing the
+    generator keeps the two from drifting, and means the benchmark path never has
+    to read its own output back off disk.
+    """
+
+    call_set: str
+    reciprocal_overlap: float
+    level: int
+    n_sources: int
+    merged: MergedCallSet
+
+    @property
+    def label(self) -> str:
+        return f"{self.level}of{self.n_sources}"
+
+
+def tool_bed_paths(
+    config: PipelineConfig, call_set: str, samples: frozenset[str] | None = None
+) -> list[str]:
     """Every per-sample BED written for `call_set`, one tool directory at a time.
 
-    Pinned to the tool labels the config names rather than globbing the call set
-    directory, so nothing that later lands beside them is read back in as an extra
-    source. `layout.consensus` is outside this tree for the same reason.
+    `samples` drops BEDs outside the allowlist.
     """
     layout = config.layout
-    return [
+    paths = [
         bed
         for tool in config.experimental[call_set]
         for bed in sorted(glob.glob(str(layout.bed_tool_dir(call_set, tool) / "*.bed")))
     ]
+    if samples is None:
+        return paths
+    return [path for path in paths if Path(path).stem in samples]
 
 
-def run_consensus(
-    config: PipelineConfig,
-    *,
-    reuse_beds: bool = False,
-    per_sample: bool = False,
-) -> list[ConsensusRun]:
-    """Parse, merge and write every consensus level for every call set.
+def parse_experimental(config: PipelineConfig) -> None:
+    """Parse the experimental VCFs into per-tool BED files.
 
-    With `reuse_beds`, the per-tool BEDs already under `output_dir` are used as-is
-    and no VCF is read. `per_sample` splits each output into one BED per sample
-    instead of one carrying a sample column.
+    Only the experimental sets: controls and benchmarks belong to the evaluation
+    path.
+    """
+    print("\nParsing experimental datasets...")
+    process_vcfs_to_beds(
+        config,
+        ExclusionMask.load(config.excluded_regions_file),
+        samples=load_sample_list(config.sample_list_file),
+    )
+
+
+def iter_consensus_sets(config: PipelineConfig) -> Iterator[ConsensusSet]:
+    """Every (call set, overlap, level) consensus set, merged in memory.
+
+    Assumes the per-tool BEDs are already on disk; call `parse_experimental` first
+    if they are not.
     """
     # Before any build_callset, so chrom ids order the genome rather than the data.
     seed_chromosomes(config.chromosomes)
-
-    if not reuse_beds:
-        print("\nParsing experimental datasets...")
-        process_vcfs_to_beds(
-            config,
-            ExclusionMask.load(config.excluded_regions_file),
-            samples=load_sample_list(config.sample_list_file),
-        )
-
     params = config.consensus
-    runs: list[ConsensusRun] = []
+    samples = load_sample_list(config.sample_list_file)
 
     for call_set, tools in config.experimental.items():
-        paths = tool_bed_paths(config, call_set)
+        paths = tool_bed_paths(config, call_set, samples)
         if not paths:
             print(f"\nNo BED files found for {call_set!r}; skipping.")
             continue
@@ -114,35 +138,53 @@ def run_consensus(
             levels = merged.n_sources  # computed once, not once per level
 
             for level in range(1, n_sources + 1):
-                keep = above_floor & (levels >= level)
-                runs.append(
-                    _write_level(
-                        config, merged, keep, call_set, overlap, level, n_sources, per_sample
-                    )
+                yield ConsensusSet(
+                    call_set=call_set,
+                    reciprocal_overlap=overlap,
+                    level=level,
+                    n_sources=n_sources,
+                    merged=merged.select(above_floor & (levels >= level)),
                 )
 
-    return runs
 
-
-def _write_level(
+def run_consensus(
     config: PipelineConfig,
-    merged,
-    keep: np.ndarray,
-    call_set: str,
-    overlap: float,
-    level: int,
-    n_sources: int,
-    per_sample: bool,
+    *,
+    reuse_beds: bool = False,
+    per_sample: bool = False,
+) -> list[ConsensusRun]:
+    """Parse, merge and write every consensus level for every call set.
+
+    With `reuse_beds`, the per-tool BEDs already under `output_dir` are used as-is
+    and no VCF is read. `per_sample` splits each output into one BED per sample
+    instead of one carrying a sample column.
+    """
+    if not reuse_beds:
+        parse_experimental(config)
+
+    return [
+        _write_set(config, consensus_set, per_sample)
+        for consensus_set in iter_consensus_sets(config)
+    ]
+
+
+def _write_set(
+    config: PipelineConfig, consensus_set: ConsensusSet, per_sample: bool
 ) -> ConsensusRun:
     """Write one (call set, overlap, level) point and report what it held."""
     layout = config.layout
-    selected = merged.select(keep)
+    selected = consensus_set.merged
+    call_set = consensus_set.call_set
+    overlap = consensus_set.reciprocal_overlap
+    level, n_sources = consensus_set.level, consensus_set.n_sources
+
+    def run(n_calls: int, paths: tuple[Path, ...]) -> ConsensusRun:
+        return ConsensusRun(call_set, overlap, level, n_sources, n_calls, paths)
 
     if not per_sample:
         path = layout.consensus_bed(call_set, overlap, level, n_sources)
         path.parent.mkdir(parents=True, exist_ok=True)
-        n_calls = write_merged_bed(selected, path, include_sample=True)
-        return ConsensusRun(call_set, overlap, level, n_sources, n_calls, (path,))
+        return run(write_merged_bed(selected, path, include_sample=True), (path,))
 
     sample_ids = selected.sample_idx
     names = SAMPLES.names
@@ -155,7 +197,7 @@ def _write_level(
         path.parent.mkdir(parents=True, exist_ok=True)
         n_calls += write_merged_bed(selected.select(sample_ids == sample_idx), path)
         written.append(path)
-    return ConsensusRun(call_set, overlap, level, n_sources, n_calls, tuple(written))
+    return run(n_calls, tuple(written))
 
 
 def format_summary(runs: list[ConsensusRun]) -> str:

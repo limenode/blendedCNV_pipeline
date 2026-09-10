@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-RESERVED_NAMES = frozenset({"benchmark", "consensus", "downloads"})
+RESERVED_NAMES = frozenset({"benchmark", "consensus", "downloads", "evaluation"})
 
 
 def slug(name: str) -> str:
@@ -67,6 +67,11 @@ class OutputLayout:
         """``consensus/<set>/overlap_0.50/2of3/HG00096.bed`` (``--per-sample``)."""
         directory = self.consensus_overlap_dir(origin_set, reciprocal_overlap)
         return directory / f"{level}of{n_sources}" / f"{sample_id}.bed"
+
+    @property
+    def evaluation(self) -> Path:
+        """Metrics tables and, on request, the TP / FP / FN row files."""
+        return self.root / "evaluation"
 
     @property
     def downloads(self) -> Path:

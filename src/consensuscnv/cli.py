@@ -22,6 +22,7 @@ examples:
   consensuscnv call config.yaml --reuse-beds --overlap 0.25,0.5,0.75
   consensuscnv call config.yaml --per-sample -o /scratch/out
   consensuscnv benchmark config.yaml
+  consensuscnv benchmark config.yaml --reuse-beds --write-labels
 
 Every consensus level is written, from 1 up to the number of tools configured for
 a call set, so three tools gives 1of3.bed, 2of3.bed and 3of3.bed. Output lands in
@@ -81,6 +82,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     _add_common(benchmark)
+    benchmark.add_argument(
+        "--reuse-beds",
+        action="store_true",
+        help="skip parsing and use the BED files already in the output directory, "
+             "for the truth and control sets as well as the callers",
+    )
+    benchmark.add_argument(
+        "--write-labels",
+        action="store_true",
+        help="also write the TP / FP / FN rows behind every metrics row, as BED "
+             "files under <output_dir>/evaluation/labels/. One set of three per "
+             "scored call set, so the whole grid is a lot of files.",
+    )
     benchmark.set_defaults(handler=cmd_benchmark)
 
     return parser
@@ -168,7 +182,7 @@ def cmd_call(args: argparse.Namespace) -> int:
 
 
 def cmd_benchmark(args: argparse.Namespace) -> int:
-    from consensuscnv.consensus import format_summary, run_consensus
+    from consensuscnv.evaluation import format_summary, run_benchmark
     from consensuscnv.parsing import parse_input_files
 
     config = load_config(args)
@@ -183,19 +197,23 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
     describe(config)
     print(f"Benchmarks:       {', '.join(config.benchmark)}")
     print(f"Controls:         {', '.join(config.control) or '(none)'}")
-
-    # Run all three parsers.
-    # Benchmark sources given as URLs download here.
-    parse_input_files(config)
-
-    # The experimental VCFs were just parsed; re-reading the BEDs is the point.
-    runs = run_consensus(config, reuse_beds=True, per_sample=args.per_sample)
-    print(format_summary(runs))
-
     print(
-        "\nParsing and consensus are done. Classifying the consensus sets against "
-        "the truth sets is not implemented yet."
+        f"Evaluation:       padding {config.evaluation.benchmark_padding}; "
+        f"crediting at {config.evaluation.reciprocal_overlap} reciprocal overlap"
     )
+
+    if not args.reuse_beds:
+        # All three parsers.
+        # Benchmark sources given as URLs download here.
+        parse_input_files(config)
+
+    rows = run_benchmark(config, write_label_files=args.write_labels)
+    if not rows:
+        print("\nNothing was scored.", file=sys.stderr)
+        return 1
+
+    print(format_summary(rows))
+    print(f"\nScored {len(rows)} call sets; tables under {config.layout.evaluation}")
     return 0
 
 

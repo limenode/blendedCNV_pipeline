@@ -96,6 +96,41 @@ class ConsensusParams:
 
 
 @dataclass(frozen=True)
+class EvaluationParams:
+    """Parameters of the comparison against the truth sets, from ``evaluation:``."""
+
+    # Padding that bridges neighbouring benchmark records when the truth set is merged.
+    # 0 still bridges exactly-touching records; None disables merging by distance entirely.
+    benchmark_padding: int | None = 0
+
+    # Reciprocal overlap a call must clear against a benchmark interval to count
+    # as a match.
+    reciprocal_overlap: float = 0.5
+
+    @classmethod
+    def from_raw(cls, raw: dict | None) -> "EvaluationParams":
+        raw = raw or {}
+        padding = raw.get("benchmark_padding", cls.benchmark_padding)
+        return cls(
+            benchmark_padding=None if padding is None else int(padding),
+            reciprocal_overlap=float(raw.get("reciprocal_overlap", cls.reciprocal_overlap)),
+        )
+
+    def problems(self) -> list[str]:
+        found = []
+        if self.benchmark_padding is not None and self.benchmark_padding < 0:
+            found.append(
+                f"evaluation.benchmark_padding is {self.benchmark_padding}; must be >= 0 or null"
+            )
+        if not 0.0 <= self.reciprocal_overlap <= 1.0:
+            found.append(
+                f"evaluation.reciprocal_overlap is {self.reciprocal_overlap}, "
+                "outside [0.0, 1.0]"
+            )
+        return found
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     """Parsed, validated pipeline configuration. Built once in ``build_config()``."""
 
@@ -108,6 +143,7 @@ class PipelineConfig:
     # record on a contig outside it; `build_callset` sorts into this order.
     chromosomes: tuple[str, ...]
     consensus: ConsensusParams = field(default_factory=ConsensusParams)
+    evaluation: EvaluationParams = field(default_factory=EvaluationParams)
 
     # --- Optional sections (empty/None if absent) ---
     control: dict[str, str] = field(default_factory=dict)
@@ -130,6 +166,7 @@ class PipelineConfig:
             layout=OutputLayout(output_dir),
             chromosomes=read_genome_file(genome_file),
             consensus=ConsensusParams.from_raw(raw.get('consensus')),
+            evaluation=EvaluationParams.from_raw(raw.get('evaluation')),
 
             control=raw.get('control', {}),
             benchmark=raw.get('benchmark', {}),
@@ -212,6 +249,7 @@ class PipelineConfig:
             )
 
         problems += self.consensus.problems()
+        problems += self.evaluation.problems()
 
         if problems:
             raise ValueError(

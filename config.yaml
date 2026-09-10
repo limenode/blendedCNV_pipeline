@@ -55,6 +55,21 @@ benchmark:
   "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
   "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
 
+# Evaluation parameters [optional] - only read by `consensuscnv benchmark`
+evaluation:
+  # Padding that bridges neighbouring benchmark records when the truth set is
+  # merged, in base pairs. 0 still bridges exactly-touching records; `null`
+  # disables distance merging entirely. Default: 0
+  benchmark_padding: 0
+
+  # Reciprocal overlap a call must clear against a benchmark interval to be
+  # credited as a match. This is the crediting rule, and it is independent of
+  # consensus.reciprocal_overlap. Default: 0.5
+  reciprocal_overlap: 0.5
+
+# The analysis size domain is consensus.min_size above, applied to the truth set
+# as well, so both sides of every comparison cover the same range.
+
 # Liftover specifications [optional]
 # Each key names the dataset whose files are in a different build to the target build.
 # Valid keys are an experimental call set, a tool label inside one, a control name, or a benchmark
