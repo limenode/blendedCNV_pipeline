@@ -1,5 +1,14 @@
 """Variance-based sensitivity analysis of a parameter sweep.
 
+Where used
+----------
+Imported by `sensitivity.py`, which is the only consumer. **This is a library, not
+one of the runnable scripts beside it** -- running it directly does nothing.
+
+It lives here rather than in the `consensuscnv` package because it is manuscript
+machinery: nothing in the CLI reaches it, and a reader looking for the code behind
+the paper's sensitivity figure should find it next to the script that draws it.
+
 A sweep over k parameters on a complete factorial grid produces a k-dimensional
 field of metric values. This module answers two questions about such a field:
 

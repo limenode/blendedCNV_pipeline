@@ -86,7 +86,10 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint.isort]
-known-first-party = ["consensuscnv"]
+# `sobol` is a sibling module of the scripts in manuscript/scripts/, imported by
+# sensitivity.py off sys.path[0]. Declared first-party so it sorts with the local
+# imports rather than beside pandas.
+known-first-party = ["consensuscnv", "sobol"]
 
 [tool.basedpyright]
 typeCheckingMode = "standard"

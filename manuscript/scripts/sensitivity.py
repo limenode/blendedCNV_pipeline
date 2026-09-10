@@ -39,13 +39,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from consensuscnv.analysis.sobol import decompose, sobol_indices, write_sensitivity_tsv
 from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
 from consensuscnv.callsets.registry import seed_chromosomes
 from consensuscnv.classification.classify import classify
 from consensuscnv.classification.intervals import IntervalSet
 from consensuscnv.classification.pairs import build_candidates
 from consensuscnv.utils import read_genome_file
+from sobol import decompose, sobol_indices, write_sensitivity_tsv
 
 ROOT = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline")
 
