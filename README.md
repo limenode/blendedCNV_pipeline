@@ -1,8 +1,7 @@
 # consensuscnv
 
-Graph-based consensus copy-number-variant calling from low-pass whole-genome
-sequencing, with an optional benchmarking mode that reproduces the evaluation in
-the accompanying paper.
+Graph-based consensus copy-number-variant calling, with an optional 
+benchmarking mode that reproduces the evaluation in the accompanying paper.
 
 Several CNV callers run on the same samples rarely agree. `consensuscnv` builds
 the overlap graph across their outputs, collapses each connected component into
