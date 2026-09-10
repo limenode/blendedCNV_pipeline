@@ -1,8 +1,7 @@
 """Process-wide name -> id tables."""
 
 import threading
-
-DEFAULT_CHROMOSOME_ORDER = [f"chr{i}" for i in range(1, 23)]
+from collections.abc import Iterable
 
 MAX_SOURCES = 63
 
@@ -63,9 +62,30 @@ class Registry:
     def __repr__(self) -> str:
         return f"<Registry {self._label} ({len(self)} names)>"
 
-CHROMOSOMES = Registry("chromosome", DEFAULT_CHROMOSOME_ORDER)
+# Seeded from the config's genome file by `seed_chromosomes`, never at import:
+# the registry should hold the chromosomes of the genome being analysed and
+# nothing else.
+CHROMOSOMES = Registry("chromosome")
 SVTYPES = Registry("svtype", ["DEL", "DUP"])
 SAMPLES = Registry("sample")
 SOURCES = Registry("source", max_ids=MAX_SOURCES)
 
-__all__ = ["CHROMOSOMES", "DEFAULT_CHROMOSOME_ORDER", "MAX_SOURCES", "SAMPLES", "SOURCES", "SVTYPES", "Registry"]
+def seed_chromosomes(names: Iterable[str]) -> None:
+    """Intern the analysis chromosomes into local Registry, in genome order.
+
+    Call once, before any `build_callset`. Seeding a name the registry already
+    holds is a no-op; names already present keep the ids they have.
+    """
+    for name in names:
+        CHROMOSOMES.intern(name)
+
+
+__all__ = [
+    "CHROMOSOMES",
+    "MAX_SOURCES",
+    "SAMPLES",
+    "SOURCES",
+    "SVTYPES",
+    "Registry",
+    "seed_chromosomes",
+]

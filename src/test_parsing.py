@@ -16,7 +16,7 @@ config = build_config(
 )
 
 # %% Run parsing and get statistics
-vcf_statistics, penncnv_statistics, benchmark_statistics = parse_input_files(config, max_excluded_fraction=0.01)
+vcf_statistics, penncnv_statistics, benchmark_statistics = parse_input_files(config)
 
 # %% Output statistics to CSV files
 os.makedirs(RESULTS_DIR / "parsing", exist_ok=True)

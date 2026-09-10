@@ -7,6 +7,8 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 
+from consensuscnv.callsets.registry import seed_chromosomes
+from consensuscnv.utils import read_genome_file
 from consensuscnv.callsets import (
     MergedCallSet,
     collect_callsets,
@@ -19,6 +21,10 @@ from consensuscnv.classification.classify import classify, match_topology
 from consensuscnv.classification.intervals import IntervalSet
 
 BENCHMARK_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark")
+
+# Chromosome ids have to order the genome rather than the order the BEDs
+# happen to be read in, so the registry is seeded before any CallSet is built.
+seed_chromosomes(read_genome_file(Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/data/genome_primary_hg38.txt")))
 CONTROL_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/SNP_Array")
 QUERY_DIRS = {
     "30x": Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/30x_Coverage"),

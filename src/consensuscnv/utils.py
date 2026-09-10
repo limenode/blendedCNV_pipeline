@@ -115,6 +115,9 @@ class PipelineConfig:
     benchmark: dict[str, str] = field(default_factory=dict)  # label -> local path or URL
     liftover: dict[str, dict[str, str]] = field(default_factory=dict)
     excluded_regions_file: str | None = None
+    # Fraction of a call that may lie inside an excluded region before the call is
+    # dropped whole. 0.0 drops on any overlap at all.
+    max_excluded_fraction: float = 0.01
     sample_list_file: str | None = None   # newline-separated allowlist; None keeps all samples
 
     @classmethod
@@ -133,6 +136,9 @@ class PipelineConfig:
             benchmark=raw.get('benchmark', {}),
             liftover=raw.get('liftover', {}),
             excluded_regions_file=raw.get('excluded_regions_file') or None,
+            max_excluded_fraction=float(
+                raw.get('max_excluded_fraction', cls.max_excluded_fraction)
+            ),
             sample_list_file=raw.get('sample_list_file') or None,
         )
 
@@ -200,6 +206,11 @@ class PipelineConfig:
             missing = {"from", "to"} - set(spec or {})
             if missing:
                 problems.append(f"liftover[{key!r}] is missing {sorted(missing)}")
+
+        if not 0.0 <= self.max_excluded_fraction <= 1.0:
+            problems.append(
+                f"max_excluded_fraction is {self.max_excluded_fraction}, outside [0.0, 1.0]"
+            )
 
         problems += self.consensus.problems()
 

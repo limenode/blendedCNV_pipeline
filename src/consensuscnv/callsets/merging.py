@@ -32,6 +32,30 @@ class MergedCallSet:
     def n_sources(self) -> np.ndarray:
         return np.bitwise_count(self.source_bits)  # Count the number of unique sources for each merged call
 
+    @property
+    def sample_idx(self) -> np.ndarray:
+        """Sample id per component, read off the representative.
+
+        Edges never cross `sample_id`, so this is uniform within a component.
+        """
+        return self.parent.sample_idx[self.representative]
+
+    def select(self, rows: np.ndarray) -> "MergedCallSet":
+        """A row subset of this merged set, mirroring `IntervalSet.select`.
+
+        `rows` is any numpy index -- a boolean mask or an integer array.
+        """
+        return MergedCallSet(
+            representative=self.representative[rows],
+            starts=self.starts[rows],
+            ends=self.ends[rows],
+            source_bits=self.source_bits[rows],
+            n_calls=self.n_calls[rows],
+            component_id=self.component_id[rows],
+            labels=self.labels,
+            parent=self.parent,
+        )
+
 
 def merge_components(
     callset: CallSet,

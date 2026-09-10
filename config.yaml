@@ -23,6 +23,10 @@ sample_list_file: "/path/to/samples.txt"
 # Excluded regions file [optional]
 excluded_regions_file: "/path/to/excluded_regions_hg38.bed"
 
+# How much of a call may lie inside an excluded region before the whole call is
+# dropped, as a fraction of its length. 0.0 drops on any overlap. Default: 0.01
+max_excluded_fraction: 0.01
+
 # Consensus calling parameters [optional]
 consensus:
   # Reciprocal overlap required for two calls to be treated as the same event.

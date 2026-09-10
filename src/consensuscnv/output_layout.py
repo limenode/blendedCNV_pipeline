@@ -40,6 +40,35 @@ class OutputLayout:
         return self.control_dir(control_key) / "bed"
 
     @property
+    def consensus(self) -> Path:
+        """Root of the consensus output tree."""
+        return self.root / "consensus"
+
+    def consensus_set_dir(self, origin_set: str) -> Path:
+        return self.consensus / slug(origin_set)
+
+    def consensus_overlap_dir(self, origin_set: str, reciprocal_overlap: float) -> Path:
+        return self.consensus_set_dir(origin_set) / overlap_slug(reciprocal_overlap)
+
+    def consensus_bed(
+        self, origin_set: str, reciprocal_overlap: float, level: int, n_sources: int
+    ) -> Path:
+        """``consensus/<set>/overlap_0.50/2of3.bed``."""
+        return self.consensus_overlap_dir(origin_set, reciprocal_overlap) / f"{level}of{n_sources}.bed"
+
+    def consensus_sample_bed(
+        self,
+        origin_set: str,
+        reciprocal_overlap: float,
+        level: int,
+        n_sources: int,
+        sample_id: str,
+    ) -> Path:
+        """``consensus/<set>/overlap_0.50/2of3/HG00096.bed`` (``--per-sample``)."""
+        directory = self.consensus_overlap_dir(origin_set, reciprocal_overlap)
+        return directory / f"{level}of{n_sources}" / f"{sample_id}.bed"
+
+    @property
     def downloads(self) -> Path:
         """Cache for benchmark sources fetched from a URL."""
         return self.root / "downloads"

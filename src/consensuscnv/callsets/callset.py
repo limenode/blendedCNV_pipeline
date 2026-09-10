@@ -22,7 +22,6 @@ import numpy as np
 from consensuscnv.callsets.calls import Call
 from consensuscnv.callsets.registry import (
     CHROMOSOMES,
-    DEFAULT_CHROMOSOME_ORDER,
     SAMPLES,
     SOURCES,
     SVTYPES,
@@ -86,13 +85,36 @@ def sort_into_genome_order(
     return ordered
 
 
+def _resolve_chromosome_order(chromosome_order: Iterable[str] | None) -> tuple[str, ...]:
+    """The order to sort chromosomes into, defaulting to the registry's own.
+
+    `None` means "whatever `seed_chromosomes` put in the registry", which is the
+    genome file's order and the same order `write_merged_bed` will sort ids into.
+    Snapshotted, because interning during the build appends to that list.
+    """
+    if chromosome_order is not None:
+        return tuple(chromosome_order)
+    if not CHROMOSOMES.names:
+        raise ValueError(
+            "The chromosome registry is empty, so there is no genome order to sort "
+            "into. Call callsets.seed_chromosomes(...) with the chromosomes of the "
+            "genome being analysed -- utils.read_genome_file(genome_file) returns "
+            "them -- before building a CallSet, or pass chromosome_order explicitly."
+        )
+    return tuple(CHROMOSOMES.names)
+
+
 def build_callset(
     calls: Iterable[Call],
     *,
-    chromosome_order: Iterable[str] = DEFAULT_CHROMOSOME_ORDER,
+    chromosome_order: Iterable[str] | None = None,
 ) -> CallSet:
-    """Build a CallSet from an interable of calls."""
-    calls_list = sort_into_genome_order(calls, chromosome_order)
+    """Build a CallSet from an interable of calls.
+
+    `chromosome_order` defaults to the chromosome registry's order, which is what
+    `seed_chromosomes` put there.
+    """
+    calls_list = sort_into_genome_order(calls, _resolve_chromosome_order(chromosome_order))
 
     ov_a: list[int] = []
     ov_b: list[int] = []
@@ -218,9 +240,13 @@ CallSource = CallSet | Iterable[Call]
 def collect_callsets(
     sources: Iterable[CallSource],
     *,
-    chromosome_order: Iterable[str] = DEFAULT_CHROMOSOME_ORDER,
+    chromosome_order: Iterable[str] | None = None,
 ) -> CallSet:
-    """Pool calls from any mix of CallSets and raw Call iterables into one CallSet."""
+    """Pool calls from any mix of CallSets and raw Call iterables into one CallSet.
+
+    `chromosome_order` defaults to the chromosome registry's order; see
+    `build_callset`.
+    """
     calls: list[Call] = []
     for source in sources:
         calls.extend(source.calls if isinstance(source, CallSet) else source)

@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import matplotlib.patheffects as path_effects
 
+from consensuscnv.callsets.registry import seed_chromosomes
+from consensuscnv.utils import read_genome_file
 from consensuscnv.callsets import (
     collect_callsets,
     merge_components,
@@ -20,6 +22,10 @@ from consensuscnv.classification.pairs import build_candidates
 from consensuscnv.classification.classify import classify
 
 BENCHMARK_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/benchmark")
+
+# Chromosome ids have to order the genome rather than the order the BEDs
+# happen to be read in, so the registry is seeded before any CallSet is built.
+seed_chromosomes(read_genome_file(Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/data/genome_primary_hg38.txt")))
 CONTROL_DIR = Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/SNP_Array")
 QUERY_DIRS = {
     "30x": Path("/lab01/Projects/Lionel_Projects/blendedCNV_pipeline/out/30x_Coverage"),
@@ -214,7 +220,6 @@ for name, curve in size_curves.items():
         print(f"  benchmark falls below {name} above a {size_floors[below[0]]:,} bp floor")
 
 from consensuscnv.callsets.registry import SVTYPES
-
 n_dup = int((truth_merged.svtype_idx != SVTYPES.get("DEL")).sum())
 print(f"\nbenchmark is {100 * (1 - n_dup / len(truth_merged)):.1f}% deletions "
       f"({n_dup:,} duplications of {len(truth_merged):,} intervals)")
