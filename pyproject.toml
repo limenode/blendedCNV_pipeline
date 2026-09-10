@@ -35,41 +35,24 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 
-# Core: everything the ingest -> overlap-graph -> consensus -> BED path needs.
-# These are imported by utils.py, parsing/vcf_parser.py and overlap_graph.py,
-# so the consensus tool cannot run without them. Bounds mirror pixi.toml for
-# reproducibility.
+# Runtime. Everything the parse -> overlap graph -> consensus -> BED path needs,
+# plus the classification the `benchmark` subcommand runs.
+# Mirrors pixi.toml in the development environment
 dependencies = [
     "cyvcf2>=0.34.0,<0.35",
-    "liftover>=1.4.0,<2",
-    "networkx>=3.6.1,<4",
+    "liftover>=1.4.1,<2",
     "numpy>=2.5.1,<3",
-    "pandas>=3.0.3,<4",
+    "pandas>=3.0.5,<4",
     "PyYAML>=6.0.3,<7",
     "requests>=2.34.2,<3",
-]
-
-[project.optional-dependencies]
-# Benchmarking / reporting: the analysis phase (metrics + plots) is the only
-# place these are imported (analysis/analysis_functions.py, analysis/cnv_plotter.py),
-# so it installs cleanly behind an extra. This is the "user-requested" path:
-#   pip install "consensuscnv[benchmark]"
-benchmark = [
-    "matplotlib>=3.11.0,<4",
-    "matplotlib-venn>=1.1.2,<2",
     "scipy>=1.18.0,<2",
-    "seaborn>=0.13.2,<0.14",
 ]
 
-# Development + the marimo notebook (src/test_network.py) and editor LSP tooling.
+# Local development.
+[dependency-groups]
 dev = [
-    "ruff>=0.15.20,<0.16",
-    "marimo>=0.23.13,<0.24",
-    "vegafusion>=2.0.3,<3",
-    "vl-convert-python>=2.0.0rc1,<3",
-    "python-lsp-server>=1.14.0,<2",
-    "python-lsp-ruff>=2.3.1,<3",
-    "websockets>=16.0,<17",
+    "pytest>=9.1.1,<10",
+    "ruff>=0.16.1,<0.17",
 ]
 
 [project.urls]
@@ -89,11 +72,12 @@ package-dir = { "" = "src" }
 where = ["src"]
 include = ["consensuscnv*"]
 
-# Ship the bedtools helper scripts that the computation/analysis phases shell
-# out to, so they resolve next to their modules in an installed copy.
-[tool.setuptools.package-data]
-"consensuscnv.computation" = ["*.sh"]
-"consensuscnv.analysis" = ["*.sh"]
+# --- Tests -----------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# --strict-markers and --strict-config turn a typo in a marker or a setting into
+# an error rather than a silently ignored line.
+addopts = "-q --strict-markers --strict-config"
 
 # --- Ruff ------------------------------------------------------------------
 [tool.ruff]
@@ -103,9 +87,6 @@ target-version = "py310"
 
 [tool.ruff.lint.isort]
 known-first-party = ["consensuscnv"]
-
-[tool.ruff.lint.per-file-ignores]
-"src/test_*.py" = ["I001"]
 
 [tool.basedpyright]
 typeCheckingMode = "standard"
