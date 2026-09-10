@@ -138,9 +138,9 @@ class PipelineConfig:
 
     @property
     def liftover_keys(self) -> frozenset[str]:
-        """Every name a `liftover:` entry may legitimately key.
+        """Every name that a `liftover:` entry may key.
 
-        A key names the dataset whose files are in the wrong build: an
+        A key names the dataset whose files are not in the target build: an
         `experimental` call set, a tool label inside one, a `control`, or a
         `benchmark`. See `liftover_for` for how a key is resolved.
         """
@@ -152,12 +152,11 @@ class PipelineConfig:
     def liftover_for(self, *names: str) -> dict[str, str] | None:
         """The `liftover:` spec for a dataset, or None if none was requested.
 
-        `names` are the names that could describe the dataset, **most specific
-        first**, and the first one present in the map wins. For an experimental
+        `names` are the names that could describe the dataset. For an experimental
         file that is `(tool_label, call_set)`: naming the tool lifts that caller's
         output wherever it appears, naming the call set lifts everything in it, and
-        naming both lets the tool win. Controls and benchmarks have only their own
-        name.
+        naming both lets the tool take precedence. Controls and benchmarks have only
+        their own name.
         """
         for name in names:
             spec = self.liftover.get(name)
@@ -166,11 +165,7 @@ class PipelineConfig:
         return None
 
     def __post_init__(self) -> None:
-        """Reject a structurally invalid config, reporting every fault at once.
-
-        Structure only -- whether the filesystem will cooperate is `build_config`'s
-        business, so a config can still be constructed in a test without one.
-        """
+        """Reject a structurally invalid config, reporting every fault."""
         problems: list[str] = []
 
         if not self.experimental:
@@ -222,9 +217,7 @@ def build_config(config_path: Path) -> PipelineConfig:
 
     parsed = PipelineConfig.from_raw(config)
 
-    # Filesystem checks live here rather than in __post_init__, so a config can be
-    # constructed in a test without a writable disk. Fail now rather than after
-    # however many minutes of parsing.
+    # Filesystem checks
     try:
         parsed.output_dir.mkdir(parents=True, exist_ok=True)
     except OSError as error:
