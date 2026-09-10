@@ -23,21 +23,41 @@ sample_list_file: "/path/to/samples.txt"
 # Excluded regions file [optional]
 excluded_regions_file: "/path/to/excluded_regions_hg38.bed"
 
+# Consensus calling parameters [optional]
+consensus:
+  # Reciprocal overlap required for two calls to be treated as the same event.
+  # A list: one consensus run is produced per value, each in its own directory
+  # (out/consensus/<call set>/overlap_0.50/). 0.0 means "any shared base".
+  reciprocal_overlap: [0.0, 0.25, 0.5, 0.75]
+
+  # Drop merged consensus calls shorter than this, in base pairs. Default: 1000
+  min_size: 1000
+
+# Every consensus level is written, from 1 up to the number of tools configured
+# for a call set: three input tools gives 1of3.bed, 2of3.bed and 3of3.bed.
+
 
 # === BENCHMARKING ===
 
-# Control datasets [optional, used with --run-benchmark]
+# Control datasets [optional, used by `consensuscnv benchmark`]
 control:
-  "SNP Array": "/path/to/array/data.cnv"
+  "Example SNP Array": "/path/to/array/data.cnv"
 
-# Benchmark datasets [required when using --run-benchmark] (accepts URLs or paths)
+# Benchmark datasets [required by `consensuscnv benchmark`]
+# Each value is a local path or a URL. URLs are downloaded on first use into
+# <output_dir>/downloads/ and reused afterwards; that directory is safe to delete.
 benchmark:
   "1000G": "/path/to/hgsvc2/benchmark.vcf"
   "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
   "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
 
 # Liftover specifications [optional]
+# Each key names the dataset whose files are in a different build to the target build.
+# Valid keys are an experimental call set, a tool label inside one, a control name, or a benchmark
+# name. For an experimental file the tool label is checked first and the call set
+# second, so naming a tool lifts that caller wherever it appears, naming a call set
+# lifts everything in it, and naming both lets the tool take precedence.
 liftover:
-  "SNP Array":
+  "Example SNP Array":
     "from": "hg18"
     "to": "hg38"

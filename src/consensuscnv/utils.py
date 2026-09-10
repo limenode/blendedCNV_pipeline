@@ -1,17 +1,13 @@
 import argparse
-import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from urllib.parse import urlparse
-from urllib.request import urlretrieve
 
 import numpy as np
-import requests
 import yaml
 from liftover import ChainFile
 
-from consensuscnv.output_layout import OutputLayout
+from consensuscnv.output_layout import RESERVED_NAMES, OutputLayout, overlap_slug, slug
 
 
 class DistributionType(Enum):
@@ -51,6 +47,56 @@ def read_genome_file(path: Path) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True)
+class ConsensusParams:
+    """Parameters of the consensus merge, from the config's ``consensus:`` block.
+
+    One consensus run is produced per entry in `reciprocal_overlaps`, each writing
+    to its own directory. `0.0` reciprocal overlap means "at least 1 bp overlap"
+
+    Every consensus level from 1 up to the number of tools configured for a call
+    set is written.
+    """
+
+    reciprocal_overlaps: tuple[float, ...] = (0.5,)
+    min_size: int = 1_000
+
+    @classmethod
+    def from_raw(cls, raw: dict | None) -> "ConsensusParams":
+        raw = raw or {}
+        overlaps = raw.get("reciprocal_overlap", cls.reciprocal_overlaps)
+        if isinstance(overlaps, (int, float)):  # a bare scalar is a list of one
+            overlaps = [overlaps]
+        return cls(
+            reciprocal_overlaps=tuple(float(value) for value in overlaps),
+            min_size=int(raw.get("min_size", cls.min_size)),
+        )
+
+    def problems(self) -> list[str]:
+        """Propagates errors with input parameters, for the config's error report."""
+        found = []
+        if not self.reciprocal_overlaps:
+            found.append("consensus.reciprocal_overlap is empty; give at least one value")
+        for value in self.reciprocal_overlaps:
+            if not 0.0 <= value <= 1.0:
+                found.append(f"consensus.reciprocal_overlap has {value}, outside [0.0, 1.0]")
+
+        # Each overlap names a directory, so the set has to be injective under the slug.
+        slugs: dict[str, float] = {}
+        for value in self.reciprocal_overlaps:
+            slug = overlap_slug(value)
+            if slug in slugs:
+                found.append(
+                    f"consensus.reciprocal_overlap has {slugs[slug]} and {value}, which "
+                    f"both name the directory {slug!r}"
+                )
+            slugs[slug] = value
+
+        if self.min_size < 0:
+            found.append(f"consensus.min_size is {self.min_size}; must be >= 0")
+        return found
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     """Parsed, validated pipeline configuration. Built once in ``build_config()``."""
 
@@ -62,10 +108,11 @@ class PipelineConfig:
     # The analysis domain, ordered, derived from `genome_file`. Parsers drop any
     # record on a contig outside it; `build_callset` sorts into this order.
     chromosomes: tuple[str, ...]
+    consensus: ConsensusParams = field(default_factory=ConsensusParams)
 
     # --- Optional sections (empty/None if absent) ---
     control: dict[str, str] = field(default_factory=dict)
-    benchmark: dict[str, str] = field(default_factory=dict)
+    benchmark: dict[str, str] = field(default_factory=dict)  # label -> local path or URL
     liftover: dict[str, dict[str, str]] = field(default_factory=dict)
     excluded_regions_file: str | None = None
     sample_list_file: str | None = None   # newline-separated allowlist; None keeps all samples
@@ -80,6 +127,7 @@ class PipelineConfig:
             genome_file=genome_file,
             layout=OutputLayout(output_dir),
             chromosomes=read_genome_file(genome_file),
+            consensus=ConsensusParams.from_raw(raw.get('consensus')),
 
             control=raw.get('control', {}),
             benchmark=raw.get('benchmark', {}),
@@ -88,78 +136,107 @@ class PipelineConfig:
             sample_list_file=raw.get('sample_list_file') or None,
         )
 
-def build_config(config_path: Path) -> PipelineConfig:
-    """Load a config YAML and build a PipelineConfig.
+    @property
+    def liftover_keys(self) -> frozenset[str]:
+        """Every name a `liftover:` entry may legitimately key.
 
-    The chromosome domain is derived from `genome_file` in `PipelineConfig.from_raw`.
-    `parse_args` wraps this for CLI use; callers can use it directly with a path.
-    """
+        A key names the dataset whose files are in the wrong build: an
+        `experimental` call set, a tool label inside one, a `control`, or a
+        `benchmark`. See `liftover_for` for how a key is resolved.
+        """
+        tools = {tool for tools in self.experimental.values() for tool in tools}
+        return frozenset(
+            set(self.experimental) | tools | set(self.control) | set(self.benchmark)
+        )
+
+    def liftover_for(self, *names: str) -> dict[str, str] | None:
+        """The `liftover:` spec for a dataset, or None if none was requested.
+
+        `names` are the names that could describe the dataset, **most specific
+        first**, and the first one present in the map wins. For an experimental
+        file that is `(tool_label, call_set)`: naming the tool lifts that caller's
+        output wherever it appears, naming the call set lifts everything in it, and
+        naming both lets the tool win. Controls and benchmarks have only their own
+        name.
+        """
+        for name in names:
+            spec = self.liftover.get(name)
+            if spec:
+                return spec
+        return None
+
+    def __post_init__(self) -> None:
+        """Reject a structurally invalid config, reporting every fault at once.
+
+        Structure only -- whether the filesystem will cooperate is `build_config`'s
+        business, so a config can still be constructed in a test without one.
+        """
+        problems: list[str] = []
+
+        if not self.experimental:
+            problems.append("experimental is empty; give at least one call set")
+        for call_set, tools in self.experimental.items():
+            if not tools:
+                problems.append(f"experimental[{call_set!r}] has no tools")
+
+        # Call sets and controls both become directories directly under output_dir.
+        for section in ("experimental", "control"):
+            for name in getattr(self, section):
+                if slug(name).lower() in RESERVED_NAMES:
+                    problems.append(
+                        f"{section}[{name!r}] collides with a directory the pipeline "
+                        f"owns; {sorted(RESERVED_NAMES)} are reserved"
+                    )
+        shared = set(self.experimental) & set(self.control)
+        if shared:
+            problems.append(
+                f"{sorted(shared)} appear in both experimental and control, and would "
+                "write to the same directory"
+            )
+
+        valid = self.liftover_keys
+        for key in self.liftover:
+            if key not in valid:
+                problems.append(
+                    f"liftover[{key!r}] names no dataset; expected a tool label, a "
+                    f"control, or a benchmark -- one of {sorted(valid)}"
+                )
+        for key, spec in self.liftover.items():
+            missing = {"from", "to"} - set(spec or {})
+            if missing:
+                problems.append(f"liftover[{key!r}] is missing {sorted(missing)}")
+
+        problems += self.consensus.problems()
+
+        if problems:
+            raise ValueError(
+                "Invalid configuration:\n  - " + "\n  - ".join(problems)
+            )
+
+
+def build_config(config_path: Path) -> PipelineConfig:
+    """Load a config YAML and build a PipelineConfig."""
     print(f"Loading configuration from: {config_path}")
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    # Resolve benchmark URLs to local files.
-    # TODO(PLAN.md Step 1): this belongs on the benchmark path, not in config
-    # loading -- building a config for a consensus run should not start a download.
-    if config.get('benchmark'):
-        project_root = Path(config_path).parent
-        tmp_dir = project_root / 'tmp'
-        tmp_dir.mkdir(exist_ok=True)
+    parsed = PipelineConfig.from_raw(config)
 
-        for benchmark_name, benchmark_path in config['benchmark'].items():
-            if isinstance(benchmark_path, str) and _is_url(benchmark_path):
-                local_path = _download_benchmark(benchmark_path, tmp_dir, benchmark_name)
-                config['benchmark'][benchmark_name] = str(local_path)
+    # Filesystem checks live here rather than in __post_init__, so a config can be
+    # constructed in a test without a writable disk. Fail now rather than after
+    # however many minutes of parsing.
+    try:
+        parsed.output_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise ValueError(f"output_dir {parsed.output_dir} is not writable: {error}") from error
 
-    return PipelineConfig.from_raw(config)
+    return parsed
 
 
 def parse_args() -> PipelineConfig:
     parser = argparse.ArgumentParser(description='Process CNV files from multiple tools')
     parser.add_argument('config', type=Path, help='Path to configuration YAML file')
     return build_config(parser.parse_args().config)
-
-def _is_url(path: str) -> bool:
-    """Check if a path is a URL."""
-    try:
-        result = urlparse(path)
-        return result.scheme in ('http', 'https', 'ftp', 'ftps')
-    except ValueError:
-        return False
-
-def _download_benchmark(url: str, tmp_dir: Path, benchmark_name: str) -> Path:
-    """Download a benchmark file from a URL to the tmp directory."""
-    # Extract filename from URL
-    parsed_url = urlparse(url)
-    filename = os.path.basename(parsed_url.path)
-
-    # If no filename in URL, use benchmark name
-    if not filename:
-        filename = f"{benchmark_name}.vcf.gz"
-
-    # Create a unique filename with benchmark name prefix
-    local_path = tmp_dir / f"{benchmark_name}_{filename}"
-
-    # Check if file already exists
-    if local_path.exists():
-        # print(f"File already exists at {local_path}, skipping download")
-        return local_path
-
-    # Download the file (use urllib for FTP, requests for HTTP/HTTPS)
-    if parsed_url.scheme in ('ftp', 'ftps'):
-        # Use urllib for FTP downloads
-        urlretrieve(url, local_path)
-    else:
-        # Use requests for HTTP/HTTPS downloads with streaming
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-
-        with open(local_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-
-    return local_path
 
 # Define metric functions
 def precision(tp: int, fp: int, fn: int) -> float:

@@ -2,7 +2,37 @@ import glob
 from dataclasses import dataclass
 from pathlib import Path
 
+from liftover import ChainFile, get_lifter
+
 from consensuscnv.utils import PipelineConfig, ensure_chr_prefix
+
+
+@dataclass(frozen=True)
+class Liftover:
+    """A requested build conversion and the lifter that performs it.
+
+    Built once per dataset, before its record loop, and only when the config asks
+    for one -- `get_lifter` fetches and loads a chain file, so it is not something
+    to construct per record. `from_build` / `to_build` are carried alongside the
+    lifter because the parsers report them in their statistics.
+    """
+
+    from_build: str
+    to_build: str
+    lifter: ChainFile
+
+
+def build_lifter(config: PipelineConfig, *names: str) -> Liftover | None:
+    """The `Liftover` for a dataset, or None if the config requested none.
+
+    `names` go most specific first; see `PipelineConfig.liftover_for`. Both
+    `from` and `to` are guaranteed present by config validation, so there is
+    nothing to check here.
+    """
+    spec = config.liftover_for(*names)
+    if not spec:
+        return None
+    return Liftover(spec["from"], spec["to"], get_lifter(spec["from"], spec["to"]))
 
 
 def load_sample_list(path: str | Path | None) -> frozenset[str] | None:

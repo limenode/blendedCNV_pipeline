@@ -3,9 +3,13 @@ from collections import Counter
 from typing import TextIO
 
 from cyvcf2 import VCF
-from liftover import get_lifter
 
-from consensuscnv.parsing.parser_utils import ExclusionMask, discover_samples_of_interest
+from consensuscnv.parsing.download import fetch
+from consensuscnv.parsing.parser_utils import (
+    ExclusionMask,
+    build_lifter,
+    discover_samples_of_interest,
+)
 from consensuscnv.utils import (
     LiftoverStatus,
     PipelineConfig,
@@ -129,7 +133,8 @@ def process_benchmarks_to_beds(
 
     liftover_stats: dict = {}
 
-    for bench_name, bench_path in config.benchmark.items():
+    for bench_name, bench_source in config.benchmark.items():
+        bench_path = fetch(bench_source, layout.downloads, bench_name)
         print(f"Processing benchmark {bench_name} at {bench_path}")
         vcf = VCF(
             bench_path,
@@ -141,11 +146,7 @@ def process_benchmarks_to_beds(
         output_dir = layout.benchmark_dir(bench_name)
         os.makedirs(output_dir, exist_ok=True)
 
-        liftover_dict = config.liftover.get(bench_name)
-        lifter = (
-            get_lifter(liftover_dict["from"], liftover_dict["to"])
-            if liftover_dict else None
-        )
+        liftover = build_lifter(config, bench_name)
 
         stats: Counter[str] = Counter(dict.fromkeys(BENCHMARK_STAT_KEYS, 0))
         handles: dict[str, TextIO] = {}  # sample_id -> open file
@@ -197,8 +198,8 @@ def process_benchmarks_to_beds(
                     continue
 
                 # Perform liftover if necessary
-                if lifter:
-                    status, lifted = lift_interval(lifter, chrom, start, end)
+                if liftover:
+                    status, lifted = lift_interval(liftover.lifter, chrom, start, end)
                     if lifted is None:
                         stats["records_dropped"] += 1
                         if status is LiftoverStatus.UNMAPPED:
@@ -239,7 +240,7 @@ def process_benchmarks_to_beds(
             for fh in handles.values():
                 fh.close()
 
-        if liftover_dict:
+        if liftover:
             print(
                 f"  {bench_name}: dropped {stats['records_dropped']} records that failed "
                 f"liftover ({stats['records_dropped_unmapped']} unmapped, "
@@ -257,8 +258,8 @@ def process_benchmarks_to_beds(
         # Recorded unconditionally: a benchmark that lost nothing still needs a
         # row, otherwise "no exclusions" and "never ran" look identical.
         liftover_stats[bench_name] = {
-            "liftover_from": liftover_dict["from"] if liftover_dict else "",
-            "liftover_to": liftover_dict["to"] if liftover_dict else "",
+            "liftover_from": liftover.from_build if liftover else "",
+            "liftover_to": liftover.to_build if liftover else "",
             **dict(stats),
         }
         print(f"  Benchmark '{bench_name}' processing complete.\n")

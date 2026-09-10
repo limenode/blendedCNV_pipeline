@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pandas as pd
 from cyvcf2 import VCF
-from liftover import ChainFile, get_lifter
+from liftover import ChainFile
 
-from consensuscnv.parsing.parser_utils import ExclusionMask
+from consensuscnv.parsing.parser_utils import ExclusionMask, build_lifter
 from consensuscnv.utils import (
     LiftoverStatus,
     PipelineConfig,
@@ -317,7 +317,6 @@ def process_vcfs_to_beds(
     all_statistics = []
 
     experimental_map = get_experimental_sets_from_config(config, samples)
-    liftover_map = config.liftover
 
     for experimental_name, tools in experimental_map.items():
 
@@ -334,12 +333,9 @@ def process_vcfs_to_beds(
         for tool, sample_map in tools.items():
             if common_only:
                 sample_map = {sample_id: vcf_path for sample_id, vcf_path in sample_map.items() if sample_id in common_samples}
-            liftover_dict = liftover_map.get(tool, None)
-            lifter = (
-                get_lifter(liftover_dict["from"], liftover_dict["to"])
-                if liftover_dict and liftover_dict.get("from") and liftover_dict.get("to")
-                else None
-            )
+            # Naming the tool lifts that caller wherever it appears; naming the
+            # call set lifts everything in it. The tool wins if both are given.
+            liftover = build_lifter(config, tool, experimental_name)
 
             for sample_id, vcf_path in sample_map.items():
                 layout.bed_tool_dir(experimental_name, tool).mkdir(parents=True, exist_ok=True)
@@ -351,7 +347,7 @@ def process_vcfs_to_beds(
                     vcf_path,
                     excluded_regions,
                     config.chromosomes,
-                    lifter,
+                    liftover.lifter if liftover else None,
                     max_excluded_fraction=max_excluded_fraction,
                 )
 
