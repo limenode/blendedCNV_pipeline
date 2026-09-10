@@ -160,7 +160,10 @@ Run `parse_inputs.py` first if you want the parsing statistics behind Table 1.
 ```bash
 pixi run pytest              # the test suite, synthetic and offline
 pixi run ruff check src/ manuscript/ tests/
+pixi run build               # sdist + wheel into dist/
 ```
+
+Use `pixi run build` to produce a distribution.
 
 ## Included Files - Sources
 
