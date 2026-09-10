@@ -13,7 +13,7 @@ Supplementary Table S2: full exclusion accounting (bases removed vs. masked,
     the collateral ratio, and the per-SVTYPE split).
 
 Inputs are the parsed BEDs under `out/` plus the statistics CSVs written by
-`src/test_parsing.py` into `results/parsing/`. Run after parsing:
+`manuscript/scripts/parse_inputs.py` into `results/parsing/`. Run after parsing:
 
     pixi run python manuscript/scripts/table1_parsing_summary.py
 """

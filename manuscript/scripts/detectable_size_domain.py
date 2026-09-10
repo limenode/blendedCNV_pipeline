@@ -15,8 +15,10 @@ The point of the sweep is that the usable domain is bounded from below by the
 caller bin size and from above by the benchmark running out of intervals, and
 that both bounds are visible in the data rather than asserted.
 
-This is the publication rendering. `src/test_size_floor.py` holds the working
-version of the same sweep, with the wider diagnostics used to develop it.
+This is the whole sweep. It replaced `src/test_size_floor.py`, which held the
+working version alongside diagnostics that either moved here or into
+`consensus_callsets.py`; the invariant it also asserted now lives in
+`tests/invariants.py`.
 
     pixi run python manuscript/scripts/detectable_size_domain.py
 """
