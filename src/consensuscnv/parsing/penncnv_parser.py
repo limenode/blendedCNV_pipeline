@@ -4,7 +4,11 @@ from collections.abc import Iterator
 from contextlib import ExitStack
 from typing import TextIO
 
-from consensuscnv.parsing.parser_utils import ExclusionMask, build_lifter
+from consensuscnv.parsing.parser_utils import (
+    ExclusionMask,
+    build_lifter,
+    discover_samples_of_interest,
+)
 from consensuscnv.utils import LiftoverStatus, PipelineConfig, lift_interval
 
 
@@ -71,6 +75,9 @@ def process_penncnv_to_beds(
 
     layout = config.layout
 
+    # Resolved based on the samples in the experimental sets
+    samples_of_interest = discover_samples_of_interest(config, samples, common_only)
+
     liftover_stats: dict = {}
 
     for control_name, control_path in config.control.items():
@@ -88,6 +95,9 @@ def process_penncnv_to_beds(
             for chrom, start, end, svtype, sample_id in iter_penncnv_records(
                 control_path
             ):
+                if samples_of_interest is not None and sample_id not in samples_of_interest:
+                    continue
+
                 if chrom not in config.chromosomes:
                     continue
 
