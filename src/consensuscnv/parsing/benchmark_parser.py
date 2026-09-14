@@ -28,6 +28,7 @@ BENCHMARK_STAT_KEYS = (
     "records_dropped_unmapped",
     "records_dropped_size_change",
     "records_dropped_svtype",
+    "records_dropped_no_copy_state",
     "records_dropped_no_span",
     "records_removed_excluded",
     "calls_removed_excluded",
@@ -39,24 +40,17 @@ BENCHMARK_STAT_KEYS = (
 
 # --------------------------------------------------------------------------- #
 # SVTYPE handling, specific to the benchmark sets.
-#
-# The benchmarks do not agree on vocabulary, so the mapping is spelled out
-# rather than inferred. `utils.sanitize_svtype` is deliberately not used here:
-# it folds every insertion class into DUP, which is right for a caller that
-# reports gains as DUP but wrong for a truth set (see INSERTION_TYPES).
 # --------------------------------------------------------------------------- #
 
-# Losses of reference sequence. 1000G phase 3 names deletions of mobile elements
-# DEL_ALU / DEL_LINE1 / DEL_SVA / DEL_HERV; they are genuine deletions.
+# Losses of reference sequence. 1000G phase 3 names deletions of mobile elements.
 DELETION_TYPES = frozenset({"DEL", "DEL_ALU", "DEL_LINE1", "DEL_SVA", "DEL_HERV"})
 
 DUPLICATION_TYPES = frozenset({"DUP", "DUP:TANDEM", "DUP:INT"})
 
-# Novel-sequence insertions. These occupy no reference interval, so a read-depth
-# caller cannot detect them and reciprocal overlap against them is undefined.
-# Dropped rather than folded into DUP. Listed for documentation and for the
-# dropped-record counter; anything not in DELETION_TYPES or DUPLICATION_TYPES is
-# dropped regardless, which also covers INV and BND.
+# Multi-allelic copy-number record whose direction lives in FORMAT/CN (GATK-SV
+# and the 1000G high-coverage callset).
+COPY_STATE_ALT = "<CNV>"
+
 INSERTION_TYPES = frozenset(
     {"INS", "ALU", "LINE1", "SVA", "MEI", "INS:ME", "INS:MT", "HERV"}
 )
@@ -77,15 +71,7 @@ def benchmark_svtype(raw_svtype: str | None) -> str | None:
 
 
 def copy_number_alleles(record) -> dict[int, str]:
-    """Map ALT allele index -> DEL/DUP for ``<CNn>`` records; empty if not one.
-
-    1000G phase 3 carries multi-allelic copy-number records whose ALTs are
-    absolute copy numbers against a diploid reference (``<CN0>,<CN2>``). The
-    direction is therefore a property of the allele a sample carries, not of the
-    record: taking it from INFO/SVTYPE or the record ID assigns one direction to
-    every carrier and mislabels everyone holding the other allele. ``<CN2>`` is
-    reference copy number and contributes nothing.
-    """
+    """Map ALT allele index -> DEL/DUP for ``<CNn>`` records; empty if not one."""
     alleles: dict[int, str] = {}
     for index, alt in enumerate(record.ALT, start=1):
         if alt.startswith("<CN") and alt.endswith(">") and alt[3:-1].isdigit():
@@ -95,15 +81,35 @@ def copy_number_alleles(record) -> dict[int, str]:
     return alleles
 
 
-def benchmark_end(record) -> int | None:
-    """End coordinate for a benchmark record, or None when it cannot be derived.
+def copy_state_carriers(record, samples: list[str]) -> dict[str, list[str]] | None:
+    """Carriers of a ``<CNV>`` record grouped by DEL/DUP, or None without FORMAT/CN."""
+    try:
+        copy_states = record.format("CN")
+    except KeyError:
+        return None
+    if copy_states is None:
+        return None
+    carriers_by_type: dict[str, list[str]] = {}
+    for sample_id, raw in zip(samples, copy_states):
+        value = raw[0] if isinstance(raw, (list, tuple)) else raw
+        if isinstance(value, bytes):
+            value = value.decode()
+        text = str(value).strip()
+        if not text.lstrip("-").isdigit():
+            continue  # missing copy state
+        copies = int(text)
+        if copies != 2 and copies >= 0:
+            carriers_by_type.setdefault("DEL" if copies < 2 else "DUP", []).append(sample_id)
+    return carriers_by_type
 
-    INFO/END is authoritative. The SVLEN fallback is only meaningful for
-    deletions, where SVLEN is the length of removed reference -- HGSVC3 carries
-    no END field at all and relies on it. For an insertion the same arithmetic
-    would fabricate a reference interval equal to the *inserted* length, which is
-    why insertions are dropped on type before this is ever called.
-    """
+
+def is_carrier(genotype) -> bool:
+    """True when any called allele is non-reference. Missing alleles are -1."""
+    return any(allele > 0 for allele in genotype[:2])
+
+
+def benchmark_end(record) -> int | None:
+    """End coordinate for a benchmark record, or None when it cannot be derived."""
     end = record.INFO.get("END")
     if end is not None:
         return int(end)
@@ -161,9 +167,6 @@ def process_benchmarks_to_beds(
 
                 start = record.POS - 1  # Convert to 0-based
 
-                # Carriers grouped by the call type their own genotype implies.
-                # A multi-allelic copy-number record emits both directions, so
-                # this cannot be one svtype for the whole record.
                 allele_types = copy_number_alleles(record)
                 if allele_types:
                     carriers_by_type: dict[str, list[str]] = {}
@@ -173,6 +176,12 @@ def process_benchmarks_to_beds(
                                 carriers_by_type.setdefault(svtype, []).append(
                                     vcf.samples[idx]
                                 )
+                elif list(record.ALT) == [COPY_STATE_ALT]:
+                    carriers = copy_state_carriers(record, vcf.samples)
+                    if carriers is None:
+                        stats["records_dropped_no_copy_state"] += 1
+                        continue
+                    carriers_by_type = carriers
                 else:
                     svtype = benchmark_svtype(record.INFO.get("SVTYPE"))
                     if svtype is None:
@@ -184,7 +193,7 @@ def process_benchmarks_to_beds(
                         svtype: [
                             vcf.samples[idx]
                             for idx, gt in enumerate(record.genotypes)
-                            if not (gt[0] == 0 and gt[1] == 0)
+                            if is_carrier(gt)
                         ]
                     }
 
@@ -252,8 +261,6 @@ def process_benchmarks_to_beds(
                 f"{stats['bases_masked_excluded'] / 1e6:,.1f} Mb of it inside the mask"
             )
 
-        # Recorded unconditionally: a benchmark that lost nothing still needs a
-        # row, otherwise "no exclusions" and "never ran" look identical.
         liftover_stats[bench_name] = {
             "liftover_from": liftover.from_build if liftover else "",
             "liftover_to": liftover.to_build if liftover else "",
