@@ -178,7 +178,7 @@ In this study, we sought to evaluate the effectiveness of using short-read lcWGS
 
 == Sequence Data and Reference Files Retrieval
 
-Thirteen samples from the 1000 Genomes project were selected for the analysis because of their presence in the three benchmark SV sets (the 1000 Genomes Project high-coverage SV call set #c[Byrska-Bishop 2022], HGSVC3 #c[Logsdon 2025], and the Oxford Nanopore Technology (ONT) Vienna set #c[Schloissnig 2024]), and because the availability of their SNP genotyping array data.
+Thirteen samples from the 1000 Genomes project were selected for the analysis because of their presence in the three benchmark SV sets (the 1000 Genomes Project high-coverage SV call set #c[Byrska-Bishop 2022], HGSVC3 #c[Logsdon 2025], and the Oxford Nanopore Technology (ONT) Vienna set #c[Schloissnig 2025]), and because the availability of their SNP genotyping array data.
 The 13 samples can be identified on the International Genome Sample Resource (IGSR) data portal website (#link("https://www.internationalgenome.org/data-portal/sample")), using the following filters: 1) data collections: "1000 Genomes 30x on GRCh38", "Human Genome Structural Variation Consortium, Phase 3", "1000 Genomes phase 3 release", and "1KG_ONT_VIENNA", and 2) technology "HD genotype chip".
 
 High-coverage (\~30x) short-read WGS data aligned to the GRCh38 reference genome was downloaded from the 1000G_2504_high_coverage collection hosted at the IGSR FTP database (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/")) in Compressed Reference-oriented Alignment Map (CRAM) format #c[Fairley 2020].
@@ -254,7 +254,8 @@ For bi-allelic records a sample is a carrier when its genotype holds at least on
 
 Three classes are excluded.
 Insertions of novel sequence, whether unclassified (`INS`, `INS:UNK`) or attributed to a mobile element (`INS:ME:ALU`, `INS:ME:LINE1`, `INS:ME:SVA`), are excluded because they occupy no interval of the reference: the reference span of such a record is either a single base or absent altogether, so overlap against a read-depth call is undefined and no depth-based caller can be scored against them.
-This exclusion is consequential, since assembly-based variant representations of the kind used by HGSVC3 and ONT Vienna encode a tandem duplication as an insertion of the duplicated sequence at its own locus rather than as a copy-number gain over a reference interval, and the two cases are not separable from the released fields alone.
+This exclusion is consequential, since assembly-based variant representations of the kind used by HGSVC3 and ONT Vienna encode a tandem duplication as an insertion of the duplicated sequence at its own locus rather than as a copy-number gain over a reference interval, and the two cases are not separable from the standard VCF fields.
+For ONT Vienna the release's SVAN annotation resolves them, and its tandem duplications are recovered as described below; HGSVC3 carries no such annotation.
 Inversions, complex rearrangements (`CPX`), translocations (`CTX`), and breakends are excluded, the first as copy-number neutral and the rest as lacking a single reference interval whose copy number changes.
 Records for which no end coordinate could be derived, from either the `END` or the `SVLEN` key of the `INFO` field, are excluded for want of a reference interval.
 
@@ -268,9 +269,12 @@ The benchmark contains SVs derived from PacBio HiFi long reads (\~47x coverage) 
 The dataset contains annotations for variants derived from sequences natively aligned to GRCh38.
 The GRCh38 SV InsDel Alt annotation file under HGSVC3 2024 v.1.0 was downloaded from the data collections on the IGSR FTP server (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/HGSVC3/release/Variant_Calls/1.0/GRCh38/variants_GRCh38_sv_insdel_alt_HGSVC2024v1.0.vcf.gz")).
 
-The Oxford Nanopore Technology (ONT) Vienna #c[Schloissnig 2024] dataset includes long-read sequencing and SV characterization of 1,019 samples from the 1000 Genomes project.
+The Oxford Nanopore Technology (ONT) Vienna #c[Schloissnig 2025] dataset includes long-read sequencing and SV characterization of 1,019 samples from the 1000 Genomes project.
 The dataset contains annotations for variants derived from sequences aligned to GRCh38.
-The SVIM HG38 annotation file under release v.1.1 was downloaded from the data collections on the IGSR FTP server (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1KG_ONT_VIENNA/release/v1.1/svim-asm-hg38/svim.asm.hg38.bcf")).
+The genotyped svim-asm call set and its sites-only companion annotated with SVAN 1.3 #c[Schloissnig 2025] were downloaded from release v.1.1 on the IGSR FTP server (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1KG_ONT_VIENNA/release/v1.1/svim-asm-hg38/")).
+SVAN classifies each insertion by the origin of the inserted sequence, and for the tandem-duplication classes (`DUP`, `INV_DUP`, `COMPLEX_DUP`) records the reference segment the inserted sequence aligns to.
+The two files were joined on record identifier, and each insertion of those classes was rewritten as a duplication record spanning that segment, from the lowest to the highest coordinate of its alignment hits, with the sample genotypes carried over unchanged; this derived file is the ONT Vienna input to the parser.
+Interspersed duplications (`DUP_INTERSPERSED`), for which the release carries no source coordinates, remain as excluded.
 
 == BED File Conversion <m_bed_file_conversion>
 
@@ -1294,7 +1298,7 @@ It also retains whichever member call carries the most permissive breakpoints, w
 Union merging therefore preserves more of Delly's breakpoint-specific information than a policy restricted to the region of agreement between callers would.
 
 A notable limitation of this study is the absence of a verifiably comprehensive benchmark set.
-The merged benchmark used here aggregates structural variant calls from three datasets #c[1000G 2015]#c[Logsdon 2025]#c[Schloissnig 2024], — each produced by different calling algorithms and parameterization strategies.
+The merged benchmark used here aggregates structural variant calls from three datasets #c[1000G 2015]#c[Logsdon 2025]#c[Schloissnig 2025], — each produced by different calling algorithms and parameterization strategies.
 As a result, a substantial proportion of benchmark CNVs were expected to be undetectable by the short-read, depth-based methods evaluated in this study, either due to size constraints imposed by 1kb binning, coverage limitations, or fundamental differences in detection methodology between the benchmark sources and our evaluated call sets.
 To keep recall interpretable, false negatives were therefore restricted to CNVs discovered by at least one call set in this study; As expected, the set of discoverable CNVs represented only a fraction of the total benchmark set (\~9.73%).
 Furthermore, the 50% reciprocal overlap threshold used for matching may have rejected genuine CNV pairs due to breakpoint disagreement between datasets, and some calls flagged as false positives may correspond to real variants absent from the benchmark rather than true errors.
@@ -1395,9 +1399,9 @@ A structural variation reference for medical and population genetics. Nature. 20
 svtools: population-scale analysis of structural variation. Bioinformatics. 2019 Nov 1;35(22):4782-7. #c[Larson 2019] \
 *HGSVC3:* Logsdon GA, Ebert P, Audano PA, Loftus M, Porubsky D, Ebler J, Yilmaz F, Hallast P, Prodanov T, Yoo D, Paisie CA.
 Complex genetic variation in nearly complete human genomes. Nature. 2025 Aug 14;644(8076):430-41. #c[Logsdon 2025] \
-*ONT Vienna:* Schloissnig S, Pani S, Rodriguez-Martin B, Ebler J, Hain C, Tsapalou V, Söylev A, Hüther P, Ashraf H, Prodanov T, Asparuhova M.
-Long-read sequencing and structural variant characterization in 1,019 samples from the 1000 Genomes Project.
-bioRxiv. 2024 Apr 20:2024-04. #c[Schloissnig 2024]
+*ONT Vienna / SVAN:* Schloissnig S, Pani S, Ebler J, Hain C, Tsapalou V, Söylev A, Hüther P, Ashraf H, Prodanov T, Asparuhova M, Magalhães H.
+Structural variation in 1,019 diverse humans based on long-read sequencing.
+Nature. 2025 Aug 14;644(8076):442-52. #c[Schloissnig 2025]
 
 #v(0.6em)
 
