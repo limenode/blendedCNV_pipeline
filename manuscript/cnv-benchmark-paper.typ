@@ -178,7 +178,7 @@ In this study, we sought to evaluate the effectiveness of using short-read lcWGS
 
 == Sequence Data and Reference Files Retrieval
 
-Thirteen samples from the 1000 Genomes project were selected for the analysis because of their presence in the three benchmark SV sets (1000 Genomes SV benchmark set #c[1000G 2015], HGSVC3 #c[Logsdon 2025], and Oxford Nanopore Technology (ONT) Vienna set #c[Schloissnig 2024]), and because the availability of their SNP genotyping array data.
+Thirteen samples from the 1000 Genomes project were selected for the analysis because of their presence in the three benchmark SV sets (the 1000 Genomes Project high-coverage SV call set #c[Byrska-Bishop 2022], HGSVC3 #c[Logsdon 2025], and the Oxford Nanopore Technology (ONT) Vienna set #c[Schloissnig 2024]), and because the availability of their SNP genotyping array data.
 The 13 samples can be identified on the International Genome Sample Resource (IGSR) data portal website (#link("https://www.internationalgenome.org/data-portal/sample")), using the following filters: 1) data collections: "1000 Genomes 30x on GRCh38", "Human Genome Structural Variation Consortium, Phase 3", "1000 Genomes phase 3 release", and "1KG_ONT_VIENNA", and 2) technology "HD genotype chip".
 
 High-coverage (\~30x) short-read WGS data aligned to the GRCh38 reference genome was downloaded from the 1000G_2504_high_coverage collection hosted at the IGSR FTP database (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/")) in Compressed Reference-oriented Alignment Map (CRAM) format #c[Fairley 2020].
@@ -246,19 +246,22 @@ The definition is imposed by the detection method under evaluation rather than c
 All three sequence-based callers infer copy number from sequencing depth over intervals of the reference, and the classification of a call as a true or false positive is decided by reciprocal overlap between two reference intervals.
 A variant is therefore only assessable if it occupies an interval of the reference whose copy number differs from two.
 Applying that criterion to the benchmark releases retains three record classes and excludes the rest.
-Deletions are retained, including the mobile-element deletion classes that 1000 Genomes phase 3 names separately (`DEL_ALU`, `DEL_LINE1`, `DEL_SVA`, and `DEL_HERV`), as each removes a reference interval and differs from a plain deletion only in the annotation of the sequence removed.
+Deletions are retained, including those annotated as removing a mobile element (`DEL:ME` alternate alleles), as each removes a reference interval and differs from a plain deletion only in the annotation of the sequence removed.
 Duplications are retained, including tandem and interspersed subclasses.
-Multi-allelic copy-number records, whose alternate alleles are absolute copy numbers relative to a diploid reference (`<CN0>`, `<CN1>`, `<CN3>`, and so on), are resolved separately for each alternate allele, so that a carrier of a `<CN0>` allele contributes a deletion and a carrier of a `<CN3>` allele at the same record contributes a duplication; the `<CN2>` allele is the reference copy number and contributes nothing.
+Multi-allelic copy-number records, written with a single `<CNV>` alternate allele and each sample's integer copy state in the `CN` key of the FORMAT field, are resolved per sample rather than per record: a copy state below two contributes a deletion and one above two a duplication, and a copy state of two is the reference and contributes nothing.
+The genotype field carries no direction at these sites and is not consulted.
+For bi-allelic records a sample is a carrier when its genotype holds at least one non-reference allele; genotypes set to no-call by the release's per-genotype quality filters are not carriers.
 
 Three classes are excluded.
-Insertions of novel sequence, whether unclassified (`INS`) or attributed to a mobile element (`ALU`, `LINE1`, `SVA`, `MEI`, `HERV`), are excluded because they occupy no interval of the reference: the reference span of such a record is either a single base or absent altogether, so overlap against a read-depth call is undefined and no depth-based caller can be scored against them.
+Insertions of novel sequence, whether unclassified (`INS`, `INS:UNK`) or attributed to a mobile element (`INS:ME:ALU`, `INS:ME:LINE1`, `INS:ME:SVA`), are excluded because they occupy no interval of the reference: the reference span of such a record is either a single base or absent altogether, so overlap against a read-depth call is undefined and no depth-based caller can be scored against them.
 This exclusion is consequential, since assembly-based variant representations of the kind used by HGSVC3 and ONT Vienna encode a tandem duplication as an insertion of the duplicated sequence at its own locus rather than as a copy-number gain over a reference interval, and the two cases are not separable from the released fields alone.
-Inversions and breakends are excluded as copy-number neutral.
+Inversions, complex rearrangements (`CPX`), translocations (`CTX`), and breakends are excluded, the first as copy-number neutral and the rest as lacking a single reference interval whose copy number changes.
 Records for which no end coordinate could be derived, from either the `END` or the `SVLEN` key of the `INFO` field, are excluded for want of a reference interval.
 
-The 1000 Genomes phase 3 #c[1000G 2015] SV annotations were downloaded from the IGSR FTP site (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/integrated_sv_map/supporting/GRCh38_positions/ALL.wgs.integrated_sv_map_v2_GRCh38.20130502.svs.genotypes.vcf.gz")) and contained 2504 samples.
-This benchmark is derived from a combination of low-coverage WGS, high-coverage WES, and microarray genotyping #c[Byrska-Bishop 2021].
-The SV set had positions that were originally identified on GRCh37 and lifted over to GRCh38 using the UCSC liftover tool, which consequently resulted in the removal of SVs that did not have a viable GRCh38 equivalent due to unmappability or significant size changes (>10%).
+The 1000 Genomes Project high-coverage SV call set #c[Byrska-Bishop 2022] was produced by the New York Genome Center from Illumina WGS of 3,202 samples sequenced to 30x, comprising the 2,504 unrelated phase 3 samples and 698 relatives that complete 602 trios, aligned natively to GRCh38.
+SVs were discovered with three methods, GATK-SV #c[Collins 2020], svtools #c[Larson 2019], and Absinthe, and integrated by the consortium through a machine-learning model into a single ensemble call set carrying site-level filters, per-genotype quality filters, and allele frequencies.
+The same high-coverage sequencing data we used to generate CNV calls also supplied the alignments described above.
+Freeze V3 of the ensemble call set was downloaded from the data collections on the IGSR FTP server (#link("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20210124.SV_Illumina_Integration/1KGP_3202.gatksv_svtools_novelins.freeze_V3.wAF.vcf.gz")).
 
 Human Genome Structural Variation Consortium, Phase 3 (HGSVC3) #c[Logsdon 2025] is an extensive analysis of 65 individuals of diverse ancestries across 27 distinct populations.
 The benchmark contains SVs derived from PacBio HiFi long reads (\~47x coverage) and ultra-long Oxford Nanopore Technologies (ONT) reads (\~56x coverage).
@@ -279,7 +282,7 @@ CNV end positions were extracted from the END key in the INFO field, or calculat
 Structural variant type (DEL or DUP) was extracted from the SVTYPE key in the INFO field, or was derived from the RCDN (read-depth copy number) key in the FORMAT field when the former was not available.
 
 For the SNP Array CNV calls, the PennCNV final output file was split to retrieve per sample calls in the BED format, and the positions were lifted over from its native hg18 positions to hg38/GRCh38 using the Python liftover package and chain files from the UCSC hg38 database (#link("https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/")).
-CNVs with unmappable positions or those that changed in size by more than 10% were excluded, matching the restrictions from the liftover done for the 1000 Genomes phase 3 benchmark call set.
+CNVs with unmappable positions or those that changed in size by more than 10% were excluded.
 
 After liftover, any calls deemed artifactual due to overlapping with poorly mappable regions -- including centromeres, telomeres, and heterochromatin regions -- were removed from the call set.
 An 1% overlap with a poorly mappable region was the criteria to remove a call, with other more and less stringent criteria also being tested for comparison.
@@ -1339,7 +1342,6 @@ We have created a solid foundation for the aggregation of several popular, mathe
 #link("https://pmc.ncbi.nlm.nih.gov/articles/PMC6699627/") #c[Krusche 2019] \
 #link("https://pmc.ncbi.nlm.nih.gov/articles/PMC11489684/") #c[Dwarshuis 2024] \
 #link("https://pmc.ncbi.nlm.nih.gov/articles/PMC8454654/") #c[Zook 2020] \
-#link("https://www.biorxiv.org/content/10.1101/2021.02.06.430068v1.full") #c[Byrska-Bishop 2021]
 
 #v(0.6em)
 
@@ -1385,6 +1387,12 @@ Bioinformatics. 2017 Jun 15;33(12):1867-9.
 Nucleic acids research. 2020 Jan 8;48(D1):D941-7. #c[Fairley 2020] \
 *1000G:* 1000 Genomes Project Consortium. A global reference for human genetic variation.
 Nature. 2015 Sep 30;526(7571):68. #c[1000G 2015] \
+*1000G high-coverage SV call set:* Byrska-Bishop M, Evani US, Zhao X, Basile AO, Abel HJ, Regier AA, Corvelo A, Clarke WE, Musunuri R, Nagulapalli K, Fairley S.
+High-coverage whole-genome sequencing of the expanded 1000 Genomes Project cohort including 602 trios. Cell. 2022 Sep 1;185(18):3426-40. #c[Byrska-Bishop 2022] \
+*GATK-SV:* Collins RL, Brand H, Karczewski KJ, Zhao X, Alföldi J, Francioli LC, Khera AV, Lowther C, Gauthier LD, Wang H, Watts NA.
+A structural variation reference for medical and population genetics. Nature. 2020 May;581(7809):444-51. #c[Collins 2020] \
+*svtools:* Larson DE, Abel HJ, Chiang C, Badve A, Das I, Eldred JM, Layer RM, Hall IM.
+svtools: population-scale analysis of structural variation. Bioinformatics. 2019 Nov 1;35(22):4782-7. #c[Larson 2019] \
 *HGSVC3:* Logsdon GA, Ebert P, Audano PA, Loftus M, Porubsky D, Ebler J, Yilmaz F, Hallast P, Prodanov T, Yoo D, Paisie CA.
 Complex genetic variation in nearly complete human genomes. Nature. 2025 Aug 14;644(8076):430-41. #c[Logsdon 2025] \
 *ONT Vienna:* Schloissnig S, Pani S, Rodriguez-Martin B, Ebler J, Hain C, Tsapalou V, Söylev A, Hüther P, Ashraf H, Prodanov T, Asparuhova M.
