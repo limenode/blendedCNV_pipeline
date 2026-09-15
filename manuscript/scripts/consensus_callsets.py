@@ -3,12 +3,12 @@
 Where used
 ----------
 Results -> "Consensus Call Set Construction": the caller-agreement counts behind
-Figure 2, and every number in the prose describing how consensus call sets
+Figure 3, and every number in the prose describing how consensus call sets
 respond to coverage and to the agreement requirement.
 
 Reports, for each coverage and each agreement level (1/3, 2/3, 3/3), the number
 of consensus components, the percentage that are duplications, and the median
-size; and, for 30x, the seven caller-agreement regions of Figure 2.
+size; and, for 30x, the seven caller-agreement regions of Figure 3.
 
 Consensus is a union merge at 50% reciprocal overlap with no padding. All three
 levels come off a single merge, since `merge_components` builds components from
@@ -80,7 +80,7 @@ for coverage in COVERAGES:
 
     if coverage == "30x":
         # source_bits already is the set of callers behind a component, so the
-        # seven Figure 2 regions are a bincount over the masks. SOURCES ids are
+        # seven Figure 3 regions are a bincount over the masks. SOURCES ids are
         # assigned in first-appearance order, so each mask is rebuilt from the
         # key rather than assumed to be 1/2/4.
         caller_bit = {c: 1 << SOURCES.get(c) for c in CALLERS}
@@ -114,7 +114,7 @@ print("=== per coverage and call set ===")
 print(table.to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
 print("\n=== call counts, wide ===")
 print(wide.to_string())
-print("\n=== Figure 2 regions, 30x ===")
+print("\n=== Figure 3 regions, 30x ===")
 print(venn.sort_values(["n_callers", "n_calls"], ascending=[True, False]).to_string(
     index=False, float_format=lambda v: f"{v:.2f}"))
 

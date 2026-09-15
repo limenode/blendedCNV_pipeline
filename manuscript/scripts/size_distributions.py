@@ -3,7 +3,7 @@
 Where used
 ----------
 Results -> "CNV Size Distribution Characteristics":
-    Table 2   size statistics of the 30x call sets, the SNP array, and the benchmark
+    Table 5   size statistics of the 30x call sets, the SNP array, and the benchmark
     Figure 9  size densities at 30x and of each consensus level across coverages
     every number quoted in that section
 

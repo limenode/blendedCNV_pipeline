@@ -289,7 +289,7 @@ For the SNP Array CNV calls, the PennCNV final output file was split to retrieve
 CNVs with unmappable positions or those that changed in size by more than 10% were excluded.
 
 After liftover, any calls deemed artifactual due to overlapping with poorly mappable regions -- including centromeres, telomeres, and heterochromatin regions -- were removed from the call set.
-An 1% overlap with a poorly mappable region was the criteria to remove a call, with other more and less stringent criteria also being tested for comparison.
+An 1% overlap with a poorly mappable region was the criteria to remove a call, with other more and less stringent criteria also being tested for comparison (Supplementary Table S3).
 The behavior of this filtering on the number of calls removed as well as the number of bases overlapping unmappable regions, the number of bases removed in total, and the ratio between the two were plotted and analyzed.
 
 == CNV Overlap and Adjacency Graph Building <m_cnv_overlap>
@@ -501,43 +501,40 @@ Finally, we compared the individual tool call sets, the consensus call sets, and
 All input call sets were normalized to a common per-sample BED representation and every call set was restricted to the thirteen samples of interest to ensure no statistic reflected differences in cohort composition.
 Liftover was performed on the calls derived from the SNP Array from hg18 to hg38/GRCh38 to align coordinates with all other call sets.
 Table 1 summarizes the resulting call sets: the three sequence-based callers at each of the four coverages, the SNP array control, and each of the three benchmark sources.
-Counts are given after removal of calls overlapping poorly mappable regions by at least 1% of their total length.
-Pre-filter counts and the full liftover accounting are given in Supplementary Table S1, and the complete exclusion accounting -- bases removed against bases actually inside the mask, and the split by CNV type -- in Supplementary Table S2.
-The results from different stringencies for overlap with poorly mappable regions were tested and are given in Supplementary Table S3.
-1% was determined to be the most reasonable choice for downstream analysis on the physical grounds that increasing overlap percentage would permit more calls with unreliable breakpoints and decreasing overlap requirements would more often cause true calls to be removed; empirical results validated this.
+Counts are given after removal of calls overlapping poorly mappable regions (Methods); pre-filter counts and the liftover accounting are given in Supplementary Table S1, and the exclusion accounting in Supplementary Table S2.
 
 #v(0.5em)
 
 #block(width: 100%)[
 #set text(hyphenate: false, size: 10pt)
 #table(
-  columns: (1fr, auto, auto, auto, auto, auto, auto),
-  align: (left, right, right, right, right, right, right),
+  columns: (1fr, auto, auto, auto, auto, auto),
+  align: (left, right, right, right, right, right),
   table.header(
-    [Call Set], [Calls], [Median /\ Sample], [MAD], [% DEL],
-    [Median\ Size (bp)], [% Masked],
+    [Call Set], [Calls], [Median /\ Sample], [MAD], [% DUP],
+    [Median\ Size (bp)],
   ),
-  [*30x -- CNVpytor*], [16,159], [1,238], [24], [76.47], [14,000], [45.37],
-  [*30x -- Delly*], [7,025], [539], [32], [71.90], [4,112], [5.74],
-  [*30x -- GATK-gCNV*], [8,216], [610], [80], [89.12], [3,000], [40.44],
+  [*30x -- CNVpytor*], [16,159], [1,238], [24], [23.53], [14,000],
+  [*30x -- Delly*], [7,025], [539], [32], [28.10], [4,112],
+  [*30x -- GATK-gCNV*], [8,216], [610], [80], [10.88], [3,000],
   table.hline(stroke: 0.3pt),
-  [*6x -- CNVpytor*], [8,480], [652], [22], [62.70], [40,000], [9.08],
-  [*6x -- Delly*], [4,107], [314], [8], [47.77], [4,718], [5.02],
-  [*6x -- GATK-gCNV*], [8,511], [666], [29], [85.94], [4,000], [0.27],
+  [*6x -- CNVpytor*], [8,480], [652], [22], [37.30], [40,000],
+  [*6x -- Delly*], [4,107], [314], [8], [52.23], [4,718],
+  [*6x -- GATK-gCNV*], [8,511], [666], [29], [14.06], [4,000],
   table.hline(stroke: 0.3pt),
-  [*4x -- CNVpytor*], [7,300], [562], [13], [59.21], [49,000], [10.36],
-  [*4x -- Delly*], [3,739], [287], [16], [41.96], [4,735], [2.63],
-  [*4x -- GATK-gCNV*], [5,035], [386], [22], [62.80], [5,000], [0.34],
+  [*4x -- CNVpytor*], [7,300], [562], [13], [40.79], [49,000],
+  [*4x -- Delly*], [3,739], [287], [16], [58.04], [4,735],
+  [*4x -- GATK-gCNV*], [5,035], [386], [22], [37.20], [5,000],
   table.hline(stroke: 0.3pt),
-  [*2x -- CNVpytor*], [6,454], [498], [8], [52.68], [51,000], [8.84],
-  [*2x -- Delly*], [3,040], [238], [6], [31.97], [4,588], [3.12],
-  [*2x -- GATK-gCNV*], [10,553], [839], [11], [56.95], [6,000], [0.08],
+  [*2x -- CNVpytor*], [6,454], [498], [8], [47.32], [51,000],
+  [*2x -- Delly*], [3,040], [238], [6], [68.03], [4,588],
+  [*2x -- GATK-gCNV*], [10,553], [839], [11], [43.05], [6,000],
   table.hline(stroke: 0.3pt),
-  [*SNP Array*], [1,659], [111], [19], [52.56], [7,554], [0.00],
+  [*SNP Array*], [1,659], [111], [19], [47.44], [7,554],
   table.hline(stroke: 0.3pt),
-  [*1000G high-coverage*], [73,966], [5,481], [204], [72.99], [319], [0.13],
-  [*HGSVC3*], [131,994], [9,441], [142], [100.00], [139], [0.40],
-  [*ONT Vienna*], [121,825], [8,878], [188], [85.26], [106], [2.43],
+  [*1000G high-coverage*], [73,966], [5,481], [204], [27.01], [319],
+  [*HGSVC3*], [131,994], [9,441], [142], [0.00], [139],
+  [*ONT Vienna*], [121,825], [8,878], [188], [14.74], [106],
 )
 ]
 
@@ -545,8 +542,7 @@ The results from different stringencies for overlap with poorly mappable regions
   Parsed input call sets after removal of calls overlapping poorly mappable regions.
   Every call set covers the same thirteen 1000 Genomes samples.
   Median per Sample and MAD describe the per-sample call count; MAD is the median absolute deviation about that median.
-  Removed by Mask is the percentage of parsed calls discarded for overlapping a centromere, telomere, short arm, heterochromatin region, or decoy/alternate contig by more than 1% of their length.
-  Pre-filter counts appear in Supplementary Table S1 and the full exclusion accounting in Supplementary Table S2.
+  Pre-filter counts appear in Supplementary Table S1 and the fraction of each call set removed by the mask, with the full exclusion accounting, in Supplementary Table S2.
 ]
 
 #v(0.8em)
@@ -556,18 +552,7 @@ CNVpytor produced the largest call set at 30x (16,159 calls) and its yield fell 
 Delly followed the same direction over a smaller range.
 GATK-gCNV did not: it produced more calls at 2x (10,553) than at any other coverage including 30x (8,216), which is consistent with a caller that lacks a mechanism for withholding calls when the underlying read-depth evidence becomes too sparse to support them.
 Median call size moved in the opposite direction to yield for the read-depth callers, with CNVpytor rising from 14 kb at 30x to 51 kb at 2x; Delly, which refines breakpoints from split reads rather than bin boundaries, held a median near 4.6 kb at every coverage.
-The proportion of deletion calls also fell with coverage for every caller, most sharply for Delly, which went from 71.9% deletions at 30x to 32.0% at 2x.
-
-#v(0.3em)
-
-// TODO(lionel): confirm against the subsampling scripts before this goes in the
-// submitted draft. If the masking asymmetry is a pipeline-stage artifact rather
-// than a coverage effect, this paragraph should become a Methods correction.
-The fraction of calls removed by the mappability filter separates the 30x arm from the three low-coverage arms.
-At 30x, 45.4% of CNVpytor calls and 40.4% of GATK-gCNV calls overlapped an excluded region, against 8.8-10.4% and 0.1-0.3% respectively at 2x, 4x, and 6x.
-This is expected from the order of operations rather than from coverage itself: excluded regions were subtracted from the alignments before subsampling, so the low-coverage inputs contained no reads over those regions and the callers could not emit calls there, whereas the 30x arm was called from the original alignments and the same regions were removed only afterwards, at the level of calls.
-The call sets that enter the downstream analysis are equivalent in that both have had these regions removed, but the read-depth normalization performed internally by CNVpytor and GATK-gCNV was not carried out over the same genomic territory in the two cases.
-Delly, which applies its own mappability map during calling, is the least affected caller at every coverage.
+The proportion of duplication calls also rose as coverage fell for every caller, most sharply for Delly, which went from 28.1% duplications at 30x to 68.0% at 2x.
 
 #v(0.3em)
 
@@ -584,16 +569,32 @@ This is the principal reason a size floor is required before recall can be inter
 
 #v(0.3em)
 
-The composition of the merged truth set by CNV type shifts with size.
-Duplications are 17.3% of all intervals (31,062 of 180,064), 27.8% of those above the 1 kb floor (6,451 of 23,193), and 56.8% of those above 10 kb (2,804 of 4,939), so in the size range the read-depth callers operate in the truth set holds duplications and deletions in comparable numbers.
-Two sources supply them: the 1000 Genomes high-coverage set contributes 17,814 duplications, including the copy-number gains of its multi-allelic records, and the tandem duplications recovered from the SVAN annotation of ONT Vienna contribute 17,824, of which 469 reach 1 kb.
+The composition of the merged truth set by CNV type shifts with size (Figure 2).
+Duplications are 17.3% of all intervals (31,062 of 180,064), 27.8% of those above the 1 kb floor (6,451 of 23,193), 56.8% of those above 10 kb (2,804 of 4,939) and 67.7% of those above 100 kb (383 of 566).
+Per size bin they are a minority of 8--21% below the floor and become the majority from about 16 kb upward (Figure 2B), so in the size range the read-depth callers operate in the truth set holds duplications and deletions in comparable numbers.
+Two sources supply them: the 1000 Genomes high-coverage set contributes 17,814 duplications, including the copy-number gains of its multi-allelic records, of which 6,171 reach 1 kb, and the tandem duplications recovered from the SVAN annotation of ONT Vienna contribute 17,824, of which 469 reach 1 kb.
+The duplication share of the 1000 Genomes set alone runs within 13 points of the merged set's at every size above the floor, whereas the SVAN duplications exceed 30% of the ONT Vienna set only near 25 kb.
 HGSVC3 contributes none, since its release carries no annotation that separates a tandem duplication from an insertion.
 Results below are reported over deletions and duplications combined, with the split by CNV type given where it changes the reading.
 
+#figure(
+  image("/results/benchmark_composition/benchmark_composition.png", width: 100%)
+)
+
+#cap("Figure 2:")[
+  Variant class composition of the merged truth set against interval size.
+  (A) Deletions and duplications per log-spaced size bin, five bins per decade, on a logarithmic count axis.
+  (B) The duplication share of each bin for the merged truth set and for the two sources that contribute duplications, 1000 Genomes high-coverage and ONT Vienna; HGSVC3 carries none.
+  A share is drawn only where a bin holds at least 30 intervals of that source.
+  The axis starts at 50 bp, the minimum size of a structural variant in the 1000 Genomes and HGSVC3 releases; the 3,150 smaller intervals in the merged set are all SVAN tandem duplications.
+  The vertical rule marks the 1 kb size floor adopted below.
+]
+
+#v(0.8em)
+
 #v(0.3em)
 
-The SNP array control contributed 1,659 calls across the thirteen samples, the smallest of the evaluated call sets, with a median size of 7,554 bp and a near-even split between deletions and duplications (52.6% deletions).
-No array call overlapped an excluded region, which is expected given that the array's probes are not sited in the regions the mask covers.
+The SNP array control contributed 1,659 calls across the thirteen samples, the smallest of the evaluated call sets, with a median size of 7,554 bp and a near-even split between deletions and duplications (47.4% duplications).
 Sixty-one array calls (3.5%) were lost during liftover from hg18 to hg38, 18 because an endpoint failed to map and 43 because the interval changed length by more than 10% (Supplementary Table S1).
 
 == Sequence-based Consensus Call Set Construction <r_sequence_consensus>
@@ -602,7 +603,7 @@ All outputs from the sequence-based consensus call sets were aggregated into a s
 Analysis of the consensus construction was required in order to determine the general behavior of each of the callers and if consensus analysis was a suitable approach to retrieve an informative population of calls.
 We therefore characterized the three callers relative to each other at 30x, where the evidence available to them is greatest, and then followed the same quantities down through the reduced coverages.
 
-Agreement between the callers is significant, but it is not distributed evenly across the multi-caller categories (Figure 2).
+Agreement between the callers is significant, but it is not distributed evenly across the multi-caller categories (Figure 3).
 Of the 24,123 components in the 30x 1/3 consensus call set, 19,287 (79.9%) carry a single caller, and CNVpytor alone accounts for 11,952 of them, just under half of the call set.
 Of the 4,836 components carrying at least two callers, the three pairwise-only categories hold 939, 868, and 629 components, while agreement between all three callers (3/3) holds 2,400.
 A component found by more than one caller is therefore about as likely to have been found by all three as by exactly two.
@@ -611,7 +612,7 @@ A component found by more than one caller is therefore about as likely to have b
   image("/results/consensus/caller_agreement_30x.png", width: 100%)
 )
 
-#cap("Figure 2:")[
+#cap("Figure 3:")[
   Venn diagram of source distribution for CNV call components.
   Components were identified from 30x coverage WGS data by the following sequence-based CNV calling tools: CNVpytor, GATK-gCNV, and Delly.
   The CNV components came from a 1/3 consensus call set generated with a 50% reciprocal overlap requirement between CNVs across tool outputs.
@@ -1037,7 +1038,7 @@ No upper bound is imposed.
 )
 ]
 
-#cap("Table 8:")[
+#cap("Table 5:")[
   CNV size statistics of the 30x call sets, the SNP microarray call set, and the merged benchmark, in base pairs.
   Spread is reported as the median absolute deviation, which is the median of the absolute deviations from the median, rather than as a standard deviation: sizes span three orders of magnitude with a heavy right tail, over which a moment-based spread is set by a handful of the largest calls.
   Median and MAD are rounded to the nearest base pair.
@@ -1068,15 +1069,15 @@ Delly is the exception: only 0.03% of its calls land on a bin boundary and its s
 The 1 kb floor therefore removes nothing from CNVpytor or GATK-gCNV and 3.5% of Delly's calls.
 
 Consensus construction narrows the distribution (Figure 9A).
-At 30x the three consensus levels have medians of 6,000, 5,343 and 6,186 bp , and the MAD falls from 4,837 to 2,343 and 2,186 bp as stringency increases (Table 8).
+At 30x the three consensus levels have medians of 6,000, 5,343 and 6,186 bp , and the MAD falls from 4,837 to 2,343 and 2,186 bp as stringency increases (Table 5).
 Calls between 1 and 2 kb make up 12.8% of the 1-of-3 set, 2.6% of the 2-of-3 set and none of the 3-of-3 set.
 Since calls of that width have to be matched at a reciprocal overlap of 0.5 to survive, and CNVpytor, which is in every 3-of-3 component, reports nothing below 2 kb, the minimum reported size is 2kb for the 3-of-3 set.
-Callers agree on a duplication considerably less often than on a deletion, with the percentage of duplications calls falling from 25.0% of the 1-of-3 set to 9.8% and 4.8% of the 2-of-3 and 3-of-3 sets (Table 8).
+Callers agree on a duplication considerably less often than on a deletion, with the percentage of duplications calls falling from 25.0% of the 1-of-3 set to 9.8% and 4.8% of the 2-of-3 and 3-of-3 sets (Table 5).
 
 The two reference sets differ significantly from the sequence-derived call sets.
 Only 12.9% of the 180,064 merged benchmark intervals reach 1 kb, and the 23,193 that do have a median of 3,357 bp, with 31.8% of their mass between 1 and 2 kb.
 The array is the opposite: 93.3% of its 1,659 calls clear the floor, and those have the largest median and the widest spread of any set.
-The two differ in class as well, at 45.9% duplications in the SNP Array against 27.8% in the merged benchmark (Table 8).
+The two differ in class as well, at 45.9% duplications in the SNP Array against 27.8% in the merged benchmark (Table 5).
 
 Decreasing coverage moves the distributions to the right.
 Delly's median slightly rises from 4,327 bp at 30x to 5,316 bp at 2x, while CNVpytor's rises from 14,000 to 51,000 bp (Supplemental Figure Per Caller Size Distributions).
@@ -1092,7 +1093,7 @@ Array and low-pass sequencing are therefore confident over similar size ranges d
 
 == Consensus Level Selection <r_consensus_levels>
 
-The six 30x call sets and the SNP array were scored against the merged benchmark at the four adopted parameters (Table 9).
+The six 30x call sets and the SNP array were scored against the merged benchmark at the four adopted parameters (Table 6).
 Precision rises with the number of callers required, from 0.391 for the 1-of-3 set to 0.898 for the 2-of-3 set and 0.973 for the 3-of-3 set, and both agreement levels exceed every individual caller.
 Recall carries a ceiling equal to the ratio of the call set size to the 23,193 benchmark intervals, which is saturated at 1.000 for the 1-of-3 set and falls to 0.103 for the 3-of-3 set.
 
@@ -1130,7 +1131,7 @@ Recall carries a ceiling equal to the ratio of the call set size to the 23,193 b
 )
 ]
 
-#cap("Table 9:")[
+#cap("Table 6:")[
   Binary classification of the 30x call sets and the SNP array against the merged benchmark, at the adopted parameters.
   A true positive is a call that clears the classification threshold against at least one benchmark interval above the size floor, and a false positive is a call that clears it against none; P, R and F1 are precision, recall and the F1 score.
   Recall is the fraction of benchmark intervals matched by at least one call, of 23,193 combined, 16,742 deletions and 6,451 duplications, and cannot exceed the number of calls divided by that count.
@@ -1150,7 +1151,7 @@ The single-caller set holds 14,040 of the 14,532 unmatched calls, and it is this
 Requiring a second caller removes 96.6% of the false positives and 53.5% of the true positives, and requiring a third removes a further 428 false positives and 2,008 true positives, buying 0.075 of precision for 46.2% of the matches that remained.
 Every call in a set destined for functional validation costs about the same to follow up, so requiring two callers leaves a smaller candidate set with a higher chance of holding something functionally relevant; requiring a third buys a marginal gain in confidence with true positives that may be worth more, depending on the application #c[Ho 2020] #c[Liu 2022].
 
-The benchmark holds 16,742 deletions and 6,451 duplications above the floor, and every call set scores the two classes differently (Table 9).
+The benchmark holds 16,742 deletions and 6,451 duplications above the floor, and every call set scores the two classes differently (Table 6).
 Restricted to deletions the ordering of the consensus levels is unchanged and the separation between them is wider, at precisions of 0.433, 0.921 and 0.978 with increasing consensus stringency.
 Duplications are scored less well by every set: precision is 0.266, 0.687 and 0.878 across the three levels, recall does not exceed 0.244 for any call set against 0.456 for deletions in the 1-of-3 set, and among the individual callers CNVpytor signifcantly more than Delly and GATK-gCNV, at 0.197 against 0.062 and 0.049.
 Overall, deletion CNVs yield significantly higher performance compared to the duplications across all metrics, and has significantly higher contribution to the combined performance compared to the duplication records.
@@ -1179,7 +1180,7 @@ CNVpytor and the 1-of-3 set, which it dominates by count, rise to F1 of 0.544 an
 Requiring a second caller forfeits most of the duplication recall CNVpytor supplies: the 2-of-3 set peaks at 0.269, and the 3-of-3 set, with 115 duplication calls, is drawn only between 12 and 18 kb.
 
 The SNP array falls below every sequence-derived call set on all three metrics, at a precision of 0.371, a recall of 0.025 and an F1 of 0.046.
-Composition accounts for much of that: 45.9% of its calls are duplications (Table 8), and its duplication-only precision is 0.101, which sits signifantly below that of all sequence-derived call sets (Table 9).
+Composition accounts for much of that: 45.9% of its calls are duplications (Table 5), and its duplication-only precision is 0.101, which sits signifantly below that of all sequence-derived call sets (Table 6).
 
 We carried the 2-of-3 consensus into the coverage comparison.
 Its precision of 0.898 leaves a candidate set clean enough to act on while recovering 4,344 benchmark intervals, against 9,217 intervals at a precision of 0.391 for the 1-of-3 set and 2,336 at 0.973 for the 3-of-3 set.
@@ -1187,7 +1188,7 @@ The 3-of-3 set is contained within it, so 2,400 of those 4,836 calls carry the s
 
 == Performance of 2-of-3 Consensus Call Sets across Coverages <r_coverage_performance>
 
-The 2-of-3 consensus call sets from all four coverages and the SNP array were scored against the merged benchmark at the adopted parameters (Table 10).
+The 2-of-3 consensus call sets from all four coverages and the SNP array were scored against the merged benchmark at the adopted parameters (Table 7).
 Precision falls from 0.898 at 30x to 0.834, 0.786 and 0.626 at 6x, 4x and 2x, and recall falls from 0.187 to 0.019 against a recall ceiling that falls from 0.209 to 0.031.
 
 #v(0.5em)
@@ -1221,7 +1222,7 @@ Precision falls from 0.898 at 30x to 0.834, 0.786 and 0.626 at 6x, 4x and 2x, an
 )
 ]
 
-#cap("Table 10:")[
+#cap("Table 7:")[
   Binary classification of the 2/3 consensus call sets across coverages and the SNP array against the merged benchmark, at the adopted parameters.
   A true positive is a call that clears the classification threshold against at least one benchmark interval above the size floor, and a false positive is a call that clears it against none; P, R and F1 are precision, recall and the F1 score.
   Recall is the fraction of benchmark intervals matched by at least one call, of 23,193 combined, 16,742 deletions and 6,451 duplications, and cannot exceed the number of calls divided by that count.
@@ -1231,7 +1232,7 @@ Precision falls from 0.898 at 30x to 0.834, 0.786 and 0.626 at 6x, 4x and 2x, an
 
 #v(0.8em)
 
-Deletion precision stays relatively stable with decereasing depths, holding at 0.921, 0.908, 0.934 and 0.890 across the four coverages, while duplication precision falls from 0.687 to 0.552, 0.475 and 0.327 (Table 10).
+Deletion precision stays relatively stable with decereasing depths, holding at 0.921, 0.908, 0.934 and 0.890 across the four coverages, while duplication precision falls from 0.687 to 0.552, 0.475 and 0.327 (Table 7).
 Most of the fall in overall precision is the drift towards a higher composition of duplications, and the remainder is the loss of accuracy within that class due to less evidence.
 Recall falls twelve-fold for deletions, from 0.240 to 0.073, 0.042 and 0.020, and three-fold for duplications, from 0.051 to 0.030, 0.027 and 0.017.
 The SNP array recovers more deletions than the 2x set, at a recall of 0.030 against 0.020, and fewer duplications, at 0.011 against 0.017.
@@ -1273,7 +1274,7 @@ The two cross between 4x and 2x: the 2x set recovers 306 intervals the array doe
 
 Deletion precision is independent of depth below 30 kb, running between 0.91 and 0.98 at all four coverages (Figure 12A), whereas duplication precision falls with depth at every size, from 0.872 at 30x to 0.838, 0.636 and 0.295 at 10 kb (Figure 12D).
 Deletion recall separates the coverages, and the separation narrows as CNVs get larger, from 0.403 at 30x against 0.011 at 2x at 5 kb to 0.227 against 0.149 at 50 kb (Figure 12B).
-Duplication recall does not exceed 0.1 at any coverage below 50 kb and rises above 100 kb, to 0.172 at 30x and 0.134 at 2x at 200 kb (Figure 12E).
+Duplication recall does not exceed 0.1 at any coverage below 50 kb and rises above 100 kb, where duplications are the majority of the benchmark (Figure 2B), to 0.172 at 30x and 0.134 at 2x at 200 kb (Figure 12E).
 The deletion F1 peak moves right and down with depth, from 0.584 near 10.2 kb at 30x to 0.263 near 40.1 kb at 2x, and the four coverages converge above 100 kb, at 0.24--0.35 near 150 kb (Figure 12C); the duplication F1 peak sits above 100 kb at every coverage, at 0.317, 0.233, 0.234 and 0.220 (Figure 12F).
 The 4x and 2x deletion sets hold too few calls below 2.2 and 3.9 kb for any of the three metrics to be estimated there, and the 6x and 4x duplication sets too few below 6.5 and 8.7 kb.
 

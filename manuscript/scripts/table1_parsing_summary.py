@@ -5,8 +5,11 @@ Where used
 Results -> "Input Call Sets After Parsing" -> Table 1.
     Post-exclusion, analysis-ready counts for every parsed call set: the three
     sequence-based callers at each coverage, the SNP array control, and each
-    benchmark source. Carries one QC column, `% calls removed by mask`, because
-    that quantity varies from <0.1% to >45% across arms and is itself a result.
+    benchmark source. Composition is given as `% DUP` (the paper's convention
+    wherever one class share is listed). `pct_removed_by_mask` is written to the
+    CSV but is a supplementary column: it varies from <0.1% to >45% across arms
+    because the mask was subtracted from the alignments before subsampling and
+    from the calls after it, which is a technical detail for the supplement.
 
 Supplementary Table S1: pre-exclusion counts and the full liftover accounting.
 Supplementary Table S2: full exclusion accounting (bases removed vs. masked,
@@ -68,7 +71,7 @@ def summarise(label: str, calls: pd.DataFrame, removed_pct: float) -> dict:
         "n_calls": len(calls),
         "median_per_sample": median_calls,
         "mad_per_sample": float(np.median(np.abs(per_sample - median_calls))),
-        "pct_del": 100.0 * (calls["svtype"] == "DEL").mean(),
+        "pct_dup": 100.0 * (calls["svtype"] == "DUP").mean(),
         "median_size": float(np.median(size)),
         "iqr_size": float(np.percentile(size, 75) - np.percentile(size, 25)),
         "pct_removed_by_mask": removed_pct,

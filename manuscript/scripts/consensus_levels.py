@@ -3,7 +3,7 @@
 Where used
 ----------
 Results -> "Consensus Level Selection":
-    Table 9    binary classification of the six 30x call sets and the SNP array
+    Table 6    binary classification of the six 30x call sets and the SNP array
     Figure 10  the precision/recall plane, the agreement strata, and F1 against
                size for deletions and for duplications
     every number quoted in that section
@@ -231,7 +231,7 @@ assert by_stratum["n_false_positive"].sum() == overall.loc["1/3", "n_false_posit
 
 # Candidate pairs never cross variant class, so the two class-restricted
 # classifications partition the unrestricted one exactly. This is what lets
-# Table 9 carry deletion precision as a decomposition of its precision column
+# Table 6 carry deletion precision as a decomposition of its precision column
 # rather than as a separate measurement.
 for column in ("n_query", "n_true_positive", "n_false_positive"):
     totals = per_class[column].groupby("call set").sum().reindex(overall.index)

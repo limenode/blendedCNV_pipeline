@@ -3,7 +3,7 @@
 Where used
 ----------
 Results -> "Performance of 2-of-3 Consensus Call Sets across Coverages":
-    Table 10   binary classification of the four coverages and the SNP array
+    Table 7   binary classification of the four coverages and the SNP array
     Figure 11  benchmark recovery as an UpSet plot, and array/sequencing containment
     Figure 12  precision, recall and F1 against CNV size across coverages,
                for deletions and for duplications
@@ -233,7 +233,7 @@ assert np.allclose(one_to_one["recall_over_ceiling"], one_to_one["precision"])
 
 # Candidate pairs never cross variant class, so the two class-restricted
 # classifications partition the unrestricted one exactly. This is what lets
-# Table 10 carry deletion precision as a decomposition of its precision column
+# Table 7 carry deletion precision as a decomposition of its precision column
 # rather than as a separate measurement.
 for column in ("n_query", "n_true_positive", "n_false_positive"):
     totals = per_class[column].groupby("call set").sum().reindex(overall.index)
@@ -533,7 +533,7 @@ save(fig, "coverage_size_metrics")
 pd.set_option("display.width", 200, "display.max_columns", 40)
 
 print("Benchmark intervals above the size floor:", len(truth.starts))
-print("\n--- Table 10: 2-of-3 consensus across coverages, and the array ---")
+print("\n--- Table 7: 2-of-3 consensus across coverages, and the array ---")
 table10 = overall[["n_query", "n_true_positive", "n_false_positive", "precision",
                    "recall", "recall_ceiling", "f1"]].copy()
 table10.insert(4, "precision (DEL)", per_class.xs("DEL", level="class")["precision"])
