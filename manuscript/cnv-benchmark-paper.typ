@@ -1164,15 +1164,19 @@ Overall, deletion CNVs yield significantly higher performance compared to the du
   (A) Precision against recall, over gray F1 iso-contours.
   Each point sits on a bar running to its recall ceiling, the largest recall a call set of that size could attain.
   (B) Precision of the 1/3 consensus call set split by the number of callers that reported each component, taken over exactly that many callers rather than at least that many.
-  (C) F1 against CNV size, smoothed in log-10 space over a bandwidth of 0.15 decades and drawn only where at least 50 calls contribute.
-  Panels A and C share the legend in A.
+  (C, D) F1 against CNV size for deletions (C) and duplications (D), each scored against the benchmark intervals of that class, smoothed in log-10 space over a bandwidth of 0.15 decades and drawn only where at least 50 calls contribute; the 2/3 and 3/3 sets hold 476 and 115 duplications, so in D they are drawn only above 4.4 kb and between 12 and 18 kb.
+  Consensus call sets are drawn solid, individual callers dashed and the SNP array dotted.
 ]
 
 #v(0.8em)
 
-F1 peaks between 4.1 and 5.9 kb for every sequence-derived call set (Figure 10C).
-The 1-of-3 set has the highest peak of the six, 0.489 near 4.1 kb, against 0.466 near 4.5 kb for the 2-of-3 set, and it stays above the 2-of-3 set at every size up to 242 kb; the 3-of-3 set peaks at 0.327 and is the lowest sequence-derived curve throughout.
-CNVpytor and the 1-of-3 set, which it dominates by count, share a second rise near 110--120 kb, where F1 reaches 0.385 on the 1-of-3 set's recall of 0.649 against a precision of 0.275.
+Deletion F1 peaks between 8.9 and 10.8 kb for every sequence-derived call set (Figure 10C).
+The 2-of-3 set has the highest peak of the six, 0.584 near 10.2 kb, against 0.576 near 9.2 kb for the 1-of-3 set; it leads the 1-of-3 set above 7.6 kb, by up to 0.089 at 133 kb, and trails it below 4.8 kb, by 0.198 at 1.5 kb.
+The 3-of-3 set peaks at 0.469 and is the lowest sequence-derived curve throughout.
+
+Duplications separate the callers rather than the consensus levels (Figure 10D).
+CNVpytor and the 1-of-3 set, which it dominates by count, rise to F1 of 0.544 and 0.533 near 130--135 kb, on recalls of 0.588 and 0.627 against precisions of 0.506 and 0.463; no other set exceeds 0.27 at any size, and GATK-gCNV, which peaks at 0.123, holds too few duplications above 37 kb to be drawn there.
+Requiring a second caller forfeits most of the duplication recall CNVpytor supplies: the 2-of-3 set peaks at 0.269, and the 3-of-3 set, with 115 duplication calls, is drawn only between 12 and 18 kb.
 
 The SNP array falls below every sequence-derived call set on all three metrics, at a precision of 0.371, a recall of 0.025 and an F1 of 0.046.
 Composition accounts for much of that: 45.9% of its calls are duplications (Table 8), and its duplication-only precision is 0.101, which sits signifantly below that of all sequence-derived call sets (Table 9).
@@ -1260,21 +1264,22 @@ The two cross between 4x and 2x: the 2x set recovers 306 intervals the array doe
 )
 
 #cap("Figure 12:")[
-  Precision (A), recall (B) and F1 (C) against CNV size for the 2/3 consensus call sets across coverages and the SNP array, at the adopted parameters.
-  All three are smoothed in log-10 space over a bandwidth of 0.15 decades and drawn only where at least 20 calls contribute, which is why the lower-coverage curves do not extend to the size floor and why every curve ends between 300 kb and 600 kb, where the benchmark runs out of intervals.
-  All three panels share the legend in A.
+  Precision, recall and F1 against CNV size for the 2/3 consensus call sets across coverages and the SNP array, at the adopted parameters, for deletions (A--C) and duplications (D--F), each scored against the benchmark intervals of that class.
+  All six are smoothed in log-10 space over a bandwidth of 0.15 decades and drawn only where at least 20 calls contribute, which is why the lower-coverage curves do not extend to the size floor and why every curve ends between 180 kb and 420 kb, where the benchmark runs out of intervals.
+  Consensus call sets are drawn solid and the SNP array dotted.
 ]
 
 #v(0.8em)
 
-Precision above 10 kb is nearly independent of depth, peaking at 0.944, 0.952 and 0.924 for 30x, 6x and 4x and 0.818 for 2x (Figure 12A).
-Recall separates the coverages instead, and the separation narrows as CNVs get larger: at 5 kb it runs 0.311 at 30x against 0.009 at 2x, and at 50 kb 0.127 against 0.074 (Figure 12B).
-The F1 peak moves right and down accordingly, from 0.466 near 4.5 kb at 30x to 0.269 near 17.6 kb, 0.224 near 23.6 kb and 0.141 near 29.8 kb at 6x, 4x and 2x (Figure 12C).
-Above 100 kb the four coverages converge, each rising to an F1 between 0.23 and 0.30 near 150--250 kb; for the 4x and 2x sets that second rise, at 0.260 and 0.230, exceeds the first.
-The 4x and 2x sets hold too few calls below 2.1 and 2.9 kb for any of the three metrics to be estimated there.
+Deletion precision is independent of depth below 30 kb, running between 0.91 and 0.98 at all four coverages (Figure 12A), whereas duplication precision falls with depth at every size, from 0.872 at 30x to 0.838, 0.636 and 0.295 at 10 kb (Figure 12D).
+Deletion recall separates the coverages, and the separation narrows as CNVs get larger, from 0.403 at 30x against 0.011 at 2x at 5 kb to 0.227 against 0.149 at 50 kb (Figure 12B).
+Duplication recall does not exceed 0.1 at any coverage below 50 kb and rises above 100 kb, to 0.172 at 30x and 0.134 at 2x at 200 kb (Figure 12E).
+The deletion F1 peak moves right and down with depth, from 0.584 near 10.2 kb at 30x to 0.263 near 40.1 kb at 2x, and the four coverages converge above 100 kb, at 0.24--0.35 near 150 kb (Figure 12C); the duplication F1 peak sits above 100 kb at every coverage, at 0.317, 0.233, 0.234 and 0.220 (Figure 12F).
+The 4x and 2x deletion sets hold too few calls below 2.2 and 3.9 kb for any of the three metrics to be estimated there, and the 6x and 4x duplication sets too few below 6.5 and 8.7 kb.
 
-The array's F1 peaks at 0.107 near 14.7 kb and at 0.143 near 317 kb, below the corresponding peak of every coverage including 2x, and its precision above 10 kb is 0.457 against 0.818 for the weakest of the sequencing sets.
-Lowering coverage removes small CNVs from the call set rather than degrading the calls that survive: the 2x set's deletion precision is within 0.04 of the 30x set's, and its recall deficit closes from 35-fold at 5 kb to 1.7-fold at 50 kb.
+The array's deletion F1 exceeds the 2x set's below 18 kb, at 0.152 against 0.097 at 10 kb, and falls below it above, at 0.195 against 0.256 at 50 kb, while its deletion precision above 10 kb runs 0.53--0.68 against 0.75--0.93 for the 2x set (Figure 12A, C).
+On duplications it falls below every coverage above 13 kb and peaks at an F1 of 0.077 (Figure 12F).
+Lowering coverage removes small CNVs from the call set rather than degrading the calls that survive: the 2x set's deletion precision is within 0.04 of the 30x set's, and its deletion recall deficit closes from 36-fold at 5 kb to 1.5-fold at 50 kb.
 
 = Discussion
 

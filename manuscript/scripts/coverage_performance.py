@@ -5,7 +5,8 @@ Where used
 Results -> "Performance of 2-of-3 Consensus Call Sets across Coverages":
     Table 10   binary classification of the four coverages and the SNP array
     Figure 11  benchmark recovery as an UpSet plot, and array/sequencing containment
-    Figure 12  precision, recall and F1 against CNV size across coverages
+    Figure 12  precision, recall and F1 against CNV size across coverages,
+               for deletions and for duplications
     every number quoted in that section
 
 The consensus level is fixed at 2-of-3 by "Consensus Level Selection", and all
@@ -24,7 +25,8 @@ assumes:
     replacement-versus-supplement question stated as two fractions.
   * variant class composition, since the sets drift towards duplications as
     depth falls while the benchmark does not, and that shifts the metrics for a
-    reason unrelated to depth.
+    reason unrelated to depth. The size curves are drawn per class for the same
+    reason: pooled, their shape would follow that drift rather than depth.
 
     pixi run python manuscript/scripts/coverage_performance.py
 """
@@ -82,6 +84,18 @@ COLORS = {"30x": "#08519C", "6x": "#3182BD", "4x": "#6BAED6", "2x": "#BDD7E7",
 # The light end of the ramp disappears against white as a 1 pt line, so the
 # curves get a slightly darker variant while the bars keep the ramp.
 LINE_COLORS = {**COLORS, "2x": "#9ECAE1"}
+# Solid for the consensus sets, dotted for the array control, as in Figure 10.
+LINE_STYLES = {
+    "consensus": {"linestyle": "-", "linewidth": 1.5},
+    "array": {"linestyle": (0, (1, 1.4)), "linewidth": 1.3},
+}
+CLASSES = ("DEL", "DUP")
+CLASS_TITLES = {"DEL": "Deletions", "DUP": "Duplications"}
+METRICS = (("precision", "Precision"), ("recall", "Recall"), ("f1", "F1"))
+
+
+def role(name: str) -> str:
+    return "array" if name == ARRAY else "consensus"
 
 SIZE_RANGE = (SIZE_FLOOR, 1_000_000)
 BANDWIDTH = 0.15
@@ -288,16 +302,39 @@ containment.to_csv(TABLES / "coverage_array_containment.csv")
 # Metrics against size
 # --------------------------------------------------------------------------- #
 # Kernel-smoothed in log10 space, which is where a single bandwidth is
-# meaningful across three orders of magnitude of CNV size.
+# meaningful across three orders of magnitude of CNV size. One curve per call
+# set and class, with both sides restricted to that class before classifying,
+# exactly as the class-wise scalars are.
+CLASS_IDS = {"DEL": DEL_ID, "DUP": DUP_ID}
+
+
+def restricted(intervals: IntervalSet, svtype_id: int) -> IntervalSet:
+    return intervals.select(np.where(intervals.svtype_idx == svtype_id)[0])
+
+
 curves = {
-    name: size_density_curve(
-        classifications[name],
+    (name, label): size_density_curve(
+        classified(restricted(query_sets[name], svtype_id), restricted(truth, svtype_id)),
         size_range=SIZE_RANGE,
         bandwidth=BANDWIDTH,
         min_effective_count=MIN_EFFECTIVE_COUNT,
     )
     for name in ORDER
+    for label, svtype_id in CLASS_IDS.items()
 }
+
+size_curves = pd.concat(
+    [
+        pd.DataFrame({
+            "call set": name, "class": label, "size": curve.sizes,
+            "precision": curve.precision, "recall": curve.recall, "f1": curve.f1,
+            "query_weight": curve.query_weight, "truth_weight": curve.truth_weight,
+        })
+        for (name, label), curve in curves.items()
+    ],
+    ignore_index=True,
+)
+size_curves.to_csv(TABLES / "coverage_size_curves_by_class.csv", index=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -461,26 +498,32 @@ save(fig, "benchmark_recovery")
 # --------------------------------------------------------------------------- #
 # Figure 12 -- metrics against size
 # --------------------------------------------------------------------------- #
-fig, axes = plt.subplots(1, 3, figsize=(7.09, 2.45))
-for ax, (attribute, label) in zip(
-    axes, (("precision", "Precision"), ("recall", "Recall"), ("f1", "F1")), strict=True
-):
-    for name in ORDER:
-        ax.plot(curves[name].sizes, getattr(curves[name], attribute),
-                color=LINE_COLORS[name], linewidth=1.2, zorder=3)
-    ax.set_xscale("log")
-    ax.set_xlim(*SIZE_RANGE)
-    ax.set_xticks([1e3, 1e4, 1e5, 1e6], ["1 kb", "10 kb", "100 kb", "1 Mb"])
+# Rows are the two variant classes, columns the three metrics. Each panel keeps
+# its own y-scale: duplication recall is an order of magnitude below deletion
+# recall, and a shared axis would flatten the lower row.
+fig, axes = plt.subplots(2, 3, figsize=(7.09, 4.7), sharex=True)
+for row, label in zip(axes, CLASSES, strict=True):
+    for ax, (attribute, title) in zip(row, METRICS, strict=True):
+        for name in ORDER:
+            curve = curves[(name, label)]
+            ax.plot(curve.sizes, getattr(curve, attribute), color=LINE_COLORS[name],
+                    zorder=3 if role(name) == "consensus" else 2, **LINE_STYLES[role(name)])
+        ax.set_xscale("log")
+        ax.set_xlim(*SIZE_RANGE)
+        ax.set_xticks([1e3, 1e4, 1e5, 1e6], ["1 kb", "10 kb", "100 kb", "1 Mb"])
+        ax.set_ylabel(title, labelpad=2)
+        ax.set_ylim(0, None)
+        ax.set_title(CLASS_TITLES[label], fontsize=7, pad=3)
+for ax in axes[1]:
     ax.set_xlabel("CNV size", labelpad=2)
-    ax.set_ylabel(label, labelpad=2)
-    ax.set_ylim(0, None)
-for ax, letter in zip(axes, "ABC", strict=True):
-    panel(ax, letter)
-axes[0].legend(handles=[Line2D([], [], color=LINE_COLORS[n], linewidth=1.2, label=n)
-                        for n in ORDER],
-               frameon=False, loc="upper right", handlelength=1.2, borderpad=0,
-               labelspacing=0.22, handletextpad=0.4)
-fig.subplots_adjust(left=0.075, right=0.985, top=0.93, bottom=0.165, wspace=0.36)
+for ax, letter in zip(axes.ravel(), "ABCDEF", strict=True):
+    panel(ax, letter, x=-0.24)
+fig.legend(
+    handles=[Line2D([], [], color=LINE_COLORS[n], label=n, **LINE_STYLES[role(n)]) for n in ORDER],
+    loc="lower center", ncol=len(ORDER), frameon=False, handlelength=2.6,
+    columnspacing=1.6, handletextpad=0.5, bbox_to_anchor=(0.5, 0.0),
+)
+fig.subplots_adjust(left=0.08, right=0.985, top=0.955, bottom=0.14, wspace=0.4, hspace=0.3)
 save(fig, "coverage_size_metrics")
 
 
@@ -519,32 +562,37 @@ print(containment.round(4).to_string())
 print("\n--- Composition against depth ---")
 print(composition.round(4).to_string())
 
-print("\n--- Metrics against size ---")
+print("\n--- Metrics against size, by class ---")
 CHECKPOINTS = (2_000, 5_000, 10_000, 50_000, 200_000)
 at_sizes = pd.DataFrame(
     [
         {
             "call set": name,
+            "class": label,
             "size": size,
             **{
-                attribute: float(np.interp(np.log10(size), np.log10(curves[name].sizes),
-                                           getattr(curves[name], attribute)))
+                attribute: float(np.interp(np.log10(size), np.log10(curve.sizes),
+                                           getattr(curve, attribute)))
                 for attribute in ("precision", "recall", "f1")
             },
         }
-        for name in ORDER
+        for (name, label), curve in curves.items()
         for size in CHECKPOINTS
     ]
-).set_index(["call set", "size"])
+).set_index(["call set", "class", "size"])
 at_sizes.to_csv(TABLES / "coverage_size_checkpoints.csv")
 print(at_sizes.round(4).to_string())
 
-for name in ORDER:
-    curve = curves[name]
+for (name, label), curve in curves.items():
     finite = np.isfinite(curve.f1)
     if not finite.any():
-        print(f"{name:>10s}: no size supported at min_effective_count={MIN_EFFECTIVE_COUNT}")
+        print(f"{label} {name:>10s}: no size supported at min_effective_count={MIN_EFFECTIVE_COUNT}")
         continue
-    peak = int(np.nanargmax(np.where(finite, curve.f1, -np.inf)))
-    print(f"{name:>10s}: F1 peaks at {curve.f1[peak]:.3f} near {curve.sizes[peak]:,.0f} bp; "
-          f"supported over {curve.sizes[finite].min():,.0f}-{curve.sizes[finite].max():,.0f} bp")
+    peaks = {
+        attribute: int(np.nanargmax(np.where(finite, getattr(curve, attribute), -np.inf)))
+        for attribute in ("precision", "recall", "f1")
+    }
+    print(f"{label} {name:>10s}: "
+          + "; ".join(f"{attribute} peaks at {getattr(curve, attribute)[i]:.3f} near {curve.sizes[i]:,.0f} bp"
+                      for attribute, i in peaks.items())
+          + f"; supported over {curve.sizes[finite].min():,.0f}-{curve.sizes[finite].max():,.0f} bp")

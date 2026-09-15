@@ -4,7 +4,8 @@ Where used
 ----------
 Results -> "Consensus Level Selection":
     Table 9    binary classification of the six 30x call sets and the SNP array
-    Figure 10  the precision/recall plane, the agreement strata, and F1 against size
+    Figure 10  the precision/recall plane, the agreement strata, and F1 against
+               size for deletions and for duplications
     every number quoted in that section
 
 The question the section answers is which consensus level to carry into the
@@ -21,8 +22,12 @@ assumes:
   * precision by the number of callers that reported a component, taken over
     *exactly* k callers rather than at least k, which is what separates the
     caller-private stratum from the agreeing one.
-  * the same metrics restricted to deletions and to duplications, since the
-    benchmark holds two orders of magnitude more of the former.
+  * the same metrics restricted to deletions and to duplications, both as
+    scalars and against size. The benchmark holds 2.6 times as many deletions
+    as duplications above the floor but more duplications above 10 kb, so a
+    pooled size curve is a composition-weighted mixture whose shape tracks that
+    drift rather than either class; the size curves are therefore drawn per
+    class only.
 
     pixi run python manuscript/scripts/consensus_levels.py
 """
@@ -78,6 +83,20 @@ SET_COLORS = {
 }
 STRATUM_COLORS = {1: "#9E9AC8", 2: "#6A51A3", 3: "#3F007D"}
 ORDER = ["CNVpytor", "Delly", "GATK-gCNV", "1/3", "2/3", "3/3", "SNP array"]
+CLASSES = ("DEL", "DUP")
+CLASS_TITLES = {"DEL": "Deletions", "DUP": "Duplications"}
+# Line style by the role a set plays: the consensus sets are the subject and
+# are drawn solid, the callers they are built from dashed, and the array
+# control dotted. Shared with the coverage figures.
+LINE_STYLES = {
+    "consensus": {"linestyle": "-", "linewidth": 1.6},
+    "caller": {"linestyle": (0, (4, 1.6)), "linewidth": 1.0},
+    "array": {"linestyle": (0, (1, 1.4)), "linewidth": 1.3},
+}
+
+
+def role(name: str) -> str:
+    return "consensus" if name.endswith("/3") else "array" if name == "SNP array" else "caller"
 FOCUS = "2/3"
 
 
@@ -228,21 +247,46 @@ by_stratum.to_csv(TABLES / "consensus_levels_agreement_strata.csv")
 # Metrics against size
 # --------------------------------------------------------------------------- #
 # Kernel-smoothed in log10 space, which is where a single bandwidth is
-# meaningful across three orders of magnitude of CNV size.
+# meaningful across three orders of magnitude of CNV size. One curve per call
+# set and class, with both sides restricted to that class before classifying,
+# exactly as the class-wise scalars are.
 SIZE_RANGE = (SIZE_FLOOR, 1_000_000)
+BANDWIDTH = 0.15
+MIN_EFFECTIVE_COUNT = 50.0
+CLASS_IDS = {"DEL": DEL_ID, "DUP": DUP_ID}
+
+
+def restricted(intervals: IntervalSet, svtype_id: int) -> IntervalSet:
+    return intervals.select(np.where(intervals.svtype_idx == svtype_id)[0])
+
+
 curves = {
-    name: size_density_curve(
+    (name, label): size_density_curve(
         classify(
-            build_candidates(query_sets[name], truth),
+            build_candidates(restricted(query_sets[name], svtype_id), restricted(truth, svtype_id)),
             min_reciprocal_overlap=CLASSIFY_THRESHOLD,
             validate=False,
         ),
         size_range=SIZE_RANGE,
-        bandwidth=0.15,
-        min_effective_count=50.0,
+        bandwidth=BANDWIDTH,
+        min_effective_count=MIN_EFFECTIVE_COUNT,
     )
     for name in ORDER
+    for label, svtype_id in CLASS_IDS.items()
 }
+
+size_curves = pd.concat(
+    [
+        pd.DataFrame({
+            "call set": name, "class": label, "size": curve.sizes,
+            "precision": curve.precision, "recall": curve.recall, "f1": curve.f1,
+            "query_weight": curve.query_weight, "truth_weight": curve.truth_weight,
+        })
+        for (name, label), curve in curves.items()
+    ],
+    ignore_index=True,
+)
+size_curves.to_csv(TABLES / "consensus_levels_size_curves_by_class.csv", index=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -271,15 +315,17 @@ mpl.rcParams.update({
 })
 
 
-def panel(ax, letter: str) -> None:
+def panel(ax, letter: str, x: float = -0.14) -> None:
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.tick_params(length=3.4)
-    ax.text(-0.20, 1.03, letter, transform=ax.transAxes, fontsize=9, fontweight="bold",
+    ax.text(x, 1.03, letter, transform=ax.transAxes, fontsize=9, fontweight="bold",
             va="bottom", ha="left")
 
 
-fig, axes = plt.subplots(1, 3, figsize=(7.09, 2.45))
+fig, axes = plt.subplots(2, 2, figsize=(7.09, 5.0))
+axes = axes.ravel()
+axes[3].sharey(axes[2])
 
 # (A) The operating point of every call set in one plane, with the recall
 # ceiling drawn as the bar each point sits on. The distance from a point to the
@@ -309,10 +355,6 @@ ax.set_ylim(0, 1)
 ax.set_xlabel("Recall", labelpad=2)
 ax.set_ylabel("Precision", labelpad=2)
 panel(ax, "A")
-ax.legend(handles=[Line2D([], [], color=SET_COLORS[n], marker="o", markersize=3.6,
-                          linestyle="none", label=n) for n in ORDER],
-          frameon=False, loc="upper right", handlelength=1.0, borderpad=0,
-          labelspacing=0.22, handletextpad=0.4)
 
 # (B) Precision by the number of callers that reported a component. Exactly one
 # caller is the private stratum, which is where the false positives are.
@@ -330,23 +372,35 @@ ax.set_ylim(0, 1.22)
 ax.set_yticks(np.arange(0, 1.01, 0.2))
 panel(ax, "B")
 
-# (C) F1 against CNV size. The aggregate ranking in panel A is a single number
-# per set; this is whether that ranking holds across the size domain.
-ax = axes[2]
-for name in ORDER:
-    curve = curves[name]
-    ax.plot(curve.sizes, curve.f1, color=SET_COLORS[name],
-            linewidth=1.5 if name.endswith("/3") else 1.0, zorder=3)
-ax.set_xscale("log")
-ax.set_xlim(*SIZE_RANGE)
-ax.set_xticks([1e3, 1e4, 1e5, 1e6])
-ax.set_xticklabels(["1 kb", "10 kb", "100 kb", "1 Mb"])
-ax.set_xlabel("CNV size", labelpad=2)
-ax.set_ylabel("F1", labelpad=2)
-ax.set_ylim(0, None)
-panel(ax, "C")
+# (C, D) F1 against CNV size, deletions and duplications. The aggregate ranking
+# in panel A is a single number per set; this is whether it holds across the
+# size domain, asked of each class separately.
+for ax, label, letter in zip(axes[2:], CLASSES, "CD", strict=True):
+    for name in ORDER:
+        curve = curves[(name, label)]
+        ax.plot(curve.sizes, curve.f1, color=SET_COLORS[name],
+                zorder=3 if role(name) == "consensus" else 2, **LINE_STYLES[role(name)])
+    ax.set_xscale("log")
+    ax.set_xlim(*SIZE_RANGE)
+    ax.set_xticks([1e3, 1e4, 1e5, 1e6])
+    ax.set_xticklabels(["1 kb", "10 kb", "100 kb", "1 Mb"])
+    ax.set_xlabel("CNV size", labelpad=2)
+    ax.set_title(CLASS_TITLES[label], fontsize=7, pad=3)
+    panel(ax, letter, x=-0.14 if label == "DEL" else -0.05)
+axes[2].set_ylabel("F1", labelpad=2)
+axes[2].set_ylim(0, None)
+axes[3].tick_params(labelleft=False)
 
-fig.subplots_adjust(left=0.075, right=0.985, top=0.93, bottom=0.165, wspace=0.36)
+# One legend for the figure: the marker identifies a set in panel A, the line
+# style its role in panels C and D.
+fig.legend(
+    handles=[Line2D([], [], color=SET_COLORS[n], marker="o", markersize=3.6,
+                    markeredgecolor="white", markeredgewidth=0.5, label=n,
+                    **LINE_STYLES[role(n)]) for n in ORDER],
+    loc="lower center", ncol=len(ORDER), frameon=False, handlelength=2.6,
+    columnspacing=1.4, handletextpad=0.5, bbox_to_anchor=(0.5, 0.0),
+)
+fig.subplots_adjust(left=0.075, right=0.985, top=0.96, bottom=0.135, wspace=0.28, hspace=0.36)
 
 DEST.mkdir(parents=True, exist_ok=True)
 for suffix, dpi in ((".png", 600), (".pdf", None)):
@@ -363,17 +417,23 @@ print("\n=== by variant class ===")
 print(per_class.round(4).to_string())
 print("\n=== agreement strata (exactly k callers) ===")
 print(by_stratum.round(4).to_string())
-print("\n=== F1 against size ===")
-for name in ORDER:
-    curve = curves[name]
-    peak = int(np.nanargmax(curve.f1))
-    print(f"{name:>10}  peak F1 {curve.f1[peak]:.3f} at {curve.sizes[peak]:,.0f} bp")
-
-# Where the 2/3 set overtakes the 1/3 set, which is the only crossing the
-# section quotes from panel C.
-gap = curves["2/3"].f1 - curves["1/3"].f1
-crossings = np.where(np.diff(np.signbit(gap)))[0]
-print("2/3 overtakes 1/3 at:", [f"{curves['2/3'].sizes[i]:,.0f} bp" for i in crossings])
+print("\n=== F1 against size, by class ===")
+for label in CLASSES:
+    for name in ORDER:
+        curve = curves[(name, label)]
+        finite = np.isfinite(curve.f1)
+        if not finite.any():
+            print(f"{label} {name:>10}: no size supported at min_effective_count={MIN_EFFECTIVE_COUNT}")
+            continue
+        peak = int(np.nanargmax(np.where(finite, curve.f1, -np.inf)))
+        print(f"{label} {name:>10}  peak F1 {curve.f1[peak]:.3f} at {curve.sizes[peak]:,.0f} bp; "
+              f"supported over {curve.sizes[finite].min():,.0f}-{curve.sizes[finite].max():,.0f} bp")
+    # Where the 2/3 set overtakes the 1/3 set, the only crossing the section
+    # quotes from panels C and D.
+    gap = curves[("2/3", label)].f1 - curves[("1/3", label)].f1
+    crossings = np.where(np.diff(np.signbit(gap)))[0]
+    print(f"{label} 2/3 overtakes 1/3 at:",
+          [f"{curves[('2/3', label)].sizes[i]:,.0f} bp" for i in crossings])
 
 print(f"\nbenchmark: {len(truth):,} intervals "
       f"({int(np.sum(truth.svtype_idx == DEL_ID)):,} DEL, {int(np.sum(truth.svtype_idx == DUP_ID)):,} DUP)")
