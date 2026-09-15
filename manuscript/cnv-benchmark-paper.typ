@@ -1099,32 +1099,43 @@ Recall carries a ceiling equal to the ratio of the call set size to the 23,193 b
 #v(0.5em)
 
 #block(width: 100%)[
-#set text(hyphenate: false, size: 10pt)
+#set text(hyphenate: false, size: 9.5pt)
+#show table.cell.where(y: 1): strong
 #table(
-  columns: (1fr, auto, auto, auto, auto, auto, auto, auto, auto),
-  align: (left, right, right, right, right, right, right, right, right),
+  columns: (1fr, auto, auto, auto, auto, auto, auto, auto, auto, auto, auto, auto, auto),
+  align: (left, right, right, right, right, right, right, right, right, right, right, right, right),
+  stroke: none,
+  table.hline(stroke: 0.6pt),
   table.header(
-    [Call Set], [Calls], [TP], [FP], [Precision], [Precision (DEL)], [Recall], [Max. Recall], [F1],
+    table.cell(rowspan: 2, align: left + bottom)[Call Set],
+    table.cell(colspan: 4, align: center)[Combined],
+    table.cell(colspan: 4, align: center)[Deletions],
+    table.cell(colspan: 4, align: center)[Duplications],
+    table.hline(start: 1, end: 5, stroke: 0.3pt),
+    table.hline(start: 5, end: 9, stroke: 0.3pt),
+    table.hline(start: 9, end: 13, stroke: 0.3pt),
+    [Calls], [P], [R], [F1], [Calls], [P], [R], [F1], [Calls], [P], [R], [F1],
   ),
-  [*30x -- CNVpytor*], [16,159], [6,766], [9,393], [0.419], [0.445], [0.292], [0.697], [0.344],
-  [*30x -- Delly*], [6,776], [4,307], [2,469], [0.636], [0.795], [0.186], [0.292], [0.287],
-  [*30x -- GATK-gCNV*], [8,216], [4,857], [3,359], [0.591], [0.621], [0.209], [0.354], [0.309],
+  table.hline(stroke: 0.6pt),
+  [*30x -- CNVpytor*], [16,159], [0.419], [0.292], [0.344], [12,357], [0.445], [0.328], [0.378], [3,802], [0.334], [0.197], [0.248],
+  [*30x -- Delly*], [6,776], [0.636], [0.186], [0.287], [4,913], [0.795], [0.233], [0.361], [1,863], [0.216], [0.062], [0.097],
+  [*30x -- GATK-gCNV*], [8,216], [0.591], [0.209], [0.309], [7,322], [0.621], [0.271], [0.378], [894], [0.350], [0.049], [0.085],
   table.hline(stroke: 0.3pt),
-  [*30x -- 1/3 Consensus*], [23,876], [9,344], [14,532], [0.391], [0.433], [0.397], [1.000], [0.394],
-  [*30x -- 2/3 Consensus*], [4,836], [4,344], [492], [0.898], [0.921], [0.187], [0.209], [0.310],
-  [*30x -- 3/3 Consensus*], [2,400], [2,336], [64], [0.973], [0.978], [0.101], [0.103], [0.183],
+  [*30x -- 1/3 Consensus*], [23,876], [0.391], [0.397], [0.394], [17,910], [0.433], [0.456], [0.444], [5,966], [0.266], [0.244], [0.255],
+  [*30x -- 2/3 Consensus*], [4,836], [0.898], [0.187], [0.310], [4,360], [0.921], [0.240], [0.381], [476], [0.687], [0.051], [0.094],
+  [*30x -- 3/3 Consensus*], [2,400], [0.973], [0.101], [0.183], [2,285], [0.978], [0.133], [0.235], [115], [0.878], [0.016], [0.031],
   table.hline(stroke: 0.3pt),
-  [*SNP Array*], [1,548], [574], [974], [0.371], [0.599], [0.025], [0.067], [0.046],
+  [*SNP Array*], [1,548], [0.371], [0.025], [0.046], [838], [0.599], [0.030], [0.057], [710], [0.101], [0.011], [0.020],
+  table.hline(stroke: 0.6pt),
 )
 ]
 
 #cap("Table 9:")[
   Binary classification of the 30x call sets and the SNP array against the merged benchmark, at the adopted parameters.
-  A true positive is a call that clears the classification threshold against at least one of the 23,193 benchmark intervals above the size floor, and a false positive is a call that clears it against none.
-  Recall is the fraction of those 23,193 intervals matched by at least one call, and Max. Recall is the largest value recall could take for a call set of that size, being the number of calls divided by the number of benchmark intervals, capped at one.
-  The matching is one-to-one for every set but the 1/3 consensus, so the number of matched calls equals the number of matched benchmark intervals; the 1/3 set's 9,344 matched calls cover 9,217 intervals.
+  A true positive is a call that clears the classification threshold against at least one benchmark interval above the size floor, and a false positive is a call that clears it against none; P, R and F1 are precision, recall and the F1 score.
+  Recall is the fraction of benchmark intervals matched by at least one call, of 23,193 combined, 16,742 deletions and 6,451 duplications, and cannot exceed the number of calls divided by that count.
+  The matching is one-to-one for every set but the 1/3 consensus, so the number of matched calls equals the number of matched benchmark intervals; the 1/3 set's 9,344 matched calls cover 9,217 intervals, 7,755 deletion calls over 7,641 and 1,589 duplication calls over 1,576.
   A call is never matched against a benchmark interval of the other variant class, so deletions and duplications partition every count in the table exactly.
-  Precision (DEL) is therefore the precision of the deletion half of the same classification; the duplication half is given in Supplemental Table Performance by Variant Class.
 ]
 
 #v(0.8em)
@@ -1139,9 +1150,10 @@ The single-caller set holds 14,040 of the 14,532 unmatched calls, and it is this
 Requiring a second caller removes 96.6% of the false positives and 53.5% of the true positives, and requiring a third removes a further 428 false positives and 2,008 true positives, buying 0.075 of precision for 46.2% of the matches that remained.
 Every call in a set destined for functional validation costs about the same to follow up, so requiring two callers leaves a smaller candidate set with a higher chance of holding something functionally relevant; requiring a third buys a marginal gain in confidence with true positives that may be worth more, depending on the application #c[Ho 2020] #c[Liu 2022].
 
-The benchmark holds 16,742 deletions and 6,451 duplications above the floor.
-Restricted to deletions the ordering is unchanged and the separation between levels is wider, at precisions of 0.433, 0.921 and 0.978 (Table 9).
-Duplications are scored less well by every set: precision is 0.266, 0.687 and 0.878 across the three levels, and recall does not exceed 0.244 for any call set, against 0.456 for deletions in the 1-of-3 set (Supplemental Table Performance by Variant Class).
+The benchmark holds 16,742 deletions and 6,451 duplications above the floor, and every call set scores the two classes differently (Table 9).
+Restricted to deletions the ordering of the consensus levels is unchanged and the separation between them is wider, at precisions of 0.433, 0.921 and 0.978 with increasing consensus stringency.
+Duplications are scored less well by every set: precision is 0.266, 0.687 and 0.878 across the three levels, recall does not exceed 0.244 for any call set against 0.456 for deletions in the 1-of-3 set, and among the individual callers CNVpytor signifcantly more than Delly and GATK-gCNV, at 0.197 against 0.062 and 0.049.
+Overall, deletion CNVs yield significantly higher performance compared to the duplications across all metrics, and has significantly higher contribution to the combined performance compared to the duplication records.
 
 #figure(
   image("/results/consensus_levels/consensus_levels.png", width: 100%)
@@ -1163,7 +1175,7 @@ The 1-of-3 set has the highest peak of the six, 0.489 near 4.1 kb, against 0.466
 CNVpytor and the 1-of-3 set, which it dominates by count, share a second rise near 110--120 kb, where F1 reaches 0.385 on the 1-of-3 set's recall of 0.649 against a precision of 0.275.
 
 The SNP array falls below every sequence-derived call set on all three metrics, at a precision of 0.371, a recall of 0.025 and an F1 of 0.046.
-Composition accounts for much of that: 45.9% of its calls are duplications (Table 8), and their precision is 0.101 against 0.599 for its deletions, which sits within the range of the individual callers.
+Composition accounts for much of that: 45.9% of its calls are duplications (Table 8), and its duplication-only precision is 0.101, which sits signifantly below that of all sequence-derived call sets (Table 9).
 
 We carried the 2-of-3 consensus into the coverage comparison.
 Its precision of 0.898 leaves a candidate set clean enough to act on while recovering 4,344 benchmark intervals, against 9,217 intervals at a precision of 0.391 for the 1-of-3 set and 2,336 at 0.973 for the 3-of-3 set.
@@ -1177,35 +1189,48 @@ Precision falls from 0.898 at 30x to 0.834, 0.786 and 0.626 at 6x, 4x and 2x, an
 #v(0.5em)
 
 #block(width: 100%)[
-#set text(hyphenate: false, size: 10pt)
+#set text(hyphenate: false, size: 9.5pt)
+#show table.cell.where(y: 1): strong
 #table(
-  columns: (1fr, auto, auto, auto, auto, auto, auto, auto, auto),
-  align: (left, right, right, right, right, right, right, right, right),
+  columns: (1fr, auto, auto, auto, auto, auto, auto, auto, auto, auto, auto, auto, auto),
+  align: (left, right, right, right, right, right, right, right, right, right, right, right, right),
+  stroke: none,
+  table.hline(stroke: 0.6pt),
   table.header(
-    [Call Set], [Calls], [TP], [FP], [Precision], [Precision (DEL)], [Recall], [Max. Recall], [F1],
+    table.cell(rowspan: 2, align: left + bottom)[Call Set],
+    table.cell(colspan: 4, align: center)[Combined],
+    table.cell(colspan: 4, align: center)[Deletions],
+    table.cell(colspan: 4, align: center)[Duplications],
+    table.hline(start: 1, end: 5, stroke: 0.3pt),
+    table.hline(start: 5, end: 9, stroke: 0.3pt),
+    table.hline(start: 9, end: 13, stroke: 0.3pt),
+    [Calls], [P], [R], [F1], [Calls], [P], [R], [F1], [Calls], [P], [R], [F1],
   ),
-  [*30x -- 2/3 Consensus*], [4,836], [4,344], [492], [0.898], [0.921], [0.187], [0.209], [0.310],
-  [*6x -- 2/3 Consensus*], [1,708], [1,425], [283], [0.834], [0.908], [0.061], [0.074], [0.114],
-  [*4x -- 2/3 Consensus*], [1,119], [880], [239], [0.786], [0.934], [0.038], [0.048], [0.072],
-  [*2x -- 2/3 Consensus*], [721], [451], [270], [0.626], [0.890], [0.019], [0.031], [0.038],
+  table.hline(stroke: 0.6pt),
+  [*30x -- 2/3 Consensus*], [4,836], [0.898], [0.187], [0.310], [4,360], [0.921], [0.240], [0.381], [476], [0.687], [0.051], [0.094],
+  [*6x -- 2/3 Consensus*], [1,708], [0.834], [0.061], [0.114], [1,355], [0.908], [0.073], [0.136], [353], [0.552], [0.030], [0.057],
+  [*4x -- 2/3 Consensus*], [1,119], [0.786], [0.038], [0.072], [759], [0.934], [0.042], [0.081], [360], [0.475], [0.027], [0.050],
+  [*2x -- 2/3 Consensus*], [721], [0.626], [0.019], [0.038], [382], [0.890], [0.020], [0.040], [339], [0.327], [0.017], [0.033],
   table.hline(stroke: 0.3pt),
-  [*SNP Array*], [1,548], [574], [974], [0.371], [0.599], [0.025], [0.067], [0.046],
+  [*SNP Array*], [1,548], [0.371], [0.025], [0.046], [838], [0.599], [0.030], [0.057], [710], [0.101], [0.011], [0.020],
+  table.hline(stroke: 0.6pt),
 )
 ]
 
 #cap("Table 10:")[
   Binary classification of the 2/3 consensus call sets across coverages and the SNP array against the merged benchmark, at the adopted parameters.
-  A true positive is a call that clears the classification threshold against at least one of the 23,193 benchmark intervals above the size floor, and a false positive is a call that clears it against none.
-  Recall is the fraction of those 23,193 intervals matched by at least one call, and Max. Recall is the largest value recall could take for a call set of that size, being the number of calls divided by the number of benchmark intervals, capped at one.
+  A true positive is a call that clears the classification threshold against at least one benchmark interval above the size floor, and a false positive is a call that clears it against none; P, R and F1 are precision, recall and the F1 score.
+  Recall is the fraction of benchmark intervals matched by at least one call, of 23,193 combined, 16,742 deletions and 6,451 duplications, and cannot exceed the number of calls divided by that count.
   The matching is one-to-one for every set listed, so the number of matched calls equals the number of matched benchmark intervals.
   A call is never matched against a benchmark interval of the other variant class, so deletions and duplications partition every count in the table exactly.
-  Precision (DEL) is therefore the precision of the deletion half of the same classification; the duplication half is given in Supplemental Table Performance by Variant Class.
 ]
 
 #v(0.8em)
 
-Deletion precision does not fall with depth, holding at 0.921, 0.908, 0.934 and 0.890 across the four coverages (Table 10), while duplication precision falls from 0.687 to 0.552, 0.475 and 0.327 (Supplemental Table Performance by Variant Class).
-Reweighting each set's class-wise precisions to the 30x class composition gives 0.898, 0.873, 0.889 and 0.835, so most of the fall in overall precision is the drift towards duplications, and the remainder is the loss of accuracy within that class alone.
+Deletion precision stays relatively stable with decereasing depths, holding at 0.921, 0.908, 0.934 and 0.890 across the four coverages, while duplication precision falls from 0.687 to 0.552, 0.475 and 0.327 (Table 10).
+Most of the fall in overall precision is the drift towards a higher composition of duplications, and the remainder is the loss of accuracy within that class due to less evidence.
+Recall falls twelve-fold for deletions, from 0.240 to 0.073, 0.042 and 0.020, and three-fold for duplications, from 0.051 to 0.030, 0.027 and 0.017.
+The SNP array recovers more deletions than the 2x set, at a recall of 0.030 against 0.020, and fewer duplications, at 0.011 against 0.017.
 
 #figure(
   image("/results/coverage_performance/benchmark_recovery.png", width: 100%)
