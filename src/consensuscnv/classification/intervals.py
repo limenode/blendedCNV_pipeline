@@ -5,16 +5,29 @@ partition, label, and write them back out.
 intervals to an IntervalSet whose `origin` CallSet carries the overlap graph.
 """
 
+from __future__ import annotations
+
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+from consensuscnv.callsets.bed_io import source_strings_for
 from consensuscnv.callsets.calls import PARTITION_FIELDS, calls_from_records
 from consensuscnv.callsets.callset import CallSet, CallSource, collect_callsets
 from consensuscnv.callsets.merging import MergedCallSet
-from consensuscnv.callsets.registry import read_genome_file, seed_chromosomes
+from consensuscnv.callsets.registry import (
+    CHROMOSOMES,
+    SAMPLES,
+    SVTYPES,
+    read_genome_file,
+    seed_chromosomes,
+)
+
+if TYPE_CHECKING:  # pandas costs ~300 ms to import; only `to_frame` needs it
+    import pandas as pd
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +58,30 @@ class IntervalSet:
         """Distinct callers behind each interval."""
         return np.bitwise_count(self.source_bits)
 
+    # Names, looked up from the registries. The `_idx` columns are what the
+    # package computes with; these are for reading results and choosing rows.
+    @property
+    def chrom_names(self) -> np.ndarray:
+        return np.asarray(CHROMOSOMES.names, dtype=object)[self.chrom_idx]
+
+    @property
+    def svtype_names(self) -> np.ndarray:
+        return np.asarray(SVTYPES.names, dtype=object)[self.svtype_idx]
+
+    @property
+    def sample_names(self) -> np.ndarray:
+        return np.asarray(SAMPLES.names, dtype=object)[self.sample_idx]
+
+    @property
+    def source_names(self) -> list[str]:
+        """The callers behind each interval, pipe-joined, as `write_merged_bed` writes them."""
+        return source_strings_for(self.source_bits.tolist())
+
+    @property
+    def samples(self) -> list[str]:
+        """The distinct sample names present, in registry order."""
+        return [SAMPLES.names[i] for i in np.unique(self.sample_idx)]
+
     @classmethod
     def from_bed(
         cls,
@@ -53,7 +90,7 @@ class IntervalSet:
         genome: str | Path | Iterable[str] | None = None,
         partition_by: Iterable[str] = PARTITION_FIELDS,
         search_radius: int = 0,
-    ) -> "IntervalSet":
+    ) -> IntervalSet:
         """Intervals from BED files, with their overlap graph built.
 
         `paths` is one path, a glob pattern, or any iterable of them -- anything
@@ -88,7 +125,7 @@ class IntervalSet:
         sample_id: str = "sample",
         partition_by: Iterable[str] = PARTITION_FIELDS,
         search_radius: int = 0,
-    ) -> "IntervalSet":
+    ) -> IntervalSet:
         """Intervals from plain records, with their overlap graph built.
 
         `records` and the three field defaults are `calls_from_records`'s: each
@@ -102,7 +139,7 @@ class IntervalSet:
         )
 
     @classmethod
-    def from_callset(cls, callset: CallSet) -> "IntervalSet":
+    def from_callset(cls, callset: CallSet) -> IntervalSet:
         return cls(
             starts=callset.starts,
             ends=callset.ends,
@@ -115,7 +152,7 @@ class IntervalSet:
         )
 
     @classmethod
-    def from_merged(cls, merged: MergedCallSet) -> "IntervalSet":
+    def from_merged(cls, merged: MergedCallSet) -> IntervalSet:
         """One interval per component.
 
         chrom / svtype / sample come off the representative, which is only valid
@@ -133,7 +170,7 @@ class IntervalSet:
             row_index=merged.representative,
         )
 
-    def select(self, rows: np.ndarray) -> "IntervalSet":
+    def select(self, rows: np.ndarray) -> IntervalSet:
         """Get a new IntervalSet holding only `rows` - a boolean mask or integer array of row indices."""
         return replace(
             self,
@@ -146,7 +183,7 @@ class IntervalSet:
             row_index=self.row_index[rows]
         )
 
-    def filter_by_size(self, min_size: int = 0, max_size: int | None = None) -> "IntervalSet":
+    def filter_by_size(self, min_size: int = 0, max_size: int | None = None) -> IntervalSet:
         """Get a new IntervalSet holding only intervals within the given size range."""
         lengths = self.lengths
         keep = lengths >= min_size
@@ -154,7 +191,36 @@ class IntervalSet:
             keep &= lengths <= max_size
         return self.select(keep)
 
-    def restrict_to_samples(self, sample_idx: np.ndarray) -> "IntervalSet":
-        """Get a new IntervalSet holding only intervals from the given samples."""
-        keep = np.isin(self.sample_idx, sample_idx)
-        return self.select(keep)
+    def restrict_to_samples(
+        self, samples: Iterable[str] | Iterable[int] | np.ndarray, *, invert: bool = False
+    ) -> IntervalSet:
+        """Get a new IntervalSet holding only intervals from the given samples.
+
+        `samples` is sample names or registry ids. A name the registry has never
+        seen matches nothing. `invert=True` keeps every other sample instead.
+        """
+        wanted = np.asarray(list(samples) if not isinstance(samples, np.ndarray) else samples)
+        if wanted.dtype.kind in "US" or wanted.dtype == object:
+            wanted = np.array([SAMPLES.get(str(name)) for name in wanted], dtype=np.int64)
+        keep = np.isin(self.sample_idx, wanted)
+        return self.select(~keep if invert else keep)
+
+    def to_frame(self) -> pd.DataFrame:
+        """The intervals as a DataFrame of names, one row per interval, in row order.
+
+        Columns are ``chrom start end svtype source sample_id`` -- the BED
+        layout -- plus ``n_sources``.
+        """
+        import pandas as pd
+
+        return pd.DataFrame(
+            {
+                "chrom": self.chrom_names,
+                "start": self.starts,
+                "end": self.ends,
+                "svtype": self.svtype_names,
+                "source": self.source_names,
+                "sample_id": self.sample_names,
+                "n_sources": self.n_sources,
+            }
+        )

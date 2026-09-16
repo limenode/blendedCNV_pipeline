@@ -22,7 +22,6 @@ import numpy as np
 
 from consensuscnv.callsets import (
     collect_callsets,
-    filter_edges,
     merge_components,
     write_merged_bed,
 )

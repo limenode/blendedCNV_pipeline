@@ -10,14 +10,21 @@ Classification is two-sided:
 Matching is many-to-many, so `n_true_positive` and `n_truth_found`
 may be different numbers."""
 
+from __future__ import annotations
+
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+from consensuscnv.callsets.registry import SAMPLES
 from consensuscnv.classification.intervals import IntervalSet
 from consensuscnv.classification.pairs import CandidateSet, PairSelection, filter_candidates
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class ClassLabel(Enum):
@@ -195,6 +202,26 @@ class Classification:
             return self.false_positive_rows
         elif label == ClassLabel.FALSE_NEGATIVE:
             return self.false_negative_rows
+
+    def to_frame(self, side: str = "query") -> pd.DataFrame:
+        """One side of the classification as a DataFrame of names, one row per interval.
+
+        `side="query"` gives the query intervals with a ``label`` column of
+        ``TP`` / ``FP``; `side="truth"` gives the truth intervals with a boolean
+        ``found`` column. Both carry ``n_partners``, the number of intervals on
+        the other side that matched.
+        """
+        if side == "query":
+            frame = self.query.to_frame()
+            frame["label"] = np.where(self.query_matched, "TP", "FP")
+            frame["n_partners"] = self.query_n_partners
+        elif side == "truth":
+            frame = self.truth.to_frame()
+            frame["found"] = self.truth_matched
+            frame["n_partners"] = self.truth_n_partners
+        else:
+            raise ValueError(f"side must be 'query' or 'truth', not {side!r}")
+        return frame
 
     def summary(self) -> ClassificationSummary:
         """Collapse to scalars."""
@@ -450,10 +477,10 @@ def _warn_if_truth_covers_extra_samples(candidates: CandidateSet) -> None:
     truth_samples = np.unique(candidates.truth.sample_idx)
     extra = np.setdiff1d(truth_samples, query_samples, assume_unique=True)
     if extra.size > 0:
+        names = [SAMPLES.names[i] for i in extra]
         warnings.warn(
-            f"Truth set contains {len(extra)} sample(s) not present in query set: "
-            f"({extra.size + query_samples.size} truth samples vs. {query_samples.size} "
-            f"query samples). "
-            f"Extra samples: {extra}. This may lead to lower recall than expected. ",
-            stacklevel=2
+            f"Truth set contains {len(extra)} sample(s) not present in query set "
+            f"({truth_samples.size} truth samples vs. {query_samples.size} query samples): "
+            f"{names}. This may lead to lower recall than expected.",
+            stacklevel=2,
         )

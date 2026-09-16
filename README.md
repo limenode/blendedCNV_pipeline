@@ -129,25 +129,23 @@ default, `("svtype", "sample_id")`, is what consensus calling needs. Passing
 `("svtype",)` lets edges join samples, which is how a cohort is analysed:
 
 ```python
-import numpy as np
+from consensuscnv.classification import IntervalSet, build_candidates, classify
 
-from consensuscnv.callsets.registry import SAMPLES
-from consensuscnv.classification import IntervalSet, build_candidates, filter_candidates
-
-# One call: the file(s) in, the intervals and their overlap graph out. `genome`
-# seeds the chromosome registry and is needed once per process.
+# Load calls from BED file into IntervalSet object
 intervals = IntervalSet.from_bed("out/consensus/Cohort/overlap_0.50/2of3.bed", genome="genome.txt")
 
 # Which calls in one group of samples share a locus with a call in another?
-affected_ids = [SAMPLES.get(name) for name in affected_sample_names]
-affected = intervals.restrict_to_samples(affected_ids)
-unaffected = intervals.select(~np.isin(intervals.sample_idx, affected_ids))
+affected = intervals.restrict_to_samples(affected_sample_names)
+unaffected = intervals.restrict_to_samples(affected_sample_names, invert=True)
 
-# Pairs may join samples but not SV types. Build once, filter at any threshold.
+# Pairs may join samples but not SV types. Build once, classify at any threshold:
+# an affected call with no partner is a "false positive" against the unaffected set.
 pairs = build_candidates(affected, unaffected, partition_by=("svtype",))
-for threshold in (0.25, 0.5, 0.75):
-    matched = np.unique(filter_candidates(pairs, min_reciprocal_overlap=threshold).query_row)
-    print(threshold, len(affected) - len(matched), "calls found only in affected samples")
+result = classify(pairs, min_reciprocal_overlap=0.5, validate=False)
+print(threshold, result.n_false_positive, "calls found only in affected samples")
+
+# The calls themselves, by name, with a TP / FP label and partner count per row.
+private = result.to_frame().query("label == 'FP'")
 
 # Per-sample caller output works the same way, through a glob.
 callers = IntervalSet.from_bed("out/Cohort/cnvpytor/*.bed")
@@ -155,7 +153,10 @@ callers = IntervalSet.from_bed("out/Cohort/cnvpytor/*.bed")
 
 `from_bed` takes one path, a glob, or a list of them; a six-column consensus
 file carries its sample column, and a five-column per-sample file takes the
-sample from its filename. Intervals from anywhere else go in through
+sample from its filename. Every `IntervalSet` reads back by name
+(`chrom_names`, `svtype_names`, `sample_names`, `source_names`, `samples`) or as
+a `DataFrame` (`to_frame()`); the integer `_idx` columns are what the package
+computes with. Intervals from anywhere else go in through
 `IntervalSet.from_records`, which takes `(chrom, start, end[, svtype[, source[,
 sample_id]]])` tuples or mappings with those keys (a `DataFrame.to_dict("records")`
 works) and fills in whatever a record leaves out:
@@ -174,7 +175,12 @@ loci = merge_components(collect_callsets("out/Cohort/cnvpytor/*.bed", partition_
                         min_reciprocal_overlap=0.5)
 ```
 
-Two things to know. Gap edges are recorded only out to `search_radius`
+Chromosome ids are assigned once per process, in the order of the first genome
+loaded, so a later `genome=` must agree with it on the order of any shared name
+(a subset or an appended superset is fine) or it raises. `reset_registries()`
+in `consensuscnv.callsets` can be used to purge old assignments and orderings.
+
+Gap edges are recorded only out to `search_radius`
 (default 0, which still joins exactly-touching intervals), and filtering by a
 wider `max_padding` raises rather than returning an incomplete answer. And a
 merge whose edges cross samples has no per-locus sample, so reading one

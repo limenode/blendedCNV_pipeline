@@ -30,6 +30,16 @@ guarantee.
   chromosome registry, so a script needs one import. Underneath,
   `seed_chromosomes` takes a genome file path and `collect_callsets` takes
   paths and globs alongside CallSets and Calls, singly or in a list.
+- **Names at the surface.** `IntervalSet.chrom_names` / `svtype_names` /
+  `sample_names` / `source_names` / `samples`, and `to_frame()` for a
+  `DataFrame` in the BED layout; `Classification.to_frame(side)` adds the
+  ``TP`` / ``FP`` label (or ``found``) and partner count per row.
+  `restrict_to_samples` takes names as well as ids, and `invert=True` keeps
+  the other samples. The registries are an implementation detail again.
+- **`reset_registries`**, and `seed_chromosomes` raises when a later genome
+  orders shared names differently from the ids already assigned -- rows would
+  sort by the new order but be written in the old one. A subset, or a superset
+  that only appends, is accepted as before.
 - **`calls_from_records`**: `Call`s from `(chrom, start, end[, svtype[, source[,
   sample_id]]])` tuples or mappings, with defaults for whatever a record leaves
   out, so intervals from anywhere go into `build_callset` without a BED.
@@ -64,6 +74,9 @@ guarantee.
   took the sample from the filename, so `2of3.bed` read back with every call
   assigned to a sample called `2of3`. A sixth column is now the sample.
 - `Registry.get` documented `None` for a missing name; it returns `-1`.
+- The extra-samples warning from `classify(validate=True)` reported the wrong
+  truth-sample count and listed registry ids; it now counts correctly and
+  names the samples.
 
 ## 0.2.0
 

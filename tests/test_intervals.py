@@ -86,3 +86,47 @@ def test_from_records_fills_defaults_and_builds_the_same_graph(per_sample_beds):
     assert np.array_equal(from_files.svtype_idx, from_rows.svtype_idx)
     assert np.array_equal(from_files.sample_idx, from_rows.sample_idx)
     assert np.array_equal(from_files.origin.ov_key, from_rows.origin.ov_key)
+
+
+def test_names_are_the_registry_lookups_of_the_id_columns(per_sample_beds):
+    intervals = IntervalSet.from_bed(str(per_sample_beds / "*.bed"))
+    assert intervals.chrom_names.tolist() == ["chr1", "chr1", "chr2"]
+    assert intervals.svtype_names.tolist() == ["DEL", "DEL", "DUP"]
+    assert intervals.sample_names.tolist() == ["S1", "S2", "S1"]
+    assert intervals.source_names == ["cnvpytor", "gatk", "delly"]
+    assert intervals.samples == ["S1", "S2"]
+
+
+def test_restrict_to_samples_takes_names_or_ids(per_sample_beds):
+    intervals = IntervalSet.from_bed(str(per_sample_beds / "*.bed"))
+    by_name = intervals.restrict_to_samples(["S1"])
+    by_id = intervals.restrict_to_samples([SAMPLES.get("S1")])
+    assert by_name.samples == by_id.samples == ["S1"] and len(by_name) == len(by_id) == 2
+
+    rest = intervals.restrict_to_samples(["S1"], invert=True)
+    assert rest.samples == ["S2"] and len(rest) == 1
+    assert len(intervals.restrict_to_samples(["never-seen"])) == 0
+    assert len(intervals.restrict_to_samples(["never-seen"], invert=True)) == len(intervals)
+
+
+def test_to_frame_is_the_bed_layout_by_name(per_sample_beds):
+    frame = IntervalSet.from_bed(str(per_sample_beds / "*.bed")).to_frame()
+    assert list(frame.columns) == ["chrom", "start", "end", "svtype", "source", "sample_id", "n_sources"]
+    assert frame.iloc[1].tolist() == ["chr1", 1100, 3100, "DEL", "gatk", "S2", 1]
+
+
+def test_classification_frames_carry_labels(per_sample_beds):
+    from consensuscnv.classification import classify
+
+    intervals = IntervalSet.from_bed(str(per_sample_beds / "*.bed"))
+    s1, s2 = intervals.restrict_to_samples(["S1"]), intervals.restrict_to_samples(["S2"])
+    with pytest.warns(UserWarning, match=r"1 truth samples vs. 1 query samples.*\['S2'\]"):
+        result = classify(build_candidates(s1, s2, partition_by=("svtype",)), min_reciprocal_overlap=0.5)
+
+    query = result.to_frame()
+    assert query["label"].tolist() == ["TP", "FP"]            # the chr1 DEL matches S2's; the DUP has no partner
+    assert query["n_partners"].tolist() == [1, 0]
+    truth = result.to_frame("truth")
+    assert truth["found"].tolist() == [True] and truth["n_partners"].tolist() == [1]
+    with pytest.raises(ValueError, match="side must be"):
+        result.to_frame("both")

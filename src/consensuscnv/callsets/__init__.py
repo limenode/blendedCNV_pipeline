@@ -32,7 +32,12 @@ from consensuscnv.callsets.callset import (
 )
 from consensuscnv.callsets.edges import EdgeSelection, filter_edges
 from consensuscnv.callsets.merging import MergedCallSet, merge_components
-from consensuscnv.callsets.registry import Registry, read_genome_file, seed_chromosomes
+from consensuscnv.callsets.registry import (
+    Registry,
+    read_genome_file,
+    reset_registries,
+    seed_chromosomes,
+)
 
 __all__ = [
     "PARTITION_FIELDS",
@@ -50,6 +55,7 @@ __all__ = [
     "merge_components",
     "read_bed_calls",
     "read_genome_file",
+    "reset_registries",
     "seed_chromosomes",
     "sort_into_genome_order",
     "source_strings_for",
