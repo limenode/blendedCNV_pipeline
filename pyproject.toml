@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "consensuscnv"
 version = "0.3.0"
-description = "Graph-based consensus copy-number-variant calling from low-pass WGS, with optional benchmarking against gold-standard call sets."
+description = "Graph-based consensus copy-number-variant calling."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
