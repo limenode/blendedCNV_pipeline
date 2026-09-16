@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
+from consensuscnv.genome import read_genome_file
 from consensuscnv.output_layout import RESERVED_NAMES, OutputLayout, overlap_slug, slug
 
 if TYPE_CHECKING:  # `liftover` costs ~100 ms to import and is only a type here
@@ -40,26 +41,6 @@ def load_sample_list(path: str | Path | None) -> frozenset[str] | None:
     )
     print(f"Loaded sample list: {len(samples)} samples from {path}")
     return samples
-
-
-def read_genome_file(path: Path) -> tuple[str, ...]:
-    """Ordered, de-duplicated chromosome names from a genome/faidx-style file.
-
-    Reads column 0 of each line. Blank lines and lines whose first non-whitespace
-    character is ``#`` are skipped, so commenting a chromosome out of the genome
-    file is the supported way to drop it from the analysis.
-    """
-    names: dict[str, None] = {}  # insertion-ordered, and de-duplicates
-    with open(path) as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            names[line.split()[0]] = None
-
-    if not names:
-        raise ValueError(f"No chromosomes found in genome file: {path}")
-    return tuple(names)
 
 
 @dataclass(frozen=True)

@@ -24,7 +24,17 @@ guarantee.
   alongside `sample_idx`. The per-component reads raise when the parent does
   not partition on that field; `IntervalSet.from_merged` and
   `write_merged_bed(include_sample=True)` go through them.
-- `tests/test_partition.py`.
+- **`calls_from_records`**: `Call`s from `(chrom, start, end[, svtype[, source[,
+  sample_id]]])` tuples or mappings, with defaults for whatever a record leaves
+  out, so intervals from anywhere go into `build_callset` without a BED.
+- `read_bed_calls(sample_id=...)` to name the sample explicitly.
+- `read_genome_file` is exported from `consensuscnv.callsets` next to
+  `seed_chromosomes` (it lives in the new `consensuscnv.genome`; the `utils`
+  name still works), and `consensuscnv.classification` exports its public
+  names, so each layer is one import.
+- `tests/test_partition.py`, and BED I/O tests for the sample column and
+  `calls_from_records`.
+- A "Using the graph from Python" section in the README.
 
 ### Changed
 
@@ -41,6 +51,13 @@ guarantee.
   complete pair list, which matters once it is exposed.
 - `evaluation.py` and the padding-sweep scripts (`benchmark_padding.py`,
   `sensitivity.py`) build the truth set with the radius they go on to filter at.
+
+### Fixed
+
+- **`read_bed_calls` could not read the pipeline's own combined output.** It
+  took the sample from the filename, so `2of3.bed` read back with every call
+  assigned to a sample called `2of3`. A sixth column is now the sample.
+- `Registry.get` documented `None` for a missing name; it returns `-1`.
 
 ## 0.2.0
 

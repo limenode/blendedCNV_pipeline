@@ -124,7 +124,7 @@ def _resolve_chromosome_order(chromosome_order: Iterable[str] | None) -> tuple[s
         raise ValueError(
             "The chromosome registry is empty, so there is no genome order to sort "
             "into. Call callsets.seed_chromosomes(...) with the chromosomes of the "
-            "genome being analysed -- utils.read_genome_file(genome_file) returns "
+            "genome being analysed -- read_genome_file(genome_file) returns "
             "them -- before building a CallSet, or pass chromosome_order explicitly."
         )
     return tuple(CHROMOSOMES.names)

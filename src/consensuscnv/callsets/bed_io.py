@@ -10,29 +10,36 @@ from consensuscnv.callsets.merging import MergedCallSet
 from consensuscnv.callsets.registry import CHROMOSOMES, SAMPLES, SOURCES, SVTYPES
 
 
-def read_bed_calls(path: str | Path) -> Iterator[Call]:
-    """Yield Calls from a 5-column BED. The sample id comes from the filename."""
-    path = Path(path) if isinstance(path, str) else path
+def read_bed_calls(path: str | Path, *, sample_id: str | None = None) -> Iterator[Call]:
+    """Yield Calls from a BED of ``chrom start end svtype source [sample_id]``.
 
-    sample_id = path.stem
+    Both layouts this package writes read back: the per-sample five-column file,
+    whose sample is the filename stem, and the combined six-column file from
+    `write_merged_bed(include_sample=True)`, whose sample is the sixth column.
+    An explicit `sample_id` overrides both.
+
+    A consensus file's `source` column is the pipe-joined callers behind each
+    call (``cnvpytor|delly``); it comes back as one opaque source label, so
+    `n_sources` on a graph built from it counts labels rather than callers.
+    """
+    path = Path(path) if isinstance(path, str) else path
+    stem = path.stem
 
     with open(path, "r") as bed_file:
         for line in bed_file:
             if line.startswith("#"):
                 continue  # Skip comment lines
-            fields = line.strip().split("\t")
+            fields = line.rstrip("\n").split("\t")
             if len(fields) < 5:
                 continue  # Skip lines that don't have enough fields
 
-            chrom, start, end, svtype, source = (
-                fields[0],
-                int(fields[1]),
-                int(fields[2]),
-                fields[3],
-                fields[4],
-            )
             yield Call(
-                chrom=chrom, start=start, end=end, svtype=svtype, source=source, sample_id=sample_id
+                chrom=fields[0],
+                start=int(fields[1]),
+                end=int(fields[2]),
+                svtype=fields[3],
+                source=fields[4],
+                sample_id=sample_id or (fields[5] if len(fields) > 5 else stem),
             )
 
 

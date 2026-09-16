@@ -116,6 +116,66 @@ the sample column is dropped and the filename carries it instead.
 The agreement levels **nest**: every call in `3of3.bed` also appears in
 `2of3.bed`.
 
+## Using the graph from Python
+
+The consensus step is one use of a general primitive: a graph over intervals
+whose edges carry reciprocal overlap (or gap distance), built once and filtered
+at any threshold in a slice. `consensuscnv.callsets` builds it over one set of
+calls, and `consensuscnv.classification` builds the equivalent between two sets.
+Both are importable without a config.
+
+Edges never cross chromosome, nor the fields named by `partition_by`. The
+default, `("svtype", "sample_id")`, is what consensus calling needs. Passing
+`("svtype",)` lets edges join samples, which is how a cohort is analysed:
+
+```python
+import numpy as np
+
+from consensuscnv.callsets import (
+    collect_callsets, merge_components, read_bed_calls, read_genome_file, seed_chromosomes,
+)
+from consensuscnv.callsets.registry import SAMPLES
+from consensuscnv.classification import IntervalSet, build_candidates, filter_candidates
+
+seed_chromosomes(read_genome_file("genome.txt"))   # once, before any build
+
+# A consensus BED written with the sample column reads straight back in.
+calls = collect_callsets([read_bed_calls("out/consensus/Cohort/overlap_0.50/2of3.bed")])
+
+# Which calls in one group of samples share a locus with a call in another?
+intervals = IntervalSet.from_callset(calls)
+affected_ids = [SAMPLES.get(name) for name in affected_sample_names]
+affected = intervals.restrict_to_samples(affected_ids)
+unaffected = intervals.select(~np.isin(intervals.sample_idx, affected_ids))
+
+# Pairs may join samples but not SV types. Build once, filter at any threshold.
+pairs = build_candidates(affected, unaffected, partition_by=("svtype",))
+for threshold in (0.25, 0.5, 0.75):
+    matched = np.unique(filter_candidates(pairs, min_reciprocal_overlap=threshold).query_row)
+    print(threshold, len(affected) - len(matched), "calls found only in affected samples")
+
+# Or the full cross-sample graph, where each component is one locus in the cohort.
+loci = merge_components(collect_callsets([calls], partition_by=("svtype",)), min_reciprocal_overlap=0.5)
+```
+
+Intervals from anywhere else go in through `calls_from_records`, which takes
+`(chrom, start, end[, svtype[, source[, sample_id]]])` tuples or mappings with
+those keys (a `DataFrame.to_dict("records")` works) and fills in whatever a
+record leaves out:
+
+```python
+from consensuscnv.callsets import build_callset, calls_from_records
+
+callset = build_callset(calls_from_records(rows, source="array"), partition_by=("svtype",))
+```
+
+Two things to know. Gap edges are recorded only out to `search_radius`
+(default 0, which still joins exactly-touching intervals), and filtering by a
+wider `max_padding` raises rather than returning an incomplete answer. And a
+merge whose edges cross samples has no per-locus sample, so reading one
+(`merged.sample_idx`, `IntervalSet.from_merged`, the sample column of
+`write_merged_bed`) raises; everything else on the merged set is defined.
+
 ## Reproducing the paper
 
 ```bash

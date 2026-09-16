@@ -3,6 +3,8 @@
 import threading
 from collections.abc import Iterable
 
+from consensuscnv.genome import read_genome_file
+
 MAX_SOURCES = 63
 
 class Registry:
@@ -47,7 +49,7 @@ class Registry:
         return index
 
     def get(self, name: str) -> int:
-        """Return the id for `name`, or None if it is not present."""
+        """Return the id for `name`, or -1 if it is not present."""
         return self._ids.get(name, -1)
 
     @property
@@ -70,11 +72,14 @@ SVTYPES = Registry("svtype", ["DEL", "DUP"])
 SAMPLES = Registry("sample")
 SOURCES = Registry("source", max_ids=MAX_SOURCES)
 
-def seed_chromosomes(names: Iterable[str]) -> None:
-    """Intern the analysis chromosomes into local Registry, in genome order.
 
-    Call once, before any `build_callset`. Seeding a name the registry already
-    holds is a no-op; names already present keep the ids they have.
+
+def seed_chromosomes(names: Iterable[str]) -> None:
+    """Intern the analysis chromosomes into the registry, in genome order.
+
+    Call once, before any `build_callset`, typically as
+    ``seed_chromosomes(read_genome_file(path))``. Seeding a name the registry
+    already holds is a no-op; names already present keep the ids they have.
     """
     for name in names:
         CHROMOSOMES.intern(name)
@@ -87,5 +92,6 @@ __all__ = [
     "SOURCES",
     "SVTYPES",
     "Registry",
+    "read_genome_file",
     "seed_chromosomes",
 ]
