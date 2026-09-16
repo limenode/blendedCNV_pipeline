@@ -5,11 +5,19 @@ overlap graph over them.
 that could ever be joined, as two edge lists:
 
 - **overlap edges** carry a reciprocal-overlap key in ``(0, 1]``
-- **gap edges** carry a base-pair distance ``>= 0``
+- **gap edges** carry a base-pair distance in ``[0, search_radius]``
 
 The two kinds are mutually exclusive, and each is stored sorted by its own key.
 No threshold is applied at build time -- one CallSet serves every parameter
 point, and `filter_edges` selects a contiguous slice per threshold.
+
+Two build-time choices bound what the graphs compute edges for:
+
+- `partition_by` names the Call fields an edge never crosses. The default,
+  ``("svtype", "sample_id")``, is what consensus calling needs; dropping
+  ``sample_id`` gives a cross-sample graph over a cohort.
+- `search_radius` is the widest gap a recorded edge spans, and so the widest
+  `max_padding` that `filter_edges` can serve. Overlap edges are always complete.
 """
 
 from collections import defaultdict
@@ -19,7 +27,7 @@ from operator import attrgetter
 
 import numpy as np
 
-from consensuscnv.callsets.calls import Call
+from consensuscnv.callsets.calls import PARTITION_FIELDS, Call, normalize_partition
 from consensuscnv.callsets.registry import (
     CHROMOSOMES,
     SAMPLES,
@@ -58,8 +66,27 @@ class CallSet:
     gap_b: np.ndarray
     gap_key: np.ndarray
 
+    # what the edge lists were built under; see the module docstring
+    partition_by: tuple[str, ...] = PARTITION_FIELDS
+    search_radius: int = 0
+
     def __len__(self) -> int:
         return len(self.calls)
+
+    def require_partition(self, *fields: str) -> None:
+        """Raise unless every one of `fields` partitions this graph.
+
+        A component is uniform in a field only if no edge crosses it, so anything
+        that reads a per-component chrom / svtype / sample off one member call
+        has to check here first.
+        """
+        missing = [field for field in fields if field not in self.partition_by]
+        if missing:
+            raise ValueError(
+                f"components of this CallSet may span {missing}: it was built with "
+                f"partition_by={self.partition_by}, so no per-component value of "
+                f"{missing} exists"
+            )
 
 
 def sort_into_genome_order(
@@ -107,12 +134,24 @@ def build_callset(
     calls: Iterable[Call],
     *,
     chromosome_order: Iterable[str] | None = None,
+    partition_by: Iterable[str] = PARTITION_FIELDS,
+    search_radius: int = 0,
 ) -> CallSet:
-    """Build a CallSet from an interable of calls.
+    """Build a CallSet from an iterable of calls.
 
     `chromosome_order` defaults to the chromosome registry's order, which is what
     `seed_chromosomes` put there.
+
+    `partition_by` names the Call fields an edge never crosses;
+    chromosome always partitions. `search_radius` is the widest gap, in base
+    pairs, a recorded edge spans -- and therefore the widest `max_padding`
+    the CallSet can later be filtered at. Both are recorded on the result.
     """
+    partition_by = normalize_partition(partition_by)
+    if search_radius < 0:
+        raise ValueError(f"search_radius={search_radius}; must be >= 0")
+    key_of = attrgetter(*partition_by) if partition_by else (lambda call: None)
+
     calls_list = sort_into_genome_order(calls, _resolve_chromosome_order(chromosome_order))
 
     ov_a: list[int] = []
@@ -137,7 +176,12 @@ def build_callset(
     cached_svtype_id = id_of_svtype.get
     cached_sample_id = id_of_sample.get
 
-    svtype_connected_component = defaultdict(list)
+    # Per partition, the calls a later call could still form an edge with: those
+    # whose end is within `search_radius` of the current start. Calls arrive in
+    # start order, so once a member falls behind that cutoff no later call can
+    # reach it and it is dropped. Every pair within the radius is compared
+    # exactly once, which is what makes the gap list complete out to the radius.
+    live_by_partition: defaultdict = defaultdict(list)
     previous_chrom = None
     chrom_id = -1
 
@@ -152,7 +196,7 @@ def build_callset(
         if chrom != previous_chrom:
             # chromosomes are contiguous after sorting, so each is seen exactly once and is always a new name
             chrom_id = CHROMOSOMES.intern(chrom)
-            svtype_connected_component.clear()
+            live_by_partition.clear()
             previous_chrom = chrom
 
         starts.append(start)
@@ -175,36 +219,31 @@ def build_callset(
         sample_ids.append(sample_index)
 
         current_size = end - start
-        create_new_connected_component = True
+        cutoff = start - search_radius
 
-        key = (sample_id, chrom, svtype)
-        component_of_interest = svtype_connected_component[key]
-
-        for i in component_of_interest:
-            prev_call = calls_list[i]
-            prev_end = prev_call.end
+        key = key_of(current_call)
+        survivors: list[int] = []
+        for i in live_by_partition[key]:
+            prev_end = ends[i]
+            if prev_end < cutoff:
+                continue  # unreachable by this call and by every later one
+            survivors.append(i)
             overlap_end = min(prev_end, end)
 
             if start < overlap_end:
-                prev_size = prev_end - prev_call.start
+                prev_size = prev_end - starts[i]
                 ov_a.append(i)
                 ov_b.append(current_call_index)
                 ov_key.append((overlap_end - start) / max(prev_size, current_size))
-                create_new_connected_component = False
             else:
-                distance = (
-                    start - prev_end
-                )  # start <= prev_call.end due to sorting, so this is always positive
+                # start >= prev_end here, so the distance is non-negative, and
+                # prev_end >= cutoff bounds it by search_radius.
                 gap_a.append(i)
                 gap_b.append(current_call_index)
-                gap_key.append(distance)
-                if distance == 0:
-                    create_new_connected_component = False
+                gap_key.append(start - prev_end)
 
-        if create_new_connected_component:
-            svtype_connected_component[key] = [current_call_index]  # Start a new connected component for this svtype
-        else:
-            component_of_interest.append(current_call_index)  # Add to the existing connected component
+        survivors.append(current_call_index)
+        live_by_partition[key] = survivors
 
     n = len(calls_list)
     n_ov = len(ov_a)
@@ -230,6 +269,8 @@ def build_callset(
         gap_a=np.fromiter(gap_a, np.int64, n_gap)[gap_order],
         gap_b=np.fromiter(gap_b, np.int64, n_gap)[gap_order],
         gap_key=gap_key_arr[gap_order],
+        partition_by=partition_by,
+        search_radius=search_radius,
     )
 
 
@@ -240,13 +281,20 @@ def collect_callsets(
     sources: Iterable[CallSource],
     *,
     chromosome_order: Iterable[str] | None = None,
+    partition_by: Iterable[str] = PARTITION_FIELDS,
+    search_radius: int = 0,
 ) -> CallSet:
     """Pool calls from any mix of CallSets and raw Call iterables into one CallSet.
 
-    `chromosome_order` defaults to the chromosome registry's order; see
-    `build_callset`.
+    The keyword arguments are `build_callset`'s, and the graph is rebuilt from
+    the pooled calls under them regardless of how any input CallSet was built.
     """
     calls: list[Call] = []
     for source in sources:
         calls.extend(source.calls if isinstance(source, CallSet) else source)
-    return build_callset(calls, chromosome_order=chromosome_order)
+    return build_callset(
+        calls,
+        chromosome_order=chromosome_order,
+        partition_by=partition_by,
+        search_radius=search_radius,
+    )

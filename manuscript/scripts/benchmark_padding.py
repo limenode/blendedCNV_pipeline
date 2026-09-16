@@ -64,6 +64,7 @@ CLASSIFY_THRESHOLD = 0.5    # the operating threshold
 TOPOLOGY_THRESHOLDS = (0.1, 0.3, 0.5)   # 0.3 and 0.5 go to the CSV only
 PANEL_C_THRESHOLD = 0.1
 PADDING_CAP = 1_000         # the cap the joint grid is swept to
+MAX_PADDING = 100_000       # the top of the sweep below, and the radius the graph is built to
 FOCUS = "2/3"               # the call set drawn in panels C and D
 
 # Okabe-Ito (Wong 2011, Nat Methods). Precision/recall/F1 in panel D and the two
@@ -91,10 +92,13 @@ def bed_paths(root: Path, subdirs: tuple[str, ...]) -> list[str]:
 # --------------------------------------------------------------------------- #
 # Call sets
 # --------------------------------------------------------------------------- #
-# The benchmark is loaded once. Its overlap and gap edge lists are recorded in
-# full at build time and sorted by their own keys, so every padding in the sweep
-# is a searchsorted and a slice off this one object rather than a rebuild.
-benchmark = collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS))
+# The benchmark is loaded once. Its overlap and gap edge lists are recorded at
+# build time and sorted by their own keys so every padding in the sweep is
+# a searchsorted and a slice off this one object. Gap only stretches out to `search_radius`
+benchmark = collect_callsets(
+    (read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
+    search_radius=MAX_PADDING,
+)
 
 coverage_dir = ROOT / "out" / "30x_Coverage"
 # Merged once at the default min_sources=1: components are built from the edge
@@ -137,6 +141,7 @@ ORDER = ["CNVpytor", "Delly", "GATK-gCNV", "1/3", "2/3", "3/3"]
 # nearest neighbour of one.
 DECADES = np.array([0, 10, 100, 1_000, 10_000, 100_000])
 paddings = np.unique(np.concatenate((DECADES, np.logspace(0, 5, 70).astype(np.int64))))
+assert paddings.max() <= MAX_PADDING
 
 # Length of every individual benchmark record, indexed by parent row. A merged
 # interval is "manufactured" when the longest record inside it is still below the

@@ -2,7 +2,9 @@
 
 `MergedCallSet` is a *view over its parent CallSet*: `representative` and `labels`
 are indices into it, and chrom / svtype / sample_id are read back off the
-representative rather than stored, since they are uniform within a component.
+representative rather than stored, since they are uniform within a component --
+for the fields the parent was partitioned on. Reading one the parent's
+`partition_by` does not name raises, because no per-component value exists.
 """
 
 from dataclasses import dataclass, field
@@ -33,11 +35,20 @@ class MergedCallSet:
         return np.bitwise_count(self.source_bits)  # Count the number of unique sources for each merged call
 
     @property
-    def sample_idx(self) -> np.ndarray:
-        """Sample id per component, read off the representative.
+    def chrom_idx(self) -> np.ndarray:
+        """Chromosome id per component. Edges never cross chromosomes."""
+        return self.parent.chrom_idx[self.representative]
 
-        Edges never cross `sample_id`, so this is uniform within a component.
-        """
+    @property
+    def svtype_idx(self) -> np.ndarray:
+        """SV type per component; defined only if the parent partitions on `svtype`."""
+        self.parent.require_partition("svtype")
+        return self.parent.svtype_idx[self.representative]
+
+    @property
+    def sample_idx(self) -> np.ndarray:
+        """Sample id per component; defined only if the parent partitions on `sample_id`."""
+        self.parent.require_partition("sample_id")
         return self.parent.sample_idx[self.representative]
 
     def select(self, rows: np.ndarray) -> "MergedCallSet":

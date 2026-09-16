@@ -29,6 +29,10 @@ def filter_edges(
 
     `max_padding=None` means no padding at all.
     `max_padding=0` bridges exactly-touching intervals (gap distance 0).
+
+    `max_padding` cannot exceed the `search_radius` the CallSet was built with:
+    pairs further apart were never recorded, so the selection would be silently
+    incomplete. Overlap edges are complete at every radius.
     """
 
     if min_reciprocal_overlap > 0.0 and max_padding is not None and not allow_mixed:
@@ -36,6 +40,13 @@ def filter_edges(
             f"min_reciprocal_overlap={min_reciprocal_overlap} and max_padding={max_padding} are both set, \
             but allow_mixed is False. This drops overlapping pairs below the threshold while keeping \
             non-overlapping pairs within the padding, which is not interpretable."
+        )
+
+    if max_padding is not None and max_padding > callset.search_radius:
+        raise ValueError(
+            f"max_padding={max_padding} exceeds the search_radius this CallSet was built with "
+            f"({callset.search_radius}). Pairs beyond that radius were never recorded, so the "
+            "result would be silently incomplete. Rebuild with a wider search_radius."
         )
 
     ov_key = callset.ov_key

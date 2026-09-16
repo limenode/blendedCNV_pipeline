@@ -124,11 +124,14 @@ def load_truth(config: PipelineConfig, samples: frozenset[str] | None = None) ->
             "`consensuscnv benchmark` without --reuse-beds to parse them first."
         )
 
+    padding = config.evaluation.benchmark_padding
     merged = merge_components(
         collect_callsets(
-            (read_bed_calls(path) for path in paths), chromosome_order=config.chromosomes
+            (read_bed_calls(path) for path in paths),
+            chromosome_order=config.chromosomes,
+            search_radius=padding or 0,  # gap edges are recorded out to the radius, no further
         ),
-        max_padding=config.evaluation.benchmark_padding,
+        max_padding=padding,
     )
     truth = IntervalSet.from_merged(merged)
     return truth.filter_by_size(min_size=config.consensus.min_size)

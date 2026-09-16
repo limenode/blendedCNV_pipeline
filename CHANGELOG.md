@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+The overlap graph became a resource in its own right rather than an internal of
+consensus calling. Both graph builders now take the same two build-time choices,
+record them on the result, and refuse downstream what the choices no longer
+guarantee.
+
+### Added
+
+- **`partition_by`** on `build_callset`, `collect_callsets`, `build_candidates`
+  and `partition_ids`: the `Call` fields an edge never crosses, from
+  `PARTITION_FIELDS = ("svtype", "sample_id")`; chromosome always partitions.
+  The default is unchanged and is what consensus calling needs. Dropping
+  `"sample_id"` gives a cross-sample graph over a cohort -- which calls in one
+  group of samples share a locus with calls in another, at any threshold -- and
+  the two builders give identical answers to that question.
+- **`search_radius`** on `build_callset` and `collect_callsets`, mirroring
+  `build_candidates`: the widest gap a recorded edge spans, default 0. Gap
+  edges are now complete out to the radius, and `filter_edges` refuses a
+  `max_padding` beyond it rather than returning a silently incomplete selection.
+- `CallSet.require_partition`, and `MergedCallSet.chrom_idx` / `svtype_idx`
+  alongside `sample_idx`. The per-component reads raise when the parent does
+  not partition on that field; `IntervalSet.from_merged` and
+  `write_merged_bed(include_sample=True)` go through them.
+- `tests/test_partition.py`.
+
+### Changed
+
+- `build_callset` keeps, per partition, only the calls a later call could still
+  reach -- those ending within `search_radius` of the current start -- instead of
+  the chain of overlapping-or-touching calls. Consensus output is identical, and
+  the default build is 15--20% faster because it no longer records gap edges it
+  could not serve. Before this the gap list was complete only at distance 0:
+  a pair further apart was recorded only if an unbroken chain of touching calls
+  ran between them. Connected components were nevertheless exact at every
+  padding, because every missing pair is bridged by recorded shorter ones
+  (verified against a complete graph on the 327,785-record truth set at 1 kb and
+  10 kb), so no reported number changes. The edge list itself was not a
+  complete pair list, which matters once it is exposed.
+- `evaluation.py` and the padding-sweep scripts (`benchmark_padding.py`,
+  `sensitivity.py`) build the truth set with the radius they go on to filter at.
+
 ## 0.2.0
 
 The package became usable from a terminal. Before this release there was no

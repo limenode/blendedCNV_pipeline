@@ -101,8 +101,13 @@ def bed_paths(root: Path, subdirs: tuple[str, ...]) -> list[str]:
 
 # --------------------------------------------------------------------------- #
 # Call sets. Both graphs are built once and every grid point is a filter on them.
+# The benchmark's gap edges are recorded out to the widest padding either grid
+# asks for; `filter_edges` refuses anything beyond the radius it was built with.
 # --------------------------------------------------------------------------- #
-benchmark = collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS))
+benchmark = collect_callsets(
+    (read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
+    search_radius=int(max(PADDING.max(), WIDE_PADDING.max())),
+)
 raw = collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "30x_Coverage", CALLERS))
 
 

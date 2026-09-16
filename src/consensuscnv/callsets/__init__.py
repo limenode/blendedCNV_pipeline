@@ -15,7 +15,7 @@ from consensuscnv.callsets.bed_io import (
     source_strings_for,
     write_merged_bed,
 )
-from consensuscnv.callsets.calls import Call
+from consensuscnv.callsets.calls import PARTITION_FIELDS, Call
 from consensuscnv.callsets.callset import (
     CallSet,
     CallSource,
@@ -28,6 +28,7 @@ from consensuscnv.callsets.merging import MergedCallSet, merge_components
 from consensuscnv.callsets.registry import Registry, seed_chromosomes
 
 __all__ = [
+    "PARTITION_FIELDS",
     "Call",
     "CallSet",
     "CallSource",

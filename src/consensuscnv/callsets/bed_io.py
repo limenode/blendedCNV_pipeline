@@ -60,19 +60,24 @@ def write_merged_bed(
     """
     Write a merged call set to BED, returning the number of rows written.
     Columns are chrom, start, end, svtype, source, and optionally sample_id.
+
+    The svtype column, and the sample column when asked for, are per-component
+    values, so the parent CallSet must partition on those fields.
     """
     chrom_names = CHROMOSOMES.names
     sample_names = SAMPLES.names
     svtype_names = SVTYPES.names
 
-    representative = merged.representative
-    parent = merged.parent
-    chrom_ids = parent.chrom_idx[representative]
-    svtype_ids = parent.svtype_idx[representative]
-    sample_ids = parent.sample_idx[representative]
-
-    sample_rank = np.argsort(np.argsort(sample_names))[sample_ids]
+    chrom_ids = merged.chrom_idx
+    svtype_ids = merged.svtype_idx
     svtype_rank = np.argsort(np.argsort(svtype_names))[svtype_ids]
+    if "sample_id" in merged.parent.partition_by:
+        sample_ids = merged.sample_idx
+        sample_rank = np.argsort(np.argsort(sample_names))[sample_ids]
+    else:
+        if include_sample:
+            merged.parent.require_partition("sample_id")
+        sample_ids = sample_rank = np.zeros(len(merged), dtype=np.int64)
     order = np.lexsort((sample_rank, svtype_rank, merged.ends, merged.starts, chrom_ids))
 
     chrom_ids = chrom_ids[order].tolist()

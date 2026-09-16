@@ -53,17 +53,21 @@ class IntervalSet:
 
     @classmethod
     def from_merged(cls, merged: MergedCallSet) -> "IntervalSet":
-        parent = merged.parent
-        representative = merged.representative
+        """One interval per component.
+
+        chrom / svtype / sample come off the representative, which is only valid
+        when the parent partitions on them; `source_bits` must come from the
+        merged set, since the representative is one call from one caller.
+        """
         return cls(
             starts=merged.starts,
             ends=merged.ends,
-            chrom_idx=parent.chrom_idx[representative],
-            svtype_idx=parent.svtype_idx[representative],
-            sample_idx=parent.sample_idx[representative],
+            chrom_idx=merged.chrom_idx,
+            svtype_idx=merged.svtype_idx,
+            sample_idx=merged.sample_idx,
             source_bits=merged.source_bits,
-            origin=parent,
-            row_index=representative
+            origin=merged.parent,
+            row_index=merged.representative,
         )
 
     def select(self, rows: np.ndarray) -> "IntervalSet":

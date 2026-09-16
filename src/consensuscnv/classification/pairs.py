@@ -1,7 +1,19 @@
+"""Every pair of intervals across two sets that could ever match.
+
+The mirror of `callsets.callset`: `build_candidates` records every pair within
+`search_radius` of each other, as two key-sorted edge lists, and
+`filter_candidates` is a binary search plus a slice at every parameter point.
+`partition_by` names the fields a pair never crosses, exactly as for
+`build_callset`; the default keeps a query interval to truth intervals of the
+same sample and svtype, and dropping ``sample_id`` compares across a cohort.
+"""
+
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 import numpy as np
 
+from consensuscnv.callsets.calls import PARTITION_FIELDS, normalize_partition
 from consensuscnv.callsets.registry import SAMPLES, SVTYPES
 from consensuscnv.classification.intervals import IntervalSet
 
@@ -37,6 +49,7 @@ class CandidateSet:
     gap_key: np.ndarray
 
     search_radius: int
+    partition_by: tuple[str, ...]
     query: IntervalSet = field(repr=False)
     truth: IntervalSet = field(repr=False)
 
@@ -51,25 +64,28 @@ class CandidateSet:
     def n_truth(self) -> int:
         return len(self.truth)
 
-def partition_ids(interval_set: IntervalSet) -> np.ndarray:
-    """Fold (chrom, svtype, sample) into one integer per row.
+def partition_ids(
+    interval_set: IntervalSet, partition_by: Iterable[str] = PARTITION_FIELDS
+) -> np.ndarray:
+    """Fold chrom and the `partition_by` fields into one integer per row.
 
     Mixed radix. Because registries are process-global, the same formula
-    applied to two different INtervalSets yields directly comparable ids.
+    applied to two different IntervalSets yields directly comparable ids.
     """
-    n_svtypes = len(SVTYPES.names)
-    n_samples = len(SAMPLES.names)
-    return (
-        (interval_set.chrom_idx.astype(np.int64) * n_svtypes + interval_set.svtype_idx)
-        * n_samples
-        + interval_set.sample_idx.astype(np.int64)
-    )
+    partition_by = normalize_partition(partition_by)
+    ids = interval_set.chrom_idx.astype(np.int64)
+    if "svtype" in partition_by:
+        ids = ids * len(SVTYPES.names) + interval_set.svtype_idx
+    if "sample_id" in partition_by:
+        ids = ids * len(SAMPLES.names) + interval_set.sample_idx
+    return ids
 
 def find_candidate_pairs(
     query: IntervalSet,
     truth: IntervalSet,
     *,
-    search_radius: int = 0
+    search_radius: int = 0,
+    partition_by: Iterable[str] = PARTITION_FIELDS,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Find every (query row, truth row) pair sharing a partition and lying within
     `search_radius` base pairs, as two index arrays.
@@ -81,8 +97,8 @@ def find_candidate_pairs(
         empty = np.empty(0, dtype=np.int64)
         return empty, empty
 
-    query_partition = partition_ids(query)
-    truth_partition = partition_ids(truth)
+    query_partition = partition_ids(query, partition_by)
+    truth_partition = partition_ids(truth, partition_by)
 
     # 1. Give each partition a disjoint band. The band must be wider than any
     # coordinate a probe can reach, or a padded probe leaks into its neighbor.
@@ -136,13 +152,18 @@ def build_candidates(
     truth: IntervalSet,
     *,
     search_radius: int = 0,
+    partition_by: Iterable[str] = PARTITION_FIELDS,
 ) -> CandidateSet:
     """Build a CandidateSet from a query and a truth IntervalSet.
 
     `search_radius` is the widest `filter_candidates(max_padding=...)` this
     CandidateSet will be able to serve. Leave it at 0 unless filtering by padding.
+    `partition_by` names the fields a pair never crosses; see `build_callset`.
     """
-    query_row, truth_row = find_candidate_pairs(query, truth, search_radius=search_radius)
+    partition_by = normalize_partition(partition_by)
+    query_row, truth_row = find_candidate_pairs(
+        query, truth, search_radius=search_radius, partition_by=partition_by
+    )
 
     query_start, query_end = query.starts[query_row], query.ends[query_row]
     truth_start, truth_end = truth.starts[truth_row], truth.ends[truth_row]
@@ -168,6 +189,7 @@ def build_candidates(
         gap_t=truth_row[~overlaps][gap_order],
         gap_key=gap_key[gap_order],
         search_radius=search_radius,
+        partition_by=partition_by,
         query=query,
         truth=truth,
     )
