@@ -2,23 +2,19 @@
 
 import threading
 from collections.abc import Iterable
+from pathlib import Path
 
 from consensuscnv.genome import read_genome_file
 
 MAX_SOURCES = 63
+
 
 class Registry:
     """A name -> id table."""
 
     __slots__ = ("_ids", "_label", "_lock", "_max_ids", "_names")
 
-    def __init__(
-        self,
-        label: str,
-        seed=(),
-        *,
-        max_ids: int | None = None
-    ):
+    def __init__(self, label: str, seed=(), *, max_ids: int | None = None):
         self._ids: dict[str, int] = {}
         self._names: list[str] = []
         self._lock = threading.Lock()
@@ -35,7 +31,7 @@ class Registry:
             return index
 
         with self._lock:
-            index = self._ids.get(name) # Check again inside the lock
+            index = self._ids.get(name)  # Check again inside the lock
             if index is not None:
                 return index
 
@@ -64,6 +60,7 @@ class Registry:
     def __repr__(self) -> str:
         return f"<Registry {self._label} ({len(self)} names)>"
 
+
 # Seeded from the config's genome file by `seed_chromosomes`, never at import:
 # the registry should hold the chromosomes of the genome being analysed and
 # nothing else.
@@ -73,14 +70,14 @@ SAMPLES = Registry("sample")
 SOURCES = Registry("source", max_ids=MAX_SOURCES)
 
 
-
-def seed_chromosomes(names: Iterable[str]) -> None:
+def seed_chromosomes(names: Iterable[str] | str | Path) -> None:
     """Intern the analysis chromosomes into the registry, in genome order.
 
-    Call once, before any `build_callset`, typically as
-    ``seed_chromosomes(read_genome_file(path))``. Seeding a name the registry
-    already holds is a no-op; names already present keep the ids they have.
+    Call once, before any `build_callset`.
     """
+    if isinstance(names, (Path, str)):
+        names = read_genome_file(names)
+
     for name in names:
         CHROMOSOMES.intern(name)
 

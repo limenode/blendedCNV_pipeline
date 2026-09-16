@@ -2,12 +2,14 @@
 Interned ids (chrom_idx, svtype_idx, sample_idx, source_bits) come from
 process-wide registries in `registry`, not from the CallSet.
 
-    seed_chromosomes(read_genome_file(genome_file))  # registry, once, first
-    calls = read_bed_calls(path)                     # bed_io; or calls_from_records
-    callset = collect_callsets([...])                # callset
+    seed_chromosomes(genome_file)                    # registry, once, first
+    callset = collect_callsets("beds/*.bed")         # callset; paths, Calls or CallSets
     selection = filter_edges(callset, 0.5)           # edges
     merged = merge_components(callset, selection)    # merging
     write_merged_bed(merged, out)                    # bed_io
+
+`IntervalSet.from_bed` in `consensuscnv.classification` wraps the first two
+lines for anyone who wants the intervals and their graph in one call.
 
 Edges never cross chromosome, nor the fields named by `partition_by` -- by
 default svtype and sample, which is what consensus calling needs. Pass
@@ -23,6 +25,7 @@ from consensuscnv.callsets.calls import PARTITION_FIELDS, Call, calls_from_recor
 from consensuscnv.callsets.callset import (
     CallSet,
     CallSource,
+    bed_paths_of,
     build_callset,
     collect_callsets,
     sort_into_genome_order,
@@ -39,6 +42,7 @@ __all__ = [
     "EdgeSelection",
     "MergedCallSet",
     "Registry",
+    "bed_paths_of",
     "build_callset",
     "calls_from_records",
     "collect_callsets",

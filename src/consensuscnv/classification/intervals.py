@@ -1,13 +1,20 @@
 """One side of a classification: flat intervals plus the columns needed to
 partition, label, and write them back out.
+
+`from_bed` and `from_records` are the front door: one call takes files or plain
+intervals to an IntervalSet whose `origin` CallSet carries the overlap graph.
 """
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 import numpy as np
 
-from consensuscnv.callsets.callset import CallSet
+from consensuscnv.callsets.calls import PARTITION_FIELDS, calls_from_records
+from consensuscnv.callsets.callset import CallSet, CallSource, collect_callsets
 from consensuscnv.callsets.merging import MergedCallSet
+from consensuscnv.callsets.registry import read_genome_file, seed_chromosomes
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +44,62 @@ class IntervalSet:
     def n_sources(self) -> np.ndarray:
         """Distinct callers behind each interval."""
         return np.bitwise_count(self.source_bits)
+
+    @classmethod
+    def from_bed(
+        cls,
+        paths: CallSource | Iterable[CallSource],
+        *,
+        genome: str | Path | Iterable[str] | None = None,
+        partition_by: Iterable[str] = PARTITION_FIELDS,
+        search_radius: int = 0,
+    ) -> "IntervalSet":
+        """Intervals from BED files, with their overlap graph built.
+
+        `paths` is one path, a glob pattern, or any iterable of them -- anything
+        `collect_callsets` takes, so a CallSet or an iterable of Calls works too.
+        `genome` is the genome file, or the chromosome names, of the analysis: it
+        seeds the chromosome registry (needed once per process, a no-op after)
+        and is the order rows are sorted into. Without it the registry's
+        existing order is used.
+        """
+        chromosome_order = None
+        if genome is not None:
+            chromosome_order = (
+                read_genome_file(genome) if isinstance(genome, (str, Path)) else tuple(genome)
+            )
+            seed_chromosomes(chromosome_order)
+        callset = collect_callsets(
+            paths,
+            chromosome_order=chromosome_order,
+            partition_by=partition_by,
+            search_radius=search_radius,
+        )
+        return cls.from_callset(callset)
+
+    @classmethod
+    def from_records(
+        cls,
+        records: Iterable[Mapping | tuple],
+        *,
+        genome: str | Path | Iterable[str] | None = None,
+        svtype: str = "CNV",
+        source: str = "user",
+        sample_id: str = "sample",
+        partition_by: Iterable[str] = PARTITION_FIELDS,
+        search_radius: int = 0,
+    ) -> "IntervalSet":
+        """Intervals from plain records, with their overlap graph built.
+
+        `records` and the three field defaults are `calls_from_records`'s: each
+        record is ``(chrom, start, end[, svtype[, source[, sample_id]]])`` or a
+        mapping with those keys. `genome`, `partition_by` and `search_radius`
+        are as for `from_bed`.
+        """
+        calls = calls_from_records(records, svtype=svtype, source=source, sample_id=sample_id)
+        return cls.from_bed(
+            calls, genome=genome, partition_by=partition_by, search_radius=search_radius
+        )
 
     @classmethod
     def from_callset(cls, callset: CallSet) -> "IntervalSet":

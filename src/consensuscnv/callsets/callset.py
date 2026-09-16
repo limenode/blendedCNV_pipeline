@@ -20,13 +20,16 @@ Two build-time choices bound what the graphs compute edges for:
   `max_padding` that `filter_edges` can serve. Overlap edges are always complete.
 """
 
+import glob
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from operator import attrgetter
+from pathlib import Path
 
 import numpy as np
 
+from consensuscnv.callsets.bed_io import read_bed_calls
 from consensuscnv.callsets.calls import PARTITION_FIELDS, Call, normalize_partition
 from consensuscnv.callsets.registry import (
     CHROMOSOMES,
@@ -44,6 +47,7 @@ class CallSet:
     Notes:
         - To get all chromosomes present in the CallSet, use `np.unique(cs.chrom_idx)`.
     """
+
     calls: list[Call]
 
     # columnar node fields
@@ -89,9 +93,7 @@ class CallSet:
             )
 
 
-def sort_into_genome_order(
-    calls: Iterable[Call], chromosome_order: Iterable[str]
-) -> list[Call]:
+def sort_into_genome_order(calls: Iterable[Call], chromosome_order: Iterable[str]) -> list[Call]:
     """Put calls into canonical order: (chrom, start, end, svtype, source, sample_id)."""
     by_chrom = defaultdict(list)
     for call in calls:
@@ -274,24 +276,46 @@ def build_callset(
     )
 
 
-CallSource = CallSet | Iterable[Call]
+CallSource = CallSet | Iterable[Call] | str | Path
+
+
+def bed_paths_of(source: str | Path) -> list[Path]:
+    """The BED files one path argument names: itself, or a glob pattern's matches.
+
+    A path naming an existing file is taken as is, so a filename that happens to
+    contain a glob character is never expanded.
+    """
+    if isinstance(source, str) and glob.has_magic(source) and not Path(source).is_file():
+        matches = sorted(glob.glob(source))
+        if not matches:
+            raise FileNotFoundError(f"no files match {source!r}")
+        return [Path(match) for match in matches]
+    return [Path(source)]
 
 
 def collect_callsets(
-    sources: Iterable[CallSource],
+    sources: CallSource | Iterable[CallSource],
     *,
     chromosome_order: Iterable[str] | None = None,
     partition_by: Iterable[str] = PARTITION_FIELDS,
     search_radius: int = 0,
 ) -> CallSet:
-    """Pool calls from any mix of CallSets and raw Call iterables into one CallSet.
+    """Pool calls from any mix of BED paths, CallSets and Call iterables into one CallSet."""
+    if isinstance(sources, (CallSet, str, Path)):
+        sources = [sources]
 
-    The keyword arguments are `build_callset`'s, and the graph is rebuilt from
-    the pooled calls under them regardless of how any input CallSet was built.
-    """
     calls: list[Call] = []
     for source in sources:
-        calls.extend(source.calls if isinstance(source, CallSet) else source)
+        if isinstance(source, Call):
+            calls.append(source)
+        elif isinstance(source, CallSet):
+            calls.extend(source.calls)
+        elif isinstance(source, (str, Path)):
+            for path in bed_paths_of(source):
+                calls.extend(read_bed_calls(path))
+        else:
+            calls.extend(source)
+
     return build_callset(
         calls,
         chromosome_order=chromosome_order,

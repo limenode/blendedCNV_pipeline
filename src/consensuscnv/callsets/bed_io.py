@@ -1,13 +1,22 @@
-"""Reading calls from BED and writing merged call sets back out."""
+"""Reading calls from BED and writing merged call sets back out.
+
+Imports nothing above `calls` and `registry` at module scope: `callset` reads
+BEDs through here, so a real import of `merging` would be a cycle.
+"""
+
+from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from consensuscnv.callsets.calls import Call
-from consensuscnv.callsets.merging import MergedCallSet
 from consensuscnv.callsets.registry import CHROMOSOMES, SAMPLES, SOURCES, SVTYPES
+
+if TYPE_CHECKING:
+    from consensuscnv.callsets.merging import MergedCallSet
 
 
 def read_bed_calls(path: str | Path, *, sample_id: str | None = None) -> Iterator[Call]:
