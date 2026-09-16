@@ -62,14 +62,16 @@ pixi run pytest
 Write a config template and the reference files it needs into a directory:
 
 ```bash
-consensuscnv init myrun
+consensuscnv init template
 ```
 
-This gives you `myrun/config.yaml`, the hg38 chromosome lengths
+This gives you `template/config.yaml`, the hg38 chromosome lengths
 (`genome_primary_hg38.txt`, and `genome_autosome_hg38.txt` with chrX and chrY
 commented out) and the hg38 excluded regions (`excluded_regions_hg38.bed`:
-centromeres and assembly gaps). The config already points at the autosome and
-excluded-region files. Point it at your data:
+centromeres and assembly gaps). `config.yaml` holds just the fields `call`
+needs, and `genome_file` / `excluded_regions_file` are already filled in with
+the absolute paths of the written files, so the config works from any
+directory. Point it at your data:
 
 ```yaml
 experimental:
@@ -88,11 +90,12 @@ output_dir: "/data/out"
 same way; swap in its lengths and exclusion BED.
 
 ```bash
-consensuscnv call myrun/config.yaml
+consensuscnv call template/config.yaml
 ```
 
-This parses the VCFs and writes the consensus BEDs. Every option in
-`config.yaml` is documented inline in that file.
+This parses the VCFs and writes the consensus BEDs. Every option, with its
+default and the settings `benchmark` reads, is documented inline in
+`template/config.full.yaml`, written beside the short config.
 The flags below can also be used to specify options, and take precedence over those inside of the config.
 
 ```
@@ -283,15 +286,17 @@ If you use this pipeline, please cite:
 
 ## Contributing
 
-[INSERT CONTRIBUTION GUIDELINES IF APPLICABLE] -->
-
-## License
-
-GPL-3.0-or-later. See [LICENSE](https://github.com/limenode/consensuscnv/blob/main/LICENSE).
+[INSERT CONTRIBUTION GUIDELINES IF APPLICABLE] 
 
 ## Contact
 
 - **Lionel Sequeira** - lionelsequeira@gmail.com
+
+-->
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](https://github.com/limenode/consensuscnv/blob/main/LICENSE).
 
 <!-- ## Acknowledgments
 

@@ -64,11 +64,13 @@ def build_parser() -> argparse.ArgumentParser:
         "init",
         help="write a config template and the hg38 genome and excluded-region files",
         description=(
-            "Write config.yaml and the files it points at into a directory: the "
+            "Write config.yaml (the fields `call` needs), config.full.yaml (every "
+            "option, documented) and the files they point at into a directory: the "
             "hg38 chromosome lengths (all primary chromosomes, and the autosomes "
-            "only) and the excluded regions (centromeres and assembly gaps). The "
-            "config's genome_file and excluded_regions_file are filled in; the "
-            "input and output paths are left for you."
+            "only) and the excluded regions (centromeres and assembly gaps). Both "
+            "configs get the absolute paths of the written genome and "
+            "excluded-region files, so they work from any directory; the input "
+            "and output paths are left for you."
         ),
     )
     init.add_argument(
@@ -188,10 +190,11 @@ def describe(config: PipelineConfig) -> None:
     )
 
 
-# What `init` writes, in the order it reports them. The config comes first and is
-# the only one edited on the way out.
+# What `init` writes, in the order it reports them. The short config comes first;
+# the two configs are the only files edited on the way out.
 TEMPLATE_FILES = (
     "config.yaml",
+    "config.full.yaml",
     "genome_primary_hg38.txt",
     "genome_autosome_hg38.txt",
     "excluded_regions_hg38.bed",
@@ -224,7 +227,7 @@ def write_templates(directory: Path, *, force: bool = False) -> list[Path]:
     directory.mkdir(parents=True, exist_ok=True)
     for name, target in zip(TEMPLATE_FILES, targets, strict=True):
         text = (templates / name).read_text()
-        if name == "config.yaml":
+        if name.endswith(".yaml"):
             text = _fill_template_paths(text, directory.resolve())
         target.write_text(text)
     return targets

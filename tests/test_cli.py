@@ -14,10 +14,13 @@ def test_init_writes_every_template_and_fills_in_paths(tmp_path, capsys):
     for name in TEMPLATE_FILES:
         assert (target / name).is_file(), name
 
-    config = yaml.safe_load((target / "config.yaml").read_text())
     genome = target / "genome_autosome_hg38.txt"
-    assert config["genome_file"] == str(genome.resolve())
-    assert config["excluded_regions_file"] == str((target / "excluded_regions_hg38.bed").resolve())
+    for name in ("config.yaml", "config.full.yaml"):
+        config = yaml.safe_load((target / name).read_text())
+        assert config["genome_file"] == str(genome.resolve()), name
+        assert config["excluded_regions_file"] == str(
+            (target / "excluded_regions_hg38.bed").resolve()
+        ), name
     assert len(read_genome_file(genome)) == 22  # chrX and chrY are commented out
 
     out = capsys.readouterr().out

@@ -1,89 +1,25 @@
-# === STANDARD OPERATION ===
+# consensuscnv config -- the fields `consensuscnv call` needs.
+# Every option, with its default, and the `benchmark` settings: config.full.yaml.
 
-# Input datasets
+# Caller output, one block per call set: tool label -> per-sample path pattern.
+# {id} is the sample id; glob patterns work.
 experimental:
-  "Low Coverage":
-    cnvpytor: "/path/to/low_cov/cnvpytor/{id}.calls.1000bp.vcf"
-    delly: "/path/to/low_cov/delly/{id}.bcf"
-    gatk: "/path/to/low_cov/gatk/{id}/*_segments_{id}.vcf.gz"
-  "High Coverage":
-    cnvpytor: "/path/to/high_cov/cnvpytor/{id}.calls.1000bp.vcf"
-    delly: "/path/to/high_cov/delly/{id}.bcf"
-    gatk: "/path/to/high_cov/gatk/{id}/*_segments_{id}.vcf.gz"
+  "My Samples":
+    cnvpytor: "/path/to/cnvpytor/{id}.calls.vcf"
+    delly: "/path/to/delly/{id}.bcf"
+    gatk: "/path/to/gatk/{id}/*_segments_{id}.vcf.gz"
 
-# Output directory
+# Where parsed BEDs and consensus output are written.
 output_dir: "/path/to/output"
 
-# Reference genome file [required] - two columns, name<TAB>length. A .fa.fai works.
-# This defines the analysis domain: a chromosome commented out with '#' is
-# excluded from the run, and calls on it are dropped at parse time. It also fixes
-# the order rows are written in. `consensuscnv init` writes genome_autosome_hg38.txt
-# beside this file and fills in its path; it is genome_primary_hg38.txt with chrX
-# and chrY commented out.
+# Chromosome lengths, name<TAB>length. A chromosome commented out is excluded.
 genome_file: "genome_autosome_hg38.txt"
 
-# Sample allowlist [optional] - one sample ID per line, blank lines and '#' comments ignored.
-sample_list_file: "/path/to/samples.txt"
-
-# Excluded regions file [optional] - BED of regions a call may not lie in.
-# `consensuscnv init` writes the hg38 centromeres and gaps beside this file.
+# BED of regions a call may not lie in [optional]. hg38 centromeres and gaps.
 excluded_regions_file: "excluded_regions_hg38.bed"
 
-# How much of a call may lie inside an excluded region before the whole call is
-# dropped, as a fraction of its length. 0.0 drops on any overlap. Default: 0.01
-max_excluded_fraction: 0.01
-
-# Consensus calling parameters [optional]
 consensus:
-  # Reciprocal overlap required for two calls to be treated as the same event.
-  # A list: one consensus run is produced per value, each in its own directory
-  # (out/consensus/<call set>/overlap_0.50/). 0.0 means "any shared base".
-  # A single number is accepted too. Default: [0.5]
-  reciprocal_overlap: [0.0, 0.25, 0.5, 0.75]
-
-  # Drop merged consensus calls shorter than this, in base pairs. Default: 1000
+  # Reciprocal overlap for two calls to be the same event. A list runs each value.
+  reciprocal_overlap: [0.5]
+  # Drop consensus calls shorter than this, in base pairs.
   min_size: 1000
-
-# Every consensus level is written, from 1 up to the number of tools configured
-# for a call set: three input tools gives 1of3.bed, 2of3.bed and 3of3.bed.
-
-
-# === BENCHMARKING ===
-
-# Control datasets [optional, used by `consensuscnv benchmark`]
-control:
-  "Example SNP Array": "/path/to/array/data.cnv"
-
-# Benchmark datasets [required by `consensuscnv benchmark`]
-# Each value is a local path or a URL. URLs are downloaded on first use into
-# <output_dir>/downloads/ and reused afterwards; that directory is safe to delete.
-benchmark:
-  "1000G": "/path/to/hgsvc2/benchmark.vcf"
-  "HGSVC3": "/path/to/hgsvc2/benchmark.bcf"
-  "ONT Vienna": "/path/to/hgsvc2/benchmark.vcf.gz"
-
-# Evaluation parameters [optional] - only read by `consensuscnv benchmark`
-evaluation:
-  # Padding that bridges neighbouring benchmark records when the truth set is
-  # merged, in base pairs. 0 still bridges exactly-touching records; `null`
-  # disables distance merging entirely. Default: 0
-  benchmark_padding: 0
-
-  # Reciprocal overlap a call must clear against a benchmark interval to be
-  # credited as a match. This is the crediting rule, and it is independent of
-  # consensus.reciprocal_overlap. Default: 0.5
-  reciprocal_overlap: 0.5
-
-# The analysis size domain is consensus.min_size above, applied to the truth set
-# as well, so both sides of every comparison cover the same range.
-
-# Liftover specifications [optional]
-# Each key names the dataset whose files are in a different build to the target build.
-# Valid keys are an experimental call set, a tool label inside one, a control name, or a benchmark
-# name. For an experimental file the tool label is checked first and the call set
-# second, so naming a tool lifts that caller wherever it appears, naming a call set
-# lifts everything in it, and naming both lets the tool take precedence.
-liftover:
-  "Example SNP Array":
-    "from": "hg18"
-    "to": "hg38"

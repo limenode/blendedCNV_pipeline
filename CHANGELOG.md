@@ -9,12 +9,14 @@ result, and refuse downstream what the choices no longer guarantee.
 
 ### Added
 
-- **`consensuscnv init [dir]`** writes a config template and the reference
-  files it points at -- the hg38 chromosome lengths, with and without the sex
-  chromosomes, and the hg38 excluded regions -- with `genome_file` and
-  `excluded_regions_file` already filled in. `--force` overwrites. These
-  files ship inside the package (`consensuscnv/templates/`), so a `pip`
-  install has everything the quick start needs.
+- **`consensuscnv init [dir]`** writes two config templates -- `config.yaml`
+  with only the fields `call` needs, and `config.full.yaml` with every option
+  documented -- and the reference files they point at: the hg38 chromosome
+  lengths, with and without the sex chromosomes, and the hg38 excluded
+  regions. `genome_file` and `excluded_regions_file` are filled in with the
+  written files' absolute paths. `--force` overwrites. These files ship inside
+  the package (`consensuscnv/templates/`), so a `pip` install has everything
+  the quick start needs.
 - `python -m consensuscnv`, the same entry point as the script.
 - A GitHub Actions workflow that builds one distribution, verifies it on
   Python 3.12--3.14 against the test suite and both entry points, and
