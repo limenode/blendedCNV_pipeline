@@ -1,9 +1,4 @@
-"""Reading the genome file: the ordered chromosome names an analysis is over.
-
-Its own module because both `callsets.registry` and `utils` need it and neither
-should import the other -- `utils` stays light enough to load a config in tens
-of milliseconds, and `callsets` pulls in numpy and scipy.
-"""
+"""Reading the genome file: the ordered chromosome names over which an analysis is performed."""
 
 from pathlib import Path
 
@@ -26,4 +21,3 @@ def read_genome_file(path: str | Path) -> tuple[str, ...]:
     if not names:
         raise ValueError(f"No chromosomes found in genome file: {path}")
     return tuple(names)
-

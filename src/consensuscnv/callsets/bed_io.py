@@ -13,10 +13,8 @@ from consensuscnv.callsets.registry import CHROMOSOMES, SAMPLES, SOURCES, SVTYPE
 def read_bed_calls(path: str | Path, *, sample_id: str | None = None) -> Iterator[Call]:
     """Yield Calls from a BED of ``chrom start end svtype source [sample_id]``.
 
-    Both layouts this package writes read back: the per-sample five-column file,
-    whose sample is the filename stem, and the combined six-column file from
-    `write_merged_bed(include_sample=True)`, whose sample is the sixth column.
-    An explicit `sample_id` overrides both.
+    Can override the sample_id column with a fixed value, or else it will be
+    taken from the sixth column of the BED file or the stem of the BED file's name.
 
     A consensus file's `source` column is the pipe-joined callers behind each
     call (``cnvpytor|delly``); it comes back as one opaque source label, so
