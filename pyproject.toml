@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "consensuscnv"
-version = "0.2.0"
+version = "0.3.0"
 description = "Graph-based consensus copy-number-variant calling from low-pass WGS, with optional benchmarking against gold-standard call sets."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -71,6 +71,11 @@ package-dir = { "" = "src" }
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["consensuscnv*"]
+
+# What `consensuscnv init` writes out: the config template and the hg38 genome
+# and excluded-region files it points at.
+[tool.setuptools.package-data]
+consensuscnv = ["templates/*"]
 
 # --- Tests -----------------------------------------------------------------
 [tool.pytest.ini_options]

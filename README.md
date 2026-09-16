@@ -31,19 +31,26 @@ Output is in BED and CSV formats.
 Requires Python 3.12 or newer.
 
 ```bash
-pip install .
+pip install consensuscnv
+```
+
+or
+
+```bash
+uv add consensuscnv
 ```
 
 Two dependencies carry compiled extensions: `cyvcf2` (which needs htslib) and
-`liftover`. If `pip` cannot build them, conda-forge has both:
+`liftover`. If `pip` cannot build them, install those two from conda-forge first;
+`pip` then finds them satisfied and installs the rest:
 
 ```bash
 conda install -c conda-forge -c bioconda cyvcf2 liftover
-pip install --no-deps .
+pip install consensuscnv
 ```
 
-To work on the code instead, this repository ships a `pixi.toml` that pins the
-whole environment:
+To work on the code instead, clone the repository; it ships a `pixi.toml` that
+pins the whole environment:
 
 ```bash
 pixi install
@@ -52,7 +59,17 @@ pixi run pytest
 
 ## Quick start
 
-Copy `config.yaml`, point it at your data, and run one command.
+Write a config template and the reference files it needs into a directory:
+
+```bash
+consensuscnv init myrun
+```
+
+This gives you `myrun/config.yaml`, the hg38 chromosome lengths
+(`genome_primary_hg38.txt`, and `genome_autosome_hg38.txt` with chrX and chrY
+commented out) and the hg38 excluded regions (`excluded_regions_hg38.bed`:
+centromeres and assembly gaps). The config already points at the autosome and
+excluded-region files. Point it at your data:
 
 ```yaml
 experimental:
@@ -62,16 +79,16 @@ experimental:
     gatk:     "/data/gatk/{id}/*_segments_{id}.vcf.gz"
 
 output_dir: "/data/out"
-genome_file: "/path/to/genome.txt"
 ```
 
 `{id}` is the sample id, and glob patterns work. `genome_file` is a two-column
 `name<TAB>length` file — a `.fa.fai` works — and it defines the analysis domain:
 **a chromosome commented out with `#` is excluded from the run**, which is how
-`data/genome_autosome_hg38.txt` drops the sex chromosomes.
+`genome_autosome_hg38.txt` drops the sex chromosomes. Any other build works the
+same way; swap in its lengths and exclusion BED.
 
 ```bash
-consensuscnv call config.yaml
+consensuscnv call myrun/config.yaml
 ```
 
 This parses the VCFs and writes the consensus BEDs. Every option in
@@ -238,7 +255,9 @@ Use `pixi run build` to produce a distribution.
 
 ## Included Files - Sources
 
-This repository hosts files in the `data/` directory that contains information derived from other databases. If you choose to use these files for this pipeline, please cite the appropriate sources.
+The reference files `consensuscnv init` writes (kept in
+`src/consensuscnv/templates/`) are derived from other databases. If you use
+them, please cite the appropriate sources.
 
 - `genome_primary_hg38.txt`
   - Human reference genome GRCh38/hg38 chromosome lengths for chr1-chr22, chrX, and chrY.
@@ -264,17 +283,17 @@ If you use this pipeline, please cite:
 
 ## Contributing
 
-[INSERT CONTRIBUTION GUIDELINES IF APPLICABLE]
+[INSERT CONTRIBUTION GUIDELINES IF APPLICABLE] -->
 
 ## License
 
-[INSERT LICENSE INFORMATION]
+GPL-3.0-or-later. See [LICENSE](https://github.com/limenode/consensuscnv/blob/main/LICENSE).
 
 ## Contact
 
-- **Lionel Sequeira** - [lionelsequeira@gmail.com]
+- **Lionel Sequeira** - lionelsequeira@gmail.com
 
-## Acknowledgments
+<!-- ## Acknowledgments
 
 - [INSERT FUNDING SOURCES]
 - [INSERT COLLABORATORS/ACKNOWLEDGMENTS] -->

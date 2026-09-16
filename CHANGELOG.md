@@ -1,14 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
-The overlap graph became a resource in its own right rather than an internal of
-consensus calling. Both graph builders now take the same two build-time choices,
-record them on the result, and refuse downstream what the choices no longer
-guarantee.
+The first release on PyPI: `pip install consensuscnv`. The overlap graph became
+a resource in its own right rather than an internal of consensus calling. Both
+graph builders now take the same two build-time choices, record them on the
+result, and refuse downstream what the choices no longer guarantee.
 
 ### Added
 
+- **`consensuscnv init [dir]`** writes a config template and the reference
+  files it points at -- the hg38 chromosome lengths, with and without the sex
+  chromosomes, and the hg38 excluded regions -- with `genome_file` and
+  `excluded_regions_file` already filled in. `--force` overwrites. These
+  files ship inside the package (`consensuscnv/templates/`), so a `pip`
+  install has everything the quick start needs.
+- `python -m consensuscnv`, the same entry point as the script.
+- A GitHub Actions workflow that builds one distribution, verifies it on
+  Python 3.12--3.14 against the test suite and both entry points, and
+  publishes to TestPyPI on a manual run and to PyPI on a GitHub release
+  through trusted publishing.
 - **`partition_by`** on `build_callset`, `collect_callsets`, `build_candidates`
   and `partition_ids`: the `Call` fields an edge never crosses, from
   `PARTITION_FIELDS = ("svtype", "sample_id")`; chromosome always partitions.
@@ -54,6 +65,14 @@ guarantee.
 
 ### Changed
 
+- **Python 3.12 or newer is required.** The package declared 3.10 but its
+  pinned numpy and scipy need 3.12; the metadata now says so.
+- The config template and the hg38 reference files moved from the repository
+  root (`config.yaml`, `data/`) into the package, where `init` reads them.
+- The sdist carries the runnable test suite (`tests/conftest.py` was missing,
+  so the tests it shipped could not run) and the changelog.
+- The package version is defined once, in `pyproject.toml`; `pixi.toml` no
+  longer carries a copy.
 - `build_callset` keeps, per partition, only the calls a later call could still
   reach -- those ending within `search_radius` of the current start -- instead of
   the chain of overlapping-or-touching calls. Consensus output is identical, and

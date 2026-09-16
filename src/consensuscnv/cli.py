@@ -1,7 +1,8 @@
 """Command line interface.
 
-Two subcommands:
+Three subcommands:
 
+    consensuscnv init [dir]               write a config template + hg38 files
     consensuscnv call <config.yaml>       parse + consensus -> BED files
     consensuscnv benchmark <config.yaml>  the same, plus the truth-set comparison
 """
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 
 EPILOG = """\
 examples:
+  consensuscnv init myrun
   consensuscnv call config.yaml
   consensuscnv call config.yaml --reuse-beds --overlap 0.25,0.5,0.75
   consensuscnv call config.yaml --per-sample -o /scratch/out
@@ -57,6 +59,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"consensuscnv {_version()}")
 
     subcommands = parser.add_subparsers(dest="command", required=True, metavar="<command>")
+
+    init = subcommands.add_parser(
+        "init",
+        help="write a config template and the hg38 genome and excluded-region files",
+        description=(
+            "Write config.yaml and the files it points at into a directory: the "
+            "hg38 chromosome lengths (all primary chromosomes, and the autosomes "
+            "only) and the excluded regions (centromeres and assembly gaps). The "
+            "config's genome_file and excluded_regions_file are filled in; the "
+            "input and output paths are left for you."
+        ),
+    )
+    init.add_argument(
+        "directory", type=Path, nargs="?", default=Path("."),
+        help="where to write; created if missing (default: the current directory)",
+    )
+    init.add_argument(
+        "--force", action="store_true",
+        help="overwrite files that already exist",
+    )
+    init.set_defaults(handler=cmd_init)
 
     call = subcommands.add_parser(
         "call",
@@ -163,6 +186,74 @@ def describe(config: PipelineConfig) -> None:
         + ", ".join(f"{value:g}" for value in config.consensus.reciprocal_overlaps)
         + f"; min size {config.consensus.min_size} bp"
     )
+
+
+# What `init` writes, in the order it reports them. The config comes first and is
+# the only one edited on the way out.
+TEMPLATE_FILES = (
+    "config.yaml",
+    "genome_primary_hg38.txt",
+    "genome_autosome_hg38.txt",
+    "excluded_regions_hg38.bed",
+    "included_regions_hg38.bed",
+)
+
+# Config fields whose template value is the bare name of another template file;
+# `init` replaces the value with that file's path in the written directory.
+TEMPLATE_PATH_FIELDS = ("genome_file", "excluded_regions_file")
+
+
+def write_templates(directory: Path, *, force: bool = False) -> list[Path]:
+    """Write the template files into `directory` and return their paths.
+
+    Refuses to overwrite an existing file unless `force`, and checks every
+    target before writing any, so a refusal leaves the directory untouched.
+    """
+    from importlib.resources import files
+
+    templates = files("consensuscnv") / "templates"
+    targets = [directory / name for name in TEMPLATE_FILES]
+    if not force:
+        existing = [path for path in targets if path.exists()]
+        if existing:
+            raise FileExistsError(
+                "refusing to overwrite " + ", ".join(str(p) for p in existing)
+                + " (pass --force to replace them)"
+            )
+
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, target in zip(TEMPLATE_FILES, targets, strict=True):
+        text = (templates / name).read_text()
+        if name == "config.yaml":
+            text = _fill_template_paths(text, directory.resolve())
+        target.write_text(text)
+    return targets
+
+
+def _fill_template_paths(config_text: str, directory: Path) -> str:
+    """Rewrite `field: "name"` to the path of `name` under `directory`."""
+    lines = []
+    for line in config_text.splitlines(keepends=True):
+        for field in TEMPLATE_PATH_FIELDS:
+            prefix = f"{field}: "
+            if line.startswith(prefix):
+                name = line[len(prefix):].strip().strip('"')
+                if name in TEMPLATE_FILES:
+                    line = f'{prefix}"{directory / name}"\n'
+        lines.append(line)
+    return "".join(lines)
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    written = write_templates(args.directory, force=args.force)
+    for path in written:
+        print(f"wrote {path}")
+    print(
+        f"\nNext: edit {written[0]} -- point `experimental` at your caller output "
+        "and `output_dir` somewhere writable, then run\n"
+        f"  consensuscnv call {written[0]}"
+    )
+    return 0
 
 
 def cmd_call(args: argparse.Namespace) -> int:

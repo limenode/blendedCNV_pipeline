@@ -88,6 +88,7 @@ jobs:
           consensuscnv --version
           consensuscnv --help > /dev/null
           python -m consensuscnv --help > /dev/null
+          consensuscnv init "${RUNNER_TEMP}/init" > /dev/null   # the templates ship in the wheel
           python -c "from consensuscnv.callsets import collect_callsets, merge_components"
           python -c "from consensuscnv.classification import IntervalSet, build_candidates, classify"
       - name: Run the test suite against the installed wheel

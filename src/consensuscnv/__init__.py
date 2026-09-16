@@ -1,5 +1,6 @@
 """Graph-based consensus copy-number-variant calling.
 
+    consensuscnv init [dir]               write a config template + hg38 files
     consensuscnv call <config.yaml>       parse + consensus -> BED files
     consensuscnv benchmark <config.yaml>  the same, plus the truth-set comparison
 

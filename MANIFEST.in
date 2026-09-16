@@ -1,0 +1,4 @@
+# The sdist carries the runnable test suite (setuptools' default manifest ships
+# tests/test_*.py but not the conftest that seeds the registry) and the changelog.
+recursive-include tests *.py
+include CHANGELOG.md

@@ -17,15 +17,17 @@ output_dir: "/path/to/output"
 # Reference genome file [required] - two columns, name<TAB>length. A .fa.fai works.
 # This defines the analysis domain: a chromosome commented out with '#' is
 # excluded from the run, and calls on it are dropped at parse time. It also fixes
-# the order rows are written in. See data/genome_autosome_hg38.txt, which is
-# data/genome_primary_hg38.txt with chrX and chrY commented out.
-genome_file: "/path/to/genome.txt"
+# the order rows are written in. `consensuscnv init` writes genome_autosome_hg38.txt
+# beside this file and fills in its path; it is genome_primary_hg38.txt with chrX
+# and chrY commented out.
+genome_file: "genome_autosome_hg38.txt"
 
 # Sample allowlist [optional] - one sample ID per line, blank lines and '#' comments ignored.
 sample_list_file: "/path/to/samples.txt"
 
-# Excluded regions file [optional]
-excluded_regions_file: "/path/to/excluded_regions_hg38.bed"
+# Excluded regions file [optional] - BED of regions a call may not lie in.
+# `consensuscnv init` writes the hg38 centromeres and gaps beside this file.
+excluded_regions_file: "excluded_regions_hg38.bed"
 
 # How much of a call may lie inside an excluded region before the whole call is
 # dropped, as a fraction of its length. 0.0 drops on any overlap. Default: 0.01
