@@ -7,7 +7,7 @@ name = "consensuscnv"
 version = "0.2.0"
 description = "Graph-based consensus copy-number-variant calling from low-pass WGS, with optional benchmarking against gold-standard call sets."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [
@@ -28,8 +28,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -37,7 +35,8 @@ classifiers = [
 
 # Runtime. Everything the parse -> overlap graph -> consensus -> BED path needs,
 # plus the classification the `benchmark` subcommand runs.
-# Mirrors pixi.toml in the development environment
+# Mirrors pixi.toml in the development environment. numpy >= 2.5 and
+# scipy >= 1.18 require Python 3.12, which is what sets `requires-python`.
 dependencies = [
     "cyvcf2>=0.34.0,<0.35",
     "liftover>=1.4.1,<2",
@@ -57,8 +56,8 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/limenode/blendedCNV_pipeline"
-Issues = "https://github.com/limenode/blendedCNV_pipeline/issues"
+Repository = "https://github.com/limenode/consensuscnv"
+Issues = "https://github.com/limenode/consensuscnv/issues"
 
 [project.scripts]
 consensuscnv = "consensuscnv.cli:main"
@@ -84,7 +83,7 @@ addopts = "-q --strict-markers --strict-config"
 [tool.ruff]
 src = ["src"]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint.isort]
 # `sobol` is a sibling module of the scripts in manuscript/scripts/, imported by

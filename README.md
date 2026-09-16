@@ -28,7 +28,7 @@ Output is in BED and CSV formats.
 
 ## Installation
 
-Requires Python 3.10 or newer.
+Requires Python 3.12 or newer.
 
 ```bash
 pip install .

@@ -41,7 +41,7 @@ the same FTP directory as the genotyped BCF).
 
 import argparse
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cyvcf2 import VCF, Writer
@@ -202,7 +202,7 @@ def main() -> None:
         {"ID": "INS_LEN", "Number": "1", "Type": "Integer", "Description": "Length of the inserted sequence"}
     )
     source.add_to_header(
-        f"##svan_duplications=<Date={datetime.now(tz=timezone.utc).date().isoformat()},Genotypes={args.genotypes.name},"
+        f"##svan_duplications=<Date={datetime.now(tz=UTC).date().isoformat()},Genotypes={args.genotypes.name},"
         f"Annotations={args.annotations.name},Classes={'|'.join(sorted(DUPLICATION_CLASSES))},"
         f'Rule="INS with SVAN DUP_COORD rewritten as <DUP> over the span of its reference hits; '
         f'flank hits translated with offset {FLANK_OFFSET}; multi-allelic records collapsed to one allele">'

@@ -3087,7 +3087,7 @@ packages:
   - pyyaml>=6.0.3,<7
   - requests>=2.34.2,<3
   - scipy>=1.18.0,<2
-  requires_python: '>=3.10'
+  requires_python: '>=3.12'
 - pypi: https://files.pythonhosted.org/packages/d7/8c/cf8cfd21f782a1f5db850fc674d308ee45a3df17d3c0683c2ccc321a1581/liftover-1.4.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
   name: liftover
   version: 1.4.1
