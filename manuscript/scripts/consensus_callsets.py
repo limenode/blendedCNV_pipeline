@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import SOURCES, SVTYPES, seed_chromosomes
 from consensuscnv.classification.intervals import IntervalSet
 from consensuscnv.utils import read_genome_file
@@ -62,14 +62,12 @@ for coverage in COVERAGES:
     # Raw per-caller sets, read from their own directories with no merging, so
     # the extents are the caller's own rather than a component's.
     for caller in CALLERS:
-        raw = IntervalSet.from_callset(
-            collect_callsets(read_bed_calls(b) for b in beds(coverage, (caller,)))
-        )
+        raw = IntervalSet.from_bed(beds(coverage, (caller,)))
         rows.append(describe(coverage, caller, raw))
 
     merged = IntervalSet.from_merged(
         merge_components(
-            collect_callsets(read_bed_calls(b) for b in beds(coverage, CALLERS)),
+            collect_callsets(beds(coverage, CALLERS)),
             min_reciprocal_overlap=CONSENSUS_THRESHOLD,
         )
     )

@@ -35,7 +35,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import SOURCES, SVTYPES, seed_chromosomes
 from consensuscnv.classification.intervals import IntervalSet
 from consensuscnv.utils import read_genome_file
@@ -71,7 +71,7 @@ def merged_components(coverage: str) -> IntervalSet:
     ]
     return IntervalSet.from_merged(
         merge_components(
-            collect_callsets(read_bed_calls(bed) for bed in beds),
+            collect_callsets(beds),
             min_reciprocal_overlap=CONSENSUS_THRESHOLD,
         )
     )

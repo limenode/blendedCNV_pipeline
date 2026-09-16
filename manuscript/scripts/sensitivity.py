@@ -39,7 +39,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import seed_chromosomes
 from consensuscnv.classification.classify import classify
 from consensuscnv.classification.intervals import IntervalSet
@@ -105,10 +105,10 @@ def bed_paths(root: Path, subdirs: tuple[str, ...]) -> list[str]:
 # asks for; `filter_edges` refuses anything beyond the radius it was built with.
 # --------------------------------------------------------------------------- #
 benchmark = collect_callsets(
-    (read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
+    bed_paths(ROOT / "out" / "benchmark", BENCHMARKS),
     search_radius=int(max(PADDING.max(), WIDE_PADDING.max())),
 )
-raw = collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "30x_Coverage", CALLERS))
+raw = collect_callsets(bed_paths(ROOT / "out" / "30x_Coverage", CALLERS))
 
 
 def sweep(padding: np.ndarray, floor: np.ndarray, levels: tuple[int, ...]) -> dict[int, dict[str, np.ndarray]]:

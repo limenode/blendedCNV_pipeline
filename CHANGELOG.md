@@ -24,6 +24,12 @@ guarantee.
   alongside `sample_idx`. The per-component reads raise when the parent does
   not partition on that field; `IntervalSet.from_merged` and
   `write_merged_bed(include_sample=True)` go through them.
+- **`IntervalSet.from_bed`** and **`IntervalSet.from_records`**: one call from
+  files -- a path, a glob, or a list of them -- or plain records to an
+  IntervalSet whose `origin` carries the built graph. `genome=` seeds the
+  chromosome registry, so a script needs one import. Underneath,
+  `seed_chromosomes` takes a genome file path and `collect_callsets` takes
+  paths and globs alongside CallSets and Calls, singly or in a list.
 - **`calls_from_records`**: `Call`s from `(chrom, start, end[, svtype[, source[,
   sample_id]]])` tuples or mappings, with defaults for whatever a record leaves
   out, so intervals from anywhere go into `build_callset` without a BED.

@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import seed_chromosomes
 from consensuscnv.classification.classify import classify
 from consensuscnv.classification.intervals import IntervalSet
@@ -80,7 +80,7 @@ def bed_paths(root: Path, subdirs: tuple[str, ...]) -> list[str]:
 # --------------------------------------------------------------------------- #
 truth = IntervalSet.from_merged(
     merge_components(
-        collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
+        collect_callsets(bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
         max_padding=BENCHMARK_PADDING,
     )
 ).filter_by_size(min_size=SIZE_FLOOR)
@@ -88,7 +88,7 @@ truth = IntervalSet.from_merged(
 # Built once. The overlap edge list is recorded in full and sorted by reciprocal
 # overlap, so each threshold in the sweep is a searchsorted and a slice off this
 # object; only the connected-component pass is repeated.
-raw = collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "30x_Coverage", CALLERS))
+raw = collect_callsets(bed_paths(ROOT / "out" / "30x_Coverage", CALLERS))
 member_lengths = raw.ends - raw.starts
 
 thresholds = np.round(np.arange(0.05, 1.00, 0.05), 2)

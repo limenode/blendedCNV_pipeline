@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import gaussian_kde
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import SVTYPES, seed_chromosomes
 from consensuscnv.classification.intervals import IntervalSet
 from consensuscnv.utils import read_genome_file
@@ -106,16 +106,14 @@ def query_sets(coverage: str) -> dict[str, IntervalSet]:
     directory = ROOT / "out" / f"{coverage}_Coverage"
     consensus = IntervalSet.from_merged(
         merge_components(
-            collect_callsets(read_bed_calls(bed) for bed in bed_paths(directory, CALLERS)),
+            collect_callsets(bed_paths(directory, CALLERS)),
             min_reciprocal_overlap=CONSENSUS_THRESHOLD,
         )
     )
     return {
         **{
             LABELS[caller]: floored(
-                IntervalSet.from_callset(
-                    collect_callsets(read_bed_calls(bed) for bed in bed_paths(directory, (caller,)))
-                )
+                IntervalSet.from_bed(bed_paths(directory, (caller,)))
             )
             for caller in CALLERS
         },
@@ -126,7 +124,7 @@ def query_sets(coverage: str) -> dict[str, IntervalSet]:
 benchmark = floored(
     IntervalSet.from_merged(
         merge_components(
-            collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
+            collect_callsets(bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
             max_padding=BENCHMARK_PADDING,
         )
     )
@@ -134,9 +132,7 @@ benchmark = floored(
 # The array was genotyped for the whole 1000 Genomes panel; only the thirteen
 # samples this study sequenced belong in the comparison.
 snp_array = floored(
-    IntervalSet.from_callset(
-        collect_callsets(read_bed_calls(str(ROOT / "out" / "SNP_Array" / "bed" / f"{s}.bed")) for s in SAMPLES)
-    )
+    IntervalSet.from_bed(ROOT / "out" / "SNP_Array" / "bed" / f"{s}.bed" for s in SAMPLES)
 )
 
 sets_by_coverage = {cov: query_sets(cov) for cov in COVERAGES}

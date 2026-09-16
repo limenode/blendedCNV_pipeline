@@ -131,19 +131,14 @@ default, `("svtype", "sample_id")`, is what consensus calling needs. Passing
 ```python
 import numpy as np
 
-from consensuscnv.callsets import (
-    collect_callsets, merge_components, read_bed_calls, read_genome_file, seed_chromosomes,
-)
 from consensuscnv.callsets.registry import SAMPLES
 from consensuscnv.classification import IntervalSet, build_candidates, filter_candidates
 
-seed_chromosomes(read_genome_file("genome.txt"))   # once, before any build
-
-# A consensus BED written with the sample column reads straight back in.
-calls = collect_callsets([read_bed_calls("out/consensus/Cohort/overlap_0.50/2of3.bed")])
+# One call: the file(s) in, the intervals and their overlap graph out. `genome`
+# seeds the chromosome registry and is needed once per process.
+intervals = IntervalSet.from_bed("out/consensus/Cohort/overlap_0.50/2of3.bed", genome="genome.txt")
 
 # Which calls in one group of samples share a locus with a call in another?
-intervals = IntervalSet.from_callset(calls)
 affected_ids = [SAMPLES.get(name) for name in affected_sample_names]
 affected = intervals.restrict_to_samples(affected_ids)
 unaffected = intervals.select(~np.isin(intervals.sample_idx, affected_ids))
@@ -154,19 +149,29 @@ for threshold in (0.25, 0.5, 0.75):
     matched = np.unique(filter_candidates(pairs, min_reciprocal_overlap=threshold).query_row)
     print(threshold, len(affected) - len(matched), "calls found only in affected samples")
 
-# Or the full cross-sample graph, where each component is one locus in the cohort.
-loci = merge_components(collect_callsets([calls], partition_by=("svtype",)), min_reciprocal_overlap=0.5)
+# Per-sample caller output works the same way, through a glob.
+callers = IntervalSet.from_bed("out/Cohort/cnvpytor/*.bed")
 ```
 
-Intervals from anywhere else go in through `calls_from_records`, which takes
-`(chrom, start, end[, svtype[, source[, sample_id]]])` tuples or mappings with
-those keys (a `DataFrame.to_dict("records")` works) and fills in whatever a
-record leaves out:
+`from_bed` takes one path, a glob, or a list of them; a six-column consensus
+file carries its sample column, and a five-column per-sample file takes the
+sample from its filename. Intervals from anywhere else go in through
+`IntervalSet.from_records`, which takes `(chrom, start, end[, svtype[, source[,
+sample_id]]])` tuples or mappings with those keys (a `DataFrame.to_dict("records")`
+works) and fills in whatever a record leaves out:
 
 ```python
-from consensuscnv.callsets import build_callset, calls_from_records
+intervals = IntervalSet.from_records(rows, source="array", partition_by=("svtype",))
+```
 
-callset = build_callset(calls_from_records(rows, source="array"), partition_by=("svtype",))
+The full cross-sample graph, where each component is one locus in the cohort,
+is one level down:
+
+```python
+from consensuscnv.callsets import collect_callsets, merge_components
+
+loci = merge_components(collect_callsets("out/Cohort/cnvpytor/*.bed", partition_by=("svtype",)),
+                        min_reciprocal_overlap=0.5)
 ```
 
 Two things to know. Gap edges are recorded only out to `search_radius`

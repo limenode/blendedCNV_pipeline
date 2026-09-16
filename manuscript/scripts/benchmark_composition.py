@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import SVTYPES, seed_chromosomes
 from consensuscnv.classification.intervals import IntervalSet
 from consensuscnv.utils import read_genome_file
@@ -76,7 +76,7 @@ def describe(label: str, sizes: np.ndarray, svtypes: np.ndarray) -> dict:
 
 
 def as_interval_set(paths) -> IntervalSet:
-    calls = collect_callsets(read_bed_calls(p) for p in paths)
+    calls = collect_callsets(paths)
     return IntervalSet.from_merged(merge_components(calls, max_padding=0))
 
 

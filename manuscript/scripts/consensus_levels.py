@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import SVTYPES, seed_chromosomes
 from consensuscnv.classification.classify import (
     classify,
@@ -120,7 +120,7 @@ def floored(intervals: IntervalSet) -> IntervalSet:
 truth = floored(
     IntervalSet.from_merged(
         merge_components(
-            collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
+            collect_callsets(bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
             max_padding=BENCHMARK_PADDING,
         )
     )
@@ -132,16 +132,14 @@ coverage_dir = ROOT / "out" / "30x_Coverage"
 # reproduces any consensus level exactly.
 consensus = IntervalSet.from_merged(
     merge_components(
-        collect_callsets(read_bed_calls(bed) for bed in bed_paths(coverage_dir, CALLERS)),
+        collect_callsets(bed_paths(coverage_dir, CALLERS)),
         min_reciprocal_overlap=CONSENSUS_THRESHOLD,
     )
 )
 query_sets = {
     **{
         LABELS[caller]: floored(
-            IntervalSet.from_callset(
-                collect_callsets(read_bed_calls(bed) for bed in bed_paths(coverage_dir, (caller,)))
-            )
+            IntervalSet.from_bed(bed_paths(coverage_dir, (caller,)))
         )
         for caller in CALLERS
     },
@@ -149,9 +147,7 @@ query_sets = {
     # The array was genotyped for the whole 1000 Genomes panel; only the thirteen
     # samples this study sequenced belong in the comparison.
     "SNP array": floored(
-        IntervalSet.from_callset(
-            collect_callsets(read_bed_calls(str(ROOT / "out" / "SNP_Array" / "bed" / f"{s}.bed")) for s in SAMPLES)
-        )
+        IntervalSet.from_bed(ROOT / "out" / "SNP_Array" / "bed" / f"{s}.bed" for s in SAMPLES)
     ),
 }
 # Strata are *exactly* k callers, not at least k: the k=1 stratum is the

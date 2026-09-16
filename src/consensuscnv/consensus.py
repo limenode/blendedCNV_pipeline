@@ -24,7 +24,6 @@ from consensuscnv.callsets import (
     collect_callsets,
     filter_edges,
     merge_components,
-    read_bed_calls,
     write_merged_bed,
 )
 from consensuscnv.callsets.merging import MergedCallSet
@@ -125,16 +124,11 @@ def iter_consensus_sets(config: PipelineConfig) -> Iterator[ConsensusSet]:
             continue
 
         print(f"\nMerging {call_set!r}: {len(paths)} BED files from {len(tools)} tools")
-        calls = collect_callsets(
-            (read_bed_calls(path) for path in paths), chromosome_order=config.chromosomes
-        )
+        calls = collect_callsets(paths, chromosome_order=config.chromosomes)
         n_sources = len(tools)
 
         for overlap in params.reciprocal_overlaps:
-            # A view over the prebuilt edge lists, not another graph build.
-            merged = merge_components(
-                calls, filter_edges(calls, min_reciprocal_overlap=overlap)
-            )
+            merged = merge_components(calls, min_reciprocal_overlap=overlap)
             above_floor = (merged.ends - merged.starts) >= params.min_size
             levels = merged.n_sources  # computed once, not once per level
 

@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import seed_chromosomes
 from consensuscnv.classification.classify import classify, match_topology
 from consensuscnv.classification.intervals import IntervalSet
@@ -83,7 +83,7 @@ def bed_paths(root: Path, subdirs: tuple[str, ...]) -> list[str]:
 # --------------------------------------------------------------------------- #
 truth = IntervalSet.from_merged(
     merge_components(
-        collect_callsets(read_bed_calls(bed) for bed in bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
+        collect_callsets(bed_paths(ROOT / "out" / "benchmark", BENCHMARKS)),
         max_padding=BENCHMARK_PADDING,
     )
 ).filter_by_size(min_size=SIZE_FLOOR)
@@ -91,15 +91,15 @@ truth = IntervalSet.from_merged(
 coverage_dir = ROOT / "out" / "30x_Coverage"
 consensus = IntervalSet.from_merged(
     merge_components(
-        collect_callsets(read_bed_calls(bed) for bed in bed_paths(coverage_dir, CALLERS)),
+        collect_callsets(bed_paths(coverage_dir, CALLERS)),
         min_reciprocal_overlap=CONSENSUS_THRESHOLD,
     )
 )
 query_sets = {
     **{
-        LABELS[caller]: IntervalSet.from_callset(
-            collect_callsets(read_bed_calls(bed) for bed in bed_paths(coverage_dir, (caller,)))
-        ).filter_by_size(min_size=SIZE_FLOOR)
+        LABELS[caller]: IntervalSet.from_bed(bed_paths(coverage_dir, (caller,))).filter_by_size(
+            min_size=SIZE_FLOOR
+        )
         for caller in CALLERS
     },
     **{

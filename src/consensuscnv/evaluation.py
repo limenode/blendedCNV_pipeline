@@ -28,7 +28,7 @@ from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from consensuscnv.callsets import collect_callsets, merge_components, read_bed_calls
+from consensuscnv.callsets import collect_callsets, merge_components
 from consensuscnv.callsets.registry import seed_chromosomes
 from consensuscnv.classification.classify import Classification, classify, match_topology
 from consensuscnv.classification.intervals import IntervalSet
@@ -127,7 +127,7 @@ def load_truth(config: PipelineConfig, samples: frozenset[str] | None = None) ->
     padding = config.evaluation.benchmark_padding
     merged = merge_components(
         collect_callsets(
-            (read_bed_calls(path) for path in paths),
+            paths,
             chromosome_order=config.chromosomes,
             search_radius=padding or 0,  # gap edges are recorded out to the radius, no further
         ),
@@ -161,23 +161,14 @@ def iter_query_sets(
             paths = bed_paths(layout.bed_tool_dir(call_set, tool), samples)
             if not paths:
                 continue
-            intervals = IntervalSet.from_callset(
-                collect_callsets(
-                    (read_bed_calls(path) for path in paths),
-                    chromosome_order=config.chromosomes,
-                )
-            )
+            intervals = IntervalSet.from_bed(paths, genome=config.chromosomes)
             yield QuerySet(call_set, "caller", tool, intervals.filter_by_size(min_size=floor))
 
     for control in config.control:
         paths = bed_paths(layout.control_bed_dir(control), samples)
         if not paths:
             continue
-        intervals = IntervalSet.from_callset(
-            collect_callsets(
-                (read_bed_calls(path) for path in paths), chromosome_order=config.chromosomes
-            )
-        )
+        intervals = IntervalSet.from_bed(paths, genome=config.chromosomes)
         yield QuerySet("", "control", control, intervals.filter_by_size(min_size=floor))
 
 
